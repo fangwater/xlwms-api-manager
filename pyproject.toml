@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "xlwms-api-manager"
+version = "0.1.0"
+description = "Lingxing WMS OpenAPI client and manager"
+requires-python = ">=3.10"
+dependencies = [
+  "python-dotenv>=1.0.0",
+  "psycopg[binary]>=3.2.0",
+  "cryptography>=42.0.0",
+]
+
+[project.scripts]
+xlwms-manager = "xlwms_api_manager.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
