@@ -160,3 +160,19 @@ export type DashboardData = {
     age_buckets: Record<string, number>;
   };
 };
+
+export type WarehouseSKUSpec = {
+  warehouse_sku: string;
+  product_name: string;
+  length_cm?: number;
+  width_cm?: number;
+  height_cm?: number;
+  weight_kg?: number;
+  note: string;
+  enabled: boolean;
+  source: string;
+  complete: boolean;
+  missing_fields: string[];
+  first_seen_at: string;
+  updated_at: string;
+};

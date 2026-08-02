@@ -187,6 +187,35 @@ CREATE INDEX IF NOT EXISTS idx_xlwms_inventory_integrated_sku
     ON xlwms_inventory_records (sku, stock_type)
     WHERE inventory_kind = 'integrated';
 
+CREATE TABLE IF NOT EXISTS xlwms_warehouse_sku_specs (
+    warehouse_sku text PRIMARY KEY,
+    product_name text,
+    length_cm numeric,
+    width_cm numeric,
+    height_cm numeric,
+    weight_kg numeric,
+    note text,
+    enabled boolean NOT NULL DEFAULT true,
+    source text NOT NULL DEFAULT 'inventory',
+    first_seen_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now(),
+    CHECK (length_cm IS NULL OR length_cm > 0),
+    CHECK (width_cm IS NULL OR width_cm > 0),
+    CHECK (height_cm IS NULL OR height_cm > 0),
+    CHECK (weight_kg IS NULL OR weight_kg > 0)
+);
+
+CREATE INDEX IF NOT EXISTS idx_xlwms_warehouse_sku_specs_status
+    ON xlwms_warehouse_sku_specs (enabled, warehouse_sku);
+
+INSERT INTO xlwms_warehouse_sku_specs (warehouse_sku, product_name, source)
+SELECT sku, max(product_name), 'inventory'
+FROM xlwms_inventory_records
+WHERE inventory_kind = 'integrated' AND NULLIF(BTRIM(sku), '') IS NOT NULL
+GROUP BY sku
+ON CONFLICT (warehouse_sku) DO UPDATE SET
+    product_name = COALESCE(NULLIF(xlwms_warehouse_sku_specs.product_name, ''), EXCLUDED.product_name);
+
 ALTER TABLE xlwms_sync_runs
     DROP CONSTRAINT IF EXISTS xlwms_sync_runs_target_check;
 ALTER TABLE xlwms_sync_runs

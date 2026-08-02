@@ -7,26 +7,29 @@ import (
 	"strings"
 	"time"
 
+	"xlwms-api-manager/internal/model"
 	"xlwms-api-manager/internal/temu"
 )
 
 const maxTemuQuerySKUs = 100
 
 type temuWarehouseQueryRequest struct {
-	SKU  string   `json:"sku"`
-	SKUs []string `json:"skus"`
+	SKU   string                       `json:"sku"`
+	SKUs  []string                     `json:"skus"`
+	Items []model.WarehouseSKUQuantity `json:"items"`
 }
 
 type temuWarehouseQueryResponse struct {
-	Complete             bool                  `json:"complete"`
-	RuleVersion          string                `json:"rule_version"`
-	SafetyStockThreshold float64               `json:"safety_stock_threshold"`
-	InventoryBasis       string                `json:"inventory_basis"`
-	InventoryWindowStart string                `json:"inventory_window_start"`
-	InventoryWindowEnd   string                `json:"inventory_window_end"`
-	QueriedAt            time.Time             `json:"queried_at"`
-	WarehouseQueries     []temu.WarehouseQuery `json:"warehouse_queries"`
-	Records              []temu.SKUDecision    `json:"records"`
+	Complete             bool                             `json:"complete"`
+	RuleVersion          string                           `json:"rule_version"`
+	SafetyStockThreshold float64                          `json:"safety_stock_threshold"`
+	InventoryBasis       string                           `json:"inventory_basis"`
+	InventoryWindowStart string                           `json:"inventory_window_start"`
+	InventoryWindowEnd   string                           `json:"inventory_window_end"`
+	QueriedAt            time.Time                        `json:"queried_at"`
+	WarehouseQueries     []temu.WarehouseQuery            `json:"warehouse_queries"`
+	Records              []temu.SKUDecision               `json:"records"`
+	PackageResolution    model.WarehouseSKUSpecResolution `json:"package_resolution"`
 }
 
 func (s *Server) temuWarehouseAvailability(writer http.ResponseWriter, request *http.Request) {
@@ -34,13 +37,18 @@ func (s *Server) temuWarehouseAvailability(writer http.ResponseWriter, request *
 	if !decodeJSON(writer, request, &payload) {
 		return
 	}
-	skus, err := normalizeTemuSKUs(payload.SKU, payload.SKUs)
+	skus, items, err := normalizeTemuRequest(payload)
 	if err != nil {
 		writeJSON(writer, http.StatusBadRequest, response{Success: false, Error: err.Error()})
 		return
 	}
 	ctx, cancel := context.WithTimeout(request.Context(), s.requestTimeout)
 	defer cancel()
+	packageResolution, err := s.store.ResolveWarehouseSKUSpecs(ctx, items)
+	if err != nil {
+		s.internalError(writer, "resolve warehouse SKU package specs", err)
+		return
+	}
 	warehouses, err := s.store.ActiveWarehouseCredentials(ctx)
 	if err != nil {
 		s.internalError(writer, "load active warehouses for Temu inventory query", err)
@@ -62,7 +70,41 @@ func (s *Server) temuWarehouseAvailability(writer http.ResponseWriter, request *
 		QueriedAt:            queriedAt,
 		WarehouseQueries:     inventory.WarehouseQueries,
 		Records:              records,
+		PackageResolution:    packageResolution,
 	}})
+}
+
+func normalizeTemuRequest(payload temuWarehouseQueryRequest) ([]string, []model.WarehouseSKUQuantity, error) {
+	if len(payload.Items) == 0 {
+		skus, err := normalizeTemuSKUs(payload.SKU, payload.SKUs)
+		if err != nil {
+			return nil, nil, err
+		}
+		items := make([]model.WarehouseSKUQuantity, 0, len(skus))
+		for _, sku := range skus {
+			items = append(items, model.WarehouseSKUQuantity{WarehouseSKU: sku, Quantity: 1})
+		}
+		return skus, items, nil
+	}
+	rawSKUs := make([]string, 0, len(payload.Items))
+	quantities := make(map[string]int, len(payload.Items))
+	for _, item := range payload.Items {
+		sku := strings.TrimSpace(item.WarehouseSKU)
+		if item.Quantity <= 0 {
+			return nil, nil, errors.New("item quantity must be positive")
+		}
+		rawSKUs = append(rawSKUs, sku)
+		quantities[sku] += item.Quantity
+	}
+	skus, err := normalizeTemuSKUs("", rawSKUs)
+	if err != nil {
+		return nil, nil, err
+	}
+	items := make([]model.WarehouseSKUQuantity, 0, len(skus))
+	for _, sku := range skus {
+		items = append(items, model.WarehouseSKUQuantity{WarehouseSKU: sku, Quantity: quantities[sku]})
+	}
+	return skus, items, nil
 }
 
 func normalizeTemuSKUs(single string, values []string) ([]string, error) {

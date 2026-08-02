@@ -145,6 +145,58 @@ type SKUStockSummary struct {
 	TransportAmount float64 `json:"transport_amount"`
 }
 
+type WarehouseSKUSpec struct {
+	WarehouseSKU  string    `json:"warehouse_sku"`
+	ProductName   string    `json:"product_name"`
+	LengthCM      *float64  `json:"length_cm,omitempty"`
+	WidthCM       *float64  `json:"width_cm,omitempty"`
+	HeightCM      *float64  `json:"height_cm,omitempty"`
+	WeightKG      *float64  `json:"weight_kg,omitempty"`
+	Note          string    `json:"note"`
+	Enabled       bool      `json:"enabled"`
+	Source        string    `json:"source"`
+	Complete      bool      `json:"complete"`
+	MissingFields []string  `json:"missing_fields"`
+	FirstSeenAt   time.Time `json:"first_seen_at"`
+	UpdatedAt     time.Time `json:"updated_at"`
+}
+
+type WarehouseSKUQuantity struct {
+	WarehouseSKU string `json:"warehouse_sku"`
+	Quantity     int    `json:"quantity"`
+}
+
+type WarehouseSKUSpecResolutionItem struct {
+	WarehouseSKU  string   `json:"warehouse_sku"`
+	Quantity      int      `json:"quantity"`
+	Matched       bool     `json:"matched"`
+	Enabled       bool     `json:"enabled"`
+	Complete      bool     `json:"complete"`
+	LengthCM      *float64 `json:"length_cm,omitempty"`
+	WidthCM       *float64 `json:"width_cm,omitempty"`
+	HeightCM      *float64 `json:"height_cm,omitempty"`
+	WeightKG      *float64 `json:"weight_kg,omitempty"`
+	MissingFields []string `json:"missing_fields"`
+}
+
+type WarehousePackageSpec struct {
+	WarehouseSKU  string  `json:"warehouse_sku"`
+	Weight        float64 `json:"weight"`
+	WeightUnit    string  `json:"weight_unit"`
+	Length        float64 `json:"length"`
+	Width         float64 `json:"width"`
+	Height        float64 `json:"height"`
+	DimensionUnit string  `json:"dimension_unit"`
+}
+
+type WarehouseSKUSpecResolution struct {
+	Complete    bool                             `json:"complete"`
+	ErrorCode   string                           `json:"error_code,omitempty"`
+	Error       string                           `json:"error,omitempty"`
+	Items       []WarehouseSKUSpecResolutionItem `json:"items"`
+	MissingSKUs []string                         `json:"missing_skus"`
+	Package     *WarehousePackageSpec            `json:"package,omitempty"`
+}
 type InventorySummary struct {
 	TotalAmount      float64            `json:"total_amount"`
 	AvailableAmount  float64            `json:"available_amount"`

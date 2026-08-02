@@ -1,4 +1,4 @@
-import type { CostDetail, DashboardData, FundsFlow, InventoryKind, InventoryRecord, PageData, SKUStockLevelPage, SyncRun, Warehouse } from "./types";
+import type { CostDetail, DashboardData, FundsFlow, InventoryKind, InventoryRecord, PageData, SKUStockLevelPage, SyncRun, Warehouse, WarehouseSKUSpec } from "./types";
 
 type Envelope<T> = { success: boolean; data?: T; error?: string };
 const apiBase = `${import.meta.env.BASE_URL}api`;
@@ -28,6 +28,10 @@ export const api = {
   dashboard: (warehouse?: string) => request<DashboardData>(`/dashboard/summary${query({ warehouse })}`),
   skuStockLevels: (params: { warehouse?: string; q?: string; stockType?: string; page: number; pageSize: number }) =>
     request<SKUStockLevelPage>(`/inventory/sku-levels${query({ warehouse: params.warehouse, q: params.q, stock_type: params.stockType, page: params.page, page_size: params.pageSize })}`),
+  warehouseSKUSpecs: (params: { q?: string; status?: string; page: number; pageSize: number }) =>
+    request<PageData<WarehouseSKUSpec>>(`/warehouse-sku-specs${query({ q: params.q, status: params.status, page: params.page, page_size: params.pageSize })}`),
+  saveWarehouseSKUSpec: (payload: Record<string, unknown>) => request<WarehouseSKUSpec>("/warehouse-sku-specs", { method: "POST", body: JSON.stringify(payload) }),
+  updateWarehouseSKUSpec: (warehouseSKU: string, payload: Record<string, unknown>) => request<WarehouseSKUSpec>(`/warehouse-sku-specs/${encodeURIComponent(warehouseSKU)}`, { method: "PATCH", body: JSON.stringify(payload) }),
   warehouses: () => request<Warehouse[]>("/warehouses"),
   saveWarehouse: (payload: Record<string, unknown>) => request<Warehouse>("/warehouses", { method: "POST", body: JSON.stringify(payload) }),
   setWarehouseActive: (code: string, active: boolean) => request<Warehouse>(`/warehouses/${encodeURIComponent(code)}/status`, { method: "PATCH", body: JSON.stringify({ active }) }),

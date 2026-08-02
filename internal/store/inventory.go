@@ -119,6 +119,19 @@ func (p *Postgres) SaveInventoryRecords(ctx context.Context, kind, warehouseCode
 		if err != nil {
 			return 0, fmt.Errorf("upsert %s inventory: %w", kind, err)
 		}
+		if kind == "integrated" {
+			sku := strings.TrimSpace(stringValue(record["sku"]))
+			if sku != "" {
+				if _, err := tx.Exec(ctx, `
+					INSERT INTO xlwms_warehouse_sku_specs (warehouse_sku, product_name, source)
+					VALUES ($1, NULLIF($2, ''), 'inventory')
+					ON CONFLICT (warehouse_sku) DO UPDATE SET
+						product_name=COALESCE(NULLIF(xlwms_warehouse_sku_specs.product_name, ''), EXCLUDED.product_name)
+				`, sku, strings.TrimSpace(stringValue(record["productName"]))); err != nil {
+					return 0, fmt.Errorf("discover warehouse SKU %s: %w", sku, err)
+				}
+			}
+		}
 	}
 	if inventorySnapshotKind(kind) {
 		if _, err := tx.Exec(ctx, `

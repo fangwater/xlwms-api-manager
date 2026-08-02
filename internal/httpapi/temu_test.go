@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"xlwms-api-manager/internal/model"
 )
 
 func TestNormalizeTemuSKUsAcceptsSingleAndListAndDeduplicates(t *testing.T) {
@@ -47,5 +49,21 @@ func TestTemuWarehouseAvailabilityRouteValidatesRequest(t *testing.T) {
 	handler.ServeHTTP(recorder, request)
 	if recorder.Code != http.StatusBadRequest {
 		t.Fatalf("got status %d, want %d", recorder.Code, http.StatusBadRequest)
+	}
+}
+
+func TestNormalizeTemuRequestPreservesExactWarehouseSKUAndMergesQuantity(t *testing.T) {
+	skus, items, err := normalizeTemuRequest(temuWarehouseQueryRequest{Items: []model.WarehouseSKUQuantity{
+		{WarehouseSKU: "PH+H-12Pcs-Black-42cm", Quantity: 1},
+		{WarehouseSKU: "PH+H-12Pcs-Black-42cm", Quantity: 2},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(skus) != 1 || skus[0] != "PH+H-12Pcs-Black-42cm" {
+		t.Fatalf("warehouse SKU must be preserved exactly: %#v", skus)
+	}
+	if len(items) != 1 || items[0].WarehouseSKU != skus[0] || items[0].Quantity != 3 {
+		t.Fatalf("unexpected normalized items: %#v", items)
 	}
 }

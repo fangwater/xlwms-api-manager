@@ -1,6 +1,10 @@
 package store
 
-import "testing"
+import (
+	"testing"
+
+	"xlwms-api-manager/internal/model"
+)
 
 func TestFundsFlowSourceKeyPreservesDistinctRowsAndOccurrences(t *testing.T) {
 	first := map[string]any{"whCode": "PA30", "orderNo": "ORDER-1", "costTotal": 10}
@@ -35,5 +39,23 @@ func TestIntegratedInventoryIsSnapshotData(t *testing.T) {
 	}
 	if inventorySnapshotKind("stock_flow") {
 		t.Fatal("stock flow must remain append-only")
+	}
+}
+
+func TestWarehouseSKUSpecMissingFieldsRequiresExactCompleteSpec(t *testing.T) {
+	length, width, height, weight := 41.0, 32.5, 7.0, 1.27
+	spec := model.WarehouseSKUSpec{
+		WarehouseSKU: "PH+H-12Pcs-Black-42cm",
+		LengthCM:     &length,
+		WidthCM:      &width,
+		HeightCM:     &height,
+		WeightKG:     &weight,
+		Enabled:      true,
+	}
+	if missing := warehouseSKUSpecMissingFields(spec, true); len(missing) != 0 {
+		t.Fatalf("complete exact spec reported missing fields: %#v", missing)
+	}
+	if missing := warehouseSKUSpecMissingFields(spec, false); len(missing) != 1 || missing[0] != "warehouse_sku" {
+		t.Fatalf("unmatched warehouse SKU must fail exact matching: %#v", missing)
 	}
 }
