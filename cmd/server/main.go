@@ -1,0 +1,90 @@
+package main
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"log/slog"
+	"net"
+	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
+
+	"xlwms-api-manager/internal/config"
+	"xlwms-api-manager/internal/credentials"
+	"xlwms-api-manager/internal/httpapi"
+	"xlwms-api-manager/internal/store"
+	"xlwms-api-manager/internal/syncer"
+)
+
+func main() {
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+	if err := run(ctx, logger); err != nil {
+		logger.Error("XLWMS service stopped", "error", err)
+		os.Exit(1)
+	}
+}
+
+func run(ctx context.Context, logger *slog.Logger) error {
+	cfg, err := config.Load()
+	if err != nil {
+		return err
+	}
+	if err := requireLoopbackAddress(cfg.Listen); err != nil {
+		return err
+	}
+	cipher, err := credentials.EnsureKeyFile(cfg.CredentialKeyFile)
+	if err != nil {
+		return err
+	}
+	destination, err := store.NewPostgres(ctx, cfg.DatabaseURL, cipher)
+	if err != nil {
+		return err
+	}
+	defer destination.Close()
+	if err := destination.Migrate(ctx); err != nil {
+		return err
+	}
+	service := syncer.New(ctx, destination, cfg.RequestTimeout, cfg.SyncTimeout, logger)
+	listener, err := net.Listen("tcp", cfg.Listen)
+	if err != nil {
+		return fmt.Errorf("listen on %s: %w", cfg.Listen, err)
+	}
+	server := &http.Server{
+		Handler:           httpapi.New(destination, service, cfg.RequestTimeout, logger),
+		ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 30 * time.Second, WriteTimeout: 30 * time.Second, IdleTimeout: 60 * time.Second,
+		BaseContext: func(net.Listener) context.Context { return ctx },
+	}
+	serverErrors := make(chan error, 1)
+	go func() {
+		if serveErr := server.Serve(listener); serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
+			serverErrors <- serveErr
+		}
+	}()
+	logger.Info("XLWMS management API started", "listen", listener.Addr().String(), "inventory_endpoints", 7)
+	select {
+	case <-ctx.Done():
+		logger.Info("XLWMS management API shutdown requested")
+	case serveErr := <-serverErrors:
+		return serveErr
+	}
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	return server.Shutdown(shutdownCtx)
+}
+
+func requireLoopbackAddress(address string) error {
+	host, _, err := net.SplitHostPort(address)
+	if err != nil {
+		return fmt.Errorf("invalid XLWMS_LISTEN: %w", err)
+	}
+	ip := net.ParseIP(host)
+	if ip == nil || !ip.IsLoopback() {
+		return errors.New("XLWMS_LISTEN must use a loopback address")
+	}
+	return nil
+}

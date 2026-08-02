@@ -1,0 +1,28 @@
+{
+  "name": "xlwms-operations-console",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "typecheck": "tsc -b --pretty false",
+    "preview": "vite preview",
+    "test:e2e": "playwright test"
+  },
+  "dependencies": {
+    "echarts": "6.1.0",
+    "lucide-react": "1.26.0",
+    "react": "19.2.8",
+    "react-dom": "19.2.8"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.61.1",
+    "@types/node": "^24.0.0",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "@vitejs/plugin-react": "6.0.4",
+    "typescript": "7.0.2",
+    "vite": "8.1.5"
+  }
+}

@@ -1,0 +1,6 @@
+import { CheckCircle2, CircleDot, Database, KeyRound, Server, ShieldCheck } from "lucide-react";
+import { PageHeader } from "../components/Common";
+
+export default function SettingsPage({online}:{online:boolean|null}){
+  return <><PageHeader title="系统设置" subtitle="运行环境与安全状态"/><section className="settings-list"><div className="setting-row"><span className="setting-icon"><Server size={19}/></span><div><strong>管理 API</strong><small>127.0.0.1:18083</small></div><span className={`setting-state ${online?"ok":""}`}><CircleDot size={15}/>{online?"运行中":online===null?"检测中":"未连接"}</span></div><div className="setting-row"><span className="setting-icon"><Database size={19}/></span><div><strong>OpenAPI 地址</strong><small>https://api.xlwms.com/openapi</small></div><span className="setting-state ok"><CheckCircle2 size={15}/>已配置</span></div><div className="setting-row"><span className="setting-icon"><KeyRound size={19}/></span><div><strong>仓库凭证</strong><small>Fernet 加密存储</small></div><span className="setting-state ok"><ShieldCheck size={15}/>受保护</span></div><div className="setting-row"><span className="setting-icon"><ShieldCheck size={19}/></span><div><strong>服务监听</strong><small>仅限本机回环地址</small></div><span className="setting-state ok"><CheckCircle2 size={15}/>已限制</span></div></section></>;
+}
