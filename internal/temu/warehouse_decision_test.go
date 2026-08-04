@@ -1,9 +1,13 @@
 package temu
 
-import "testing"
+import (
+	"testing"
+
+	"xlwms-api-manager/internal/model"
+)
 
 func TestBuildSKUDecisionPrioritizesDPSWhenBothWarehousesHaveStock(t *testing.T) {
-	decision := BuildSKUDecision("SKU-1", completeInventory(30, 30, 35, 25))
+	decision := BuildSKUDecision("SKU-1", completeInventory(30, 30, 35, 25), defaultThresholds())
 	if decision.RequiresManual {
 		t.Fatalf("expected automatic selection, got %#v", decision)
 	}
@@ -12,7 +16,7 @@ func TestBuildSKUDecisionPrioritizesDPSWhenBothWarehousesHaveStock(t *testing.T)
 }
 
 func TestBuildSKUDecisionUsesInclusiveSafetyThreshold(t *testing.T) {
-	decision := BuildSKUDecision("SKU-1", completeInventory(25, 25, 60, 0))
+	decision := BuildSKUDecision("SKU-1", completeInventory(25, 25, 60, 0), defaultThresholds())
 	if !decision.RequiresManual {
 		t.Fatal("stock equal to the threshold must require manual review")
 	}
@@ -26,7 +30,7 @@ func TestBuildSKUDecisionUsesInclusiveSafetyThreshold(t *testing.T) {
 }
 
 func TestBuildSKUDecisionFallsBackToARPWhenDPSHasNoAvailableStock(t *testing.T) {
-	decision := BuildSKUDecision("SKU-1", completeInventory(0, 60, 0, 70))
+	decision := BuildSKUDecision("SKU-1", completeInventory(0, 60, 0, 70), defaultThresholds())
 	assertRegion(t, decision, RegionEast, "ARP_EAST", "ARP_FALLBACK_DPS_OUT_OF_STOCK", false)
 	assertRegion(t, decision, RegionWest, "ARP_WEST", "ARP_FALLBACK_DPS_OUT_OF_STOCK", false)
 	for _, region := range decision.RegionDecisions {
@@ -42,7 +46,7 @@ func TestBuildSKUDecisionRequiresManualReviewWhenQueryIsIncomplete(t *testing.T)
 	failed.QueryStatus = QueryFailed
 	failed.AvailableAmount = 0
 	inventory["DPSNY002"] = failed
-	decision := BuildSKUDecision("SKU-1", inventory)
+	decision := BuildSKUDecision("SKU-1", inventory, defaultThresholds())
 	east := regionByName(t, decision, RegionEast)
 	if !east.RequiresManual || east.DecisionCode != "MANUAL_INVENTORY_QUERY_INCOMPLETE" {
 		t.Fatalf("failed warehouse query must require manual review: %#v", east)
@@ -54,11 +58,39 @@ func TestBuildSKUDecisionTreatsMissingSKUAsZeroInventory(t *testing.T) {
 	dps := inventory["DPSNY002"]
 	dps.SKUFound = false
 	inventory["DPSNY002"] = dps
-	decision := BuildSKUDecision("SKU-1", inventory)
+	decision := BuildSKUDecision("SKU-1", inventory, defaultThresholds())
 	east := regionByName(t, decision, RegionEast)
 	if east.Warehouses[0].Selectable || east.Warehouses[0].ReasonCode != "ZERO_AVAILABLE_STOCK" {
 		t.Fatalf("missing SKU must be treated as zero stock: %#v", east.Warehouses[0])
 	}
+}
+
+func TestBuildSKUDecisionUsesPerSKURegionalThresholds(t *testing.T) {
+	thresholds := model.InventoryThresholds{EastThreshold: 80, WestThreshold: 20, TotalThreshold: 0}
+	decision := BuildSKUDecision("SKU-1", completeInventory(30, 30, 35, 25), thresholds)
+	east := regionByName(t, decision, RegionEast)
+	west := regionByName(t, decision, RegionWest)
+	if !east.RequiresManual || east.SafetyStockThreshold != 80 {
+		t.Fatalf("expected custom east threshold to require manual review: %#v", east)
+	}
+	if west.RequiresManual || west.SafetyStockThreshold != 20 {
+		t.Fatalf("expected custom west threshold to allow automatic selection: %#v", west)
+	}
+}
+
+func TestBuildSKUDecisionUsesTotalThreshold(t *testing.T) {
+	thresholds := model.InventoryThresholds{EastThreshold: 10, WestThreshold: 10, TotalThreshold: 130}
+	decision := BuildSKUDecision("SKU-1", completeInventory(30, 30, 35, 25), thresholds)
+	if !decision.RequiresManual || decision.DecisionCode != "MANUAL_LOW_TOTAL_STOCK" {
+		t.Fatalf("expected total threshold to require manual review: %#v", decision)
+	}
+	if decision.TotalAvailableAmount != 120 {
+		t.Fatalf("unexpected total available amount: %v", decision.TotalAvailableAmount)
+	}
+}
+
+func defaultThresholds() model.InventoryThresholds {
+	return model.InventoryThresholds{EastThreshold: 50, WestThreshold: 50, TotalThreshold: 0}
 }
 
 func completeInventory(eastDPS, eastARP, westDPS, westARP float64) map[string]WarehouseInventory {

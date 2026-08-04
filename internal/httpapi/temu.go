@@ -23,6 +23,7 @@ type temuWarehouseQueryResponse struct {
 	Complete             bool                             `json:"complete"`
 	RuleVersion          string                           `json:"rule_version"`
 	SafetyStockThreshold float64                          `json:"safety_stock_threshold"`
+	DefaultThresholds    model.InventoryThresholds        `json:"default_thresholds"`
 	InventoryBasis       string                           `json:"inventory_basis"`
 	InventoryWindowStart string                           `json:"inventory_window_start"`
 	InventoryWindowEnd   string                           `json:"inventory_window_end"`
@@ -49,21 +50,47 @@ func (s *Server) temuWarehouseAvailability(writer http.ResponseWriter, request *
 		s.internalError(writer, "resolve warehouse SKU package specs", err)
 		return
 	}
+	resolvedBySKU := make(map[string]string, len(skus))
+	for _, sku := range skus {
+		resolvedBySKU[sku] = sku
+	}
+	for _, item := range packageResolution.Items {
+		if item.Complete && item.MatchedWarehouseSKU != "" {
+			resolvedBySKU[item.WarehouseSKU] = item.MatchedWarehouseSKU
+		}
+	}
+	inventorySKUs := make([]string, 0, len(skus))
+	seenInventorySKU := make(map[string]struct{}, len(skus))
+	for _, sku := range skus {
+		resolved := resolvedBySKU[sku]
+		if _, exists := seenInventorySKU[resolved]; exists {
+			continue
+		}
+		seenInventorySKU[resolved] = struct{}{}
+		inventorySKUs = append(inventorySKUs, resolved)
+	}
 	warehouses, err := s.store.ActiveWarehouseCredentials(ctx)
 	if err != nil {
 		s.internalError(writer, "load active warehouses for Temu inventory query", err)
 		return
 	}
 	queriedAt := time.Now()
-	inventory := temu.QueryLiveInventory(ctx, warehouses, skus, s.requestTimeout, queriedAt)
+	inventory := temu.QueryLiveInventory(ctx, warehouses, inventorySKUs, s.requestTimeout, queriedAt)
+	thresholdsBySKU, defaultThresholds, err := s.store.InventoryThresholdsForSKUs(ctx, inventorySKUs)
+	if err != nil {
+		s.internalError(writer, "resolve SKU inventory thresholds", err)
+		return
+	}
 	records := make([]temu.SKUDecision, 0, len(skus))
 	for _, sku := range skus {
-		records = append(records, temu.BuildSKUDecision(sku, inventory.InventoryBySKU[sku]))
+		resolvedSKU := resolvedBySKU[sku]
+		records = append(records, temu.BuildSKUDecision(sku, inventory.InventoryBySKU[resolvedSKU], thresholdsBySKU[resolvedSKU]))
 	}
 	writeJSON(writer, http.StatusOK, response{Success: true, Data: temuWarehouseQueryResponse{
 		Complete:             inventory.Complete,
 		RuleVersion:          temu.RuleVersion,
-		SafetyStockThreshold: temu.SafetyStockThreshold,
+		SafetyStockThreshold: defaultThresholds.EastThreshold,
+		DefaultThresholds:    defaultThresholds,
 		InventoryBasis:       "XLWMS实时综合库存中的正品产品可用库存（stockType=0, productStockDtl.availableAmount）",
 		InventoryWindowStart: inventory.WindowStart,
 		InventoryWindowEnd:   inventory.WindowEnd,

@@ -1,4 +1,4 @@
-import type { CostDetail, DashboardData, FundsFlow, InventoryKind, InventoryRecord, PageData, SKUStockLevelPage, SyncRun, Warehouse, WarehouseSKUSpec } from "./types";
+import type { CostDetail, DashboardData, FundsFlow, InventoryKind, InventoryRecord, InventoryThresholdPage, InventoryThresholds, PageData, SKUInventoryThreshold, SKUStockLevelPage, SyncRun, Warehouse, WarehouseSKUSpec } from "./types";
 
 type Envelope<T> = { success: boolean; data?: T; error?: string };
 const apiBase = `${import.meta.env.BASE_URL}api`;
@@ -32,6 +32,11 @@ export const api = {
     request<PageData<WarehouseSKUSpec>>(`/warehouse-sku-specs${query({ q: params.q, status: params.status, page: params.page, page_size: params.pageSize })}`),
   saveWarehouseSKUSpec: (payload: Record<string, unknown>) => request<WarehouseSKUSpec>("/warehouse-sku-specs", { method: "POST", body: JSON.stringify(payload) }),
   updateWarehouseSKUSpec: (warehouseSKU: string, payload: Record<string, unknown>) => request<WarehouseSKUSpec>(`/warehouse-sku-specs/${encodeURIComponent(warehouseSKU)}`, { method: "PATCH", body: JSON.stringify(payload) }),
+  inventoryThresholds: (params: { q?: string; page: number; pageSize: number }) =>
+    request<InventoryThresholdPage>(`/inventory-thresholds${query({ q: params.q, page: params.page, page_size: params.pageSize })}`),
+  updateInventoryThresholdDefaults: (payload: InventoryThresholds) => request<InventoryThresholds>("/inventory-thresholds/defaults", { method: "PATCH", body: JSON.stringify(payload) }),
+  updateSKUInventoryThreshold: (warehouseSKU: string, payload: InventoryThresholds) => request<SKUInventoryThreshold>(`/inventory-thresholds/${encodeURIComponent(warehouseSKU)}`, { method: "PATCH", body: JSON.stringify(payload) }),
+  resetSKUInventoryThreshold: (warehouseSKU: string) => request<{ deleted: boolean }>(`/inventory-thresholds/${encodeURIComponent(warehouseSKU)}/reset`, { method: "POST" }),
   warehouses: () => request<Warehouse[]>("/warehouses"),
   saveWarehouse: (payload: Record<string, unknown>) => request<Warehouse>("/warehouses", { method: "POST", body: JSON.stringify(payload) }),
   setWarehouseActive: (code: string, active: boolean) => request<Warehouse>(`/warehouses/${encodeURIComponent(code)}/status`, { method: "PATCH", body: JSON.stringify({ active }) }),

@@ -4,16 +4,17 @@ import (
 	"fmt"
 	"strconv"
 	"time"
+
+	"xlwms-api-manager/internal/model"
 )
 
 const (
-	SafetyStockThreshold = 50
-	RuleVersion          = "2026-08-02"
-	RegionEast           = "east"
-	RegionWest           = "west"
-	QuerySucceeded       = "succeeded"
-	QueryFailed          = "failed"
-	QueryInactive        = "inactive"
+	RuleVersion    = "2026-08-04-configurable-sku-thresholds"
+	RegionEast     = "east"
+	RegionWest     = "west"
+	QuerySucceeded = "succeeded"
+	QueryFailed    = "failed"
+	QueryInactive  = "inactive"
 )
 
 type WarehouseRule struct {
@@ -74,12 +75,14 @@ type RegionDecision struct {
 }
 
 type SKUDecision struct {
-	SKU             string           `json:"sku"`
-	RequiresManual  bool             `json:"requires_manual"`
-	ManualRegions   []string         `json:"manual_regions"`
-	DecisionCode    string           `json:"decision_code"`
-	Reason          string           `json:"reason"`
-	RegionDecisions []RegionDecision `json:"regions"`
+	SKU                  string                    `json:"sku"`
+	RequiresManual       bool                      `json:"requires_manual"`
+	ManualRegions        []string                  `json:"manual_regions"`
+	DecisionCode         string                    `json:"decision_code"`
+	Reason               string                    `json:"reason"`
+	TotalAvailableAmount float64                   `json:"total_available_amount"`
+	Thresholds           model.InventoryThresholds `json:"thresholds"`
+	RegionDecisions      []RegionDecision          `json:"regions"`
 }
 
 func WarehouseRules() []WarehouseRule {
@@ -88,14 +91,36 @@ func WarehouseRules() []WarehouseRule {
 	return result
 }
 
-func BuildSKUDecision(sku string, inventory map[string]WarehouseInventory) SKUDecision {
-	regions := []RegionDecision{buildRegionDecision(RegionEast, inventory), buildRegionDecision(RegionWest, inventory)}
-	result := SKUDecision{SKU: sku, ManualRegions: make([]string, 0), RegionDecisions: regions}
+func WarehouseCodes(region string) []string {
+	rules := rulesForRegion(region)
+	result := make([]string, 0, len(rules))
+	for _, rule := range rules {
+		result = append(result, rule.Code)
+	}
+	return result
+}
+
+func BuildSKUDecision(sku string, inventory map[string]WarehouseInventory, thresholds model.InventoryThresholds) SKUDecision {
+	regions := []RegionDecision{
+		buildRegionDecision(RegionEast, inventory, thresholds.EastThreshold),
+		buildRegionDecision(RegionWest, inventory, thresholds.WestThreshold),
+	}
+	result := SKUDecision{SKU: sku, ManualRegions: make([]string, 0), RegionDecisions: regions, Thresholds: thresholds}
 	for _, region := range regions {
+		result.TotalAvailableAmount += region.AvailableAmount
 		if region.RequiresManual {
 			result.RequiresManual = true
 			result.ManualRegions = append(result.ManualRegions, region.Region)
 		}
+	}
+	if result.TotalAvailableAmount <= thresholds.TotalThreshold {
+		result.RequiresManual = true
+		if len(result.ManualRegions) == 0 {
+			result.ManualRegions = []string{RegionEast, RegionWest}
+		}
+		result.DecisionCode = "MANUAL_LOW_TOTAL_STOCK"
+		result.Reason = fmt.Sprintf("美东和美西正品产品可用库存合计%s，小于等于该SKU总库存安全线%s，保留库存并转人工处理", formatAmount(result.TotalAvailableAmount), formatAmount(thresholds.TotalThreshold))
+		return result
 	}
 	if result.RequiresManual {
 		result.DecisionCode = "MANUAL_REVIEW_REQUIRED"
@@ -107,9 +132,9 @@ func BuildSKUDecision(sku string, inventory map[string]WarehouseInventory) SKUDe
 	return result
 }
 
-func buildRegionDecision(region string, inventory map[string]WarehouseInventory) RegionDecision {
+func buildRegionDecision(region string, inventory map[string]WarehouseInventory, safetyStockThreshold float64) RegionDecision {
 	rules := rulesForRegion(region)
-	result := RegionDecision{Region: region, RegionName: rules[0].RegionName, SafetyStockThreshold: SafetyStockThreshold, Warehouses: make([]WarehouseDecision, 0, len(rules))}
+	result := RegionDecision{Region: region, RegionName: rules[0].RegionName, SafetyStockThreshold: safetyStockThreshold, Warehouses: make([]WarehouseDecision, 0, len(rules))}
 	queryIncomplete := false
 	for _, rule := range rules {
 		current := inventory[rule.Code]
@@ -152,10 +177,10 @@ func buildRegionDecision(region string, inventory map[string]WarehouseInventory)
 		result.Reason = result.RegionName + "存在未启用仓或库存查询失败，无法安全自动选仓，转人工处理"
 		return result
 	}
-	if result.AvailableAmount <= SafetyStockThreshold {
+	if result.AvailableAmount <= safetyStockThreshold {
 		result.RequiresManual = true
 		result.DecisionCode = "MANUAL_LOW_REGIONAL_STOCK"
-		result.Reason = fmt.Sprintf("%s两仓正品产品可用库存合计%s，小于等于安全线%s，保留库存并转人工处理", result.RegionName, formatAmount(result.AvailableAmount), formatAmount(SafetyStockThreshold))
+		result.Reason = fmt.Sprintf("%s两仓正品产品可用库存合计%s，小于等于该SKU安全线%s，保留库存并转人工处理", result.RegionName, formatAmount(result.AvailableAmount), formatAmount(safetyStockThreshold))
 		return result
 	}
 	preferredIndex, fallbackIndex := -1, -1

@@ -161,22 +161,43 @@ type WarehouseSKUSpec struct {
 	UpdatedAt     time.Time `json:"updated_at"`
 }
 
+type InventoryThresholds struct {
+	EastThreshold  float64 `json:"east_threshold"`
+	WestThreshold  float64 `json:"west_threshold"`
+	TotalThreshold float64 `json:"total_threshold"`
+}
+
+type SKUInventoryThreshold struct {
+	WarehouseSKU   string  `json:"warehouse_sku"`
+	ProductName    string  `json:"product_name"`
+	EastAvailable  float64 `json:"east_available"`
+	WestAvailable  float64 `json:"west_available"`
+	TotalAvailable float64 `json:"total_available"`
+	InventoryThresholds
+	Customized  bool       `json:"customized"`
+	InventoryAt *time.Time `json:"inventory_at,omitempty"`
+	UpdatedAt   time.Time  `json:"updated_at"`
+}
+
 type WarehouseSKUQuantity struct {
 	WarehouseSKU string `json:"warehouse_sku"`
 	Quantity     int    `json:"quantity"`
 }
 
 type WarehouseSKUSpecResolutionItem struct {
-	WarehouseSKU  string   `json:"warehouse_sku"`
-	Quantity      int      `json:"quantity"`
-	Matched       bool     `json:"matched"`
-	Enabled       bool     `json:"enabled"`
-	Complete      bool     `json:"complete"`
-	LengthCM      *float64 `json:"length_cm,omitempty"`
-	WidthCM       *float64 `json:"width_cm,omitempty"`
-	HeightCM      *float64 `json:"height_cm,omitempty"`
-	WeightKG      *float64 `json:"weight_kg,omitempty"`
-	MissingFields []string `json:"missing_fields"`
+	WarehouseSKU        string   `json:"warehouse_sku"`
+	Quantity            int      `json:"quantity"`
+	MatchedWarehouseSKU string   `json:"matched_warehouse_sku,omitempty"`
+	MatchType           string   `json:"match_type,omitempty"`
+	MatchCandidates     []string `json:"match_candidates,omitempty"`
+	Matched             bool     `json:"matched"`
+	Enabled             bool     `json:"enabled"`
+	Complete            bool     `json:"complete"`
+	LengthCM            *float64 `json:"length_cm,omitempty"`
+	WidthCM             *float64 `json:"width_cm,omitempty"`
+	HeightCM            *float64 `json:"height_cm,omitempty"`
+	WeightKG            *float64 `json:"weight_kg,omitempty"`
+	MissingFields       []string `json:"missing_fields"`
 }
 
 type WarehousePackageSpec struct {

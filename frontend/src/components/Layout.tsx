@@ -1,4 +1,4 @@
-import { Truck, Bell, Boxes, ChartNoAxesCombined, ChevronDown, Database, Menu, PackageCheck, PanelLeftClose, RefreshCw, Settings, Warehouse as WarehouseIcon } from "lucide-react";
+import { Truck, Bell, Boxes, ChartNoAxesCombined, ChevronDown, Database, Menu, PackageCheck, PanelLeftClose, RefreshCw, Settings, SlidersHorizontal, Warehouse as WarehouseIcon } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import type { Warehouse } from "../types";
 
@@ -12,10 +12,11 @@ const groups = [
   { label: "管理", items: [
     { path: "/warehouses", label: "仓库管理", icon: WarehouseIcon },
     { path: "/sku-specs", label: "SKU 规格", icon: PackageCheck },
+    { path: "/inventory-thresholds", label: "库存安全线", icon: SlidersHorizontal },
     { path: "/sync", label: "同步中心", icon: RefreshCw }
   ] }
 ];
-const pageNames: Record<string, string> = { "/": "运营总览", "/inventory": "库存中心", "/outbound": "出库管理", "/costs": "费用中心", "/warehouses": "仓库管理", "/sku-specs": "SKU 规格", "/sync": "同步中心", "/settings": "系统设置" };
+const pageNames: Record<string, string> = { "/": "运营总览", "/inventory": "库存中心", "/outbound": "出库管理", "/costs": "费用中心", "/warehouses": "仓库管理", "/sku-specs": "SKU 规格", "/inventory-thresholds": "库存安全线", "/sync": "同步中心", "/settings": "系统设置" };
 
 export default function Layout({ children, warehouses, warehouse, onWarehouseChange, online, path, onNavigate }: { children: ReactNode; warehouses: Warehouse[]; warehouse: string; onWarehouseChange: (value: string) => void; online: boolean | null; path: string; onNavigate: (path: string) => void }) {
   const [open, setOpen] = useState(false);

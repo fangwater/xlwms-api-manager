@@ -183,6 +183,55 @@ func (p *Postgres) ensureWarehouseSKUs(ctx context.Context, skus []string) error
 	return nil
 }
 
+func oneMVariants(sku string) []string {
+	runes := []rune(sku)
+	seen := make(map[string]struct{}, len(runes)*2+1)
+	variants := make([]string, 0, len(runes)+1)
+	add := func(value string) {
+		if value == sku || value == "" {
+			return
+		}
+		if _, exists := seen[value]; exists {
+			return
+		}
+		seen[value] = struct{}{}
+		variants = append(variants, value)
+	}
+	for index := 0; index <= len(runes); index++ {
+		candidate := make([]rune, 0, len(runes)+1)
+		candidate = append(candidate, runes[:index]...)
+		candidate = append(candidate, 'm')
+		candidate = append(candidate, runes[index:]...)
+		add(string(candidate))
+	}
+	for index, current := range runes {
+		if current != 'm' {
+			continue
+		}
+		candidate := append([]rune(nil), runes[:index]...)
+		candidate = append(candidate, runes[index+1:]...)
+		add(string(candidate))
+	}
+	return variants
+}
+
+func compatibleOneMSpec(sku string, found map[string]model.WarehouseSKUSpec) (model.WarehouseSKUSpec, []string, bool) {
+	candidates := make([]model.WarehouseSKUSpec, 0, 1)
+	names := make([]string, 0, 1)
+	for _, candidate := range oneMVariants(sku) {
+		spec, exists := found[candidate]
+		if !exists || !spec.Complete {
+			continue
+		}
+		candidates = append(candidates, spec)
+		names = append(names, candidate)
+	}
+	if len(candidates) != 1 {
+		return model.WarehouseSKUSpec{}, names, false
+	}
+	return candidates[0], names, true
+}
+
 func (p *Postgres) ResolveWarehouseSKUSpecs(ctx context.Context, requested []model.WarehouseSKUQuantity) (model.WarehouseSKUSpecResolution, error) {
 	result := model.WarehouseSKUSpecResolution{Items: make([]model.WarehouseSKUSpecResolutionItem, 0), MissingSKUs: make([]string, 0)}
 	quantities := make(map[string]int)
@@ -200,11 +249,27 @@ func (p *Postgres) ResolveWarehouseSKUSpecs(ctx context.Context, requested []mod
 	if len(order) == 0 {
 		return result, errors.New("items are required")
 	}
-	rows, err := p.pool.Query(ctx, `SELECT `+warehouseSKUSpecColumns+` FROM xlwms_warehouse_sku_specs WHERE warehouse_sku=ANY($1)`, order)
+
+	querySKUs := make([]string, 0, len(order)*4)
+	seenQuery := make(map[string]struct{})
+	addQuery := func(sku string) {
+		if _, exists := seenQuery[sku]; exists {
+			return
+		}
+		seenQuery[sku] = struct{}{}
+		querySKUs = append(querySKUs, sku)
+	}
+	for _, sku := range order {
+		addQuery(sku)
+		for _, candidate := range oneMVariants(sku) {
+			addQuery(candidate)
+		}
+	}
+	rows, err := p.pool.Query(ctx, `SELECT `+warehouseSKUSpecColumns+` FROM xlwms_warehouse_sku_specs WHERE warehouse_sku=ANY($1)`, querySKUs)
 	if err != nil {
 		return result, fmt.Errorf("resolve warehouse SKU specs: %w", err)
 	}
-	found := make(map[string]model.WarehouseSKUSpec, len(order))
+	found := make(map[string]model.WarehouseSKUSpec, len(querySKUs))
 	for rows.Next() {
 		item, scanErr := scanWarehouseSKUSpec(rows)
 		if scanErr != nil {
@@ -217,18 +282,40 @@ func (p *Postgres) ResolveWarehouseSKUSpecs(ctx context.Context, requested []mod
 	if err := rows.Err(); err != nil {
 		return result, err
 	}
+
+	selected := make(map[string]model.WarehouseSKUSpec, len(order))
 	missingRecords := make([]string, 0)
 	for _, sku := range order {
-		spec, matched := found[sku]
+		spec, exactMatched := found[sku]
+		matched, matchType, matchedSKU := exactMatched && spec.Complete, "exact", sku
+		candidates := make([]string, 0)
+		if !matched {
+			if compatible, names, ok := compatibleOneMSpec(sku, found); ok {
+				spec, matched, matchType, matchedSKU = compatible, true, "one_m_compat", compatible.WarehouseSKU
+				candidates = names
+			} else {
+				candidates = names
+			}
+		}
 		missingFields := warehouseSKUSpecMissingFields(spec, matched)
-		item := model.WarehouseSKUSpecResolutionItem{WarehouseSKU: sku, Quantity: quantities[sku], Matched: matched,
-			Enabled: spec.Enabled, Complete: matched && len(missingFields) == 0, LengthCM: spec.LengthCM,
-			WidthCM: spec.WidthCM, HeightCM: spec.HeightCM, WeightKG: spec.WeightKG, MissingFields: missingFields}
-		result.Items = append(result.Items, item)
-		if !item.Complete {
-			result.MissingSKUs = append(result.MissingSKUs, sku)
+		item := model.WarehouseSKUSpecResolutionItem{
+			WarehouseSKU: sku, MatchedWarehouseSKU: matchedSKU, MatchType: matchType,
+			MatchCandidates: candidates, Quantity: quantities[sku], Matched: matched,
+			Enabled: spec.Enabled, Complete: matched && len(missingFields) == 0,
+			LengthCM: spec.LengthCM, WidthCM: spec.WidthCM, HeightCM: spec.HeightCM,
+			WeightKG: spec.WeightKG, MissingFields: missingFields,
 		}
 		if !matched {
+			item.MatchedWarehouseSKU = ""
+			item.MatchType = ""
+		}
+		result.Items = append(result.Items, item)
+		if item.Complete {
+			selected[sku] = spec
+			continue
+		}
+		result.MissingSKUs = append(result.MissingSKUs, sku)
+		if !exactMatched && len(candidates) == 0 {
 			missingRecords = append(missingRecords, sku)
 		}
 	}
@@ -237,7 +324,7 @@ func (p *Postgres) ResolveWarehouseSKUSpecs(ctx context.Context, requested []mod
 	}
 	if len(result.MissingSKUs) > 0 {
 		result.ErrorCode = "WAREHOUSE_SKU_SPEC_INCOMPLETE"
-		result.Error = "仓库SKU规格缺失或未启用: " + strings.Join(result.MissingSKUs, "、")
+		result.Error = "仓库SKU规格缺失、未启用或兼容匹配不唯一: " + strings.Join(result.MissingSKUs, "、")
 		return result, nil
 	}
 	totalQuantity := 0
@@ -249,7 +336,7 @@ func (p *Postgres) ResolveWarehouseSKUSpecs(ctx context.Context, requested []mod
 		result.Error = "一单多件或多个仓库SKU必须按实际装箱结果人工确认包裹规格"
 		return result, nil
 	}
-	spec := found[order[0]]
+	spec := selected[order[0]]
 	result.Complete = true
 	result.Package = &model.WarehousePackageSpec{WarehouseSKU: spec.WarehouseSKU, Weight: *spec.WeightKG,
 		WeightUnit: "kg", Length: *spec.LengthCM, Width: *spec.WidthCM, Height: *spec.HeightCM, DimensionUnit: "cm"}

@@ -176,3 +176,24 @@ export type WarehouseSKUSpec = {
   first_seen_at: string;
   updated_at: string;
 };
+
+export type InventoryThresholds = {
+  east_threshold: number;
+  west_threshold: number;
+  total_threshold: number;
+};
+
+export type SKUInventoryThreshold = InventoryThresholds & {
+  warehouse_sku: string;
+  product_name: string;
+  east_available: number;
+  west_available: number;
+  total_available: number;
+  customized: boolean;
+  inventory_at?: string;
+  updated_at: string;
+};
+
+export type InventoryThresholdPage = PageData<SKUInventoryThreshold> & {
+  default_thresholds: InventoryThresholds;
+};

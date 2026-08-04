@@ -10,10 +10,11 @@ const InventoryPage = lazy(() => import("./pages/InventoryPage"));
 const CostsPage = lazy(() => import("./pages/CostsPage"));
 const OutboundPage = lazy(() => import("./pages/OutboundPage"));
 const SKUSpecsPage = lazy(() => import("./pages/SKUSpecsPage"));
+const InventoryThresholdsPage = lazy(() => import("./pages/InventoryThresholdsPage"));
 const WarehousesPage = lazy(() => import("./pages/WarehousesPage"));
 const SyncPage = lazy(() => import("./pages/SyncPage"));
 const SettingsPage = lazy(() => import("./pages/SettingsPage"));
-const validPaths = new Set(["/", "/inventory", "/outbound", "/costs", "/warehouses", "/sku-specs", "/sync", "/settings"]);
+const validPaths = new Set(["/", "/inventory", "/outbound", "/costs", "/warehouses", "/sku-specs", "/inventory-thresholds", "/sync", "/settings"]);
 
 export default function App() {
   const { path, navigate } = useRouter();
@@ -46,6 +47,7 @@ export default function App() {
   else if (path === "/outbound") page = <OutboundPage warehouse={warehouse} />;
   else if (path === "/costs") page = <CostsPage warehouse={warehouse} />;
   else if (path === "/sku-specs") page = <SKUSpecsPage />;
+  else if (path === "/inventory-thresholds") page = <InventoryThresholdsPage />;
   else if (path === "/warehouses") page = <WarehousesPage warehouses={warehouses} onChanged={loadWarehouses} />;
   else if (path === "/sync") page = <SyncPage warehouse={warehouse} warehouses={warehouses} />;
   else if (path === "/settings") page = <SettingsPage online={online} />;

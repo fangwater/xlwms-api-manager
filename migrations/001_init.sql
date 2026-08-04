@@ -208,6 +208,26 @@ CREATE TABLE IF NOT EXISTS xlwms_warehouse_sku_specs (
 CREATE INDEX IF NOT EXISTS idx_xlwms_warehouse_sku_specs_status
     ON xlwms_warehouse_sku_specs (enabled, warehouse_sku);
 
+CREATE TABLE IF NOT EXISTS xlwms_inventory_threshold_defaults (
+    id smallint PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+    east_threshold numeric NOT NULL DEFAULT 50 CHECK (east_threshold >= 0),
+    west_threshold numeric NOT NULL DEFAULT 50 CHECK (west_threshold >= 0),
+    total_threshold numeric NOT NULL DEFAULT 0 CHECK (total_threshold >= 0),
+    updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+INSERT INTO xlwms_inventory_threshold_defaults (id)
+VALUES (1)
+ON CONFLICT (id) DO NOTHING;
+
+CREATE TABLE IF NOT EXISTS xlwms_sku_inventory_thresholds (
+    warehouse_sku text PRIMARY KEY REFERENCES xlwms_warehouse_sku_specs(warehouse_sku) ON DELETE CASCADE,
+    east_threshold numeric NOT NULL CHECK (east_threshold >= 0),
+    west_threshold numeric NOT NULL CHECK (west_threshold >= 0),
+    total_threshold numeric NOT NULL CHECK (total_threshold >= 0),
+    updated_at timestamptz NOT NULL DEFAULT now()
+);
+
 INSERT INTO xlwms_warehouse_sku_specs (warehouse_sku, product_name, source)
 SELECT sku, max(product_name), 'inventory'
 FROM xlwms_inventory_records
