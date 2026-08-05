@@ -216,10 +216,17 @@ func (p *Postgres) FulfillmentAuditCoverageHours(ctx context.Context, before tim
 		limit = 5000
 	}
 	rows, err := p.pool.Query(ctx, `
-SELECT DISTINCT date_trunc('hour',platform_shipping_at) AS window_start
-FROM xlwms_fulfillment_audits
-WHERE active AND outbound_order_no='' AND platform_shipping_at IS NOT NULL
-  AND platform_shipping_at < $1
+WITH candidate_hours AS (
+  SELECT date_trunc('hour',platform_shipping_at) AS window_start
+  FROM xlwms_fulfillment_audits
+  WHERE active AND oms_status<>'outbound' AND platform_shipping_at IS NOT NULL
+  UNION
+  SELECT date_trunc('hour',oms_order_created_at) AS window_start
+  FROM xlwms_fulfillment_audits
+  WHERE active AND oms_status<>'outbound' AND oms_order_created_at IS NOT NULL
+)
+SELECT window_start FROM candidate_hours
+WHERE window_start < $1
 ORDER BY window_start DESC LIMIT $2
 `, before, limit)
 	if err != nil {

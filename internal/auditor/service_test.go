@@ -40,6 +40,30 @@ func TestMatchIndexedOutboundRecordsUsesAllReferenceFields(t *testing.T) {
 	}
 }
 
+func TestMatchIndexedOutboundRecordsPrefersOutboundSibling(t *testing.T) {
+	items := []model.FulfillmentAudit{{ID: 1, PlatformOrderNo: "PO-1", WarehouseCode: "HYTX30"}}
+	records := []model.OutboundOrderIndex{
+		{PlatformOrderNo: "PO-1", WarehouseCode: "HYTX30", OutboundOrderNo: "OBS-CANCELED", Status: 4},
+		{PlatformOrderNo: "PO-1", WarehouseCode: "HYTX30", OutboundOrderNo: "OBS-SHIPPED", Status: 3},
+	}
+	matches := matchIndexedOutboundRecords(items, records)
+	if matches[1].OutboundOrderNo != "OBS-SHIPPED" {
+		t.Fatalf("expected shipped sibling, got %#v", matches[1])
+	}
+}
+
+func TestMatchIndexedOutboundRecordsKeepsWarehousePriority(t *testing.T) {
+	items := []model.FulfillmentAudit{{ID: 1, PlatformOrderNo: "PO-1", WarehouseCode: "HYTX30"}}
+	records := []model.OutboundOrderIndex{
+		{PlatformOrderNo: "PO-1", WarehouseCode: "OTHER", OutboundOrderNo: "OBS-WRONG", Status: 3},
+		{PlatformOrderNo: "PO-1", WarehouseCode: "HYTX30", OutboundOrderNo: "OBS-RIGHT", Status: 2},
+	}
+	matches := matchIndexedOutboundRecords(items, records)
+	if matches[1].OutboundOrderNo != "OBS-RIGHT" {
+		t.Fatalf("expected matching warehouse, got %#v", matches[1])
+	}
+}
+
 func TestParseXLWMSTime(t *testing.T) {
 	value := parseXLWMSTime("2026-08-04 17:33:13")
 	if value == nil || value.Year() != 2026 || value.Month() != time.August || value.Day() != 4 {
@@ -79,6 +103,28 @@ func TestOutboundSyncCursorBackfillsOnceThenUsesWatermark(t *testing.T) {
 	watermark := time.Date(2026, time.August, 5, 14, 0, 0, 0, time.Local)
 	if got, want := outboundSyncCursor(through, &watermark), watermark.Add(-time.Hour); !got.Equal(want) {
 		t.Fatalf("watermark cursor = %v, want %v", got, want)
+	}
+}
+
+func TestExpandOutboundCoverageHoursIncludesAdjacentCompletedHours(t *testing.T) {
+	through := time.Date(2026, time.August, 5, 18, 0, 0, 0, time.Local)
+	base := []time.Time{
+		time.Date(2026, time.August, 5, 17, 0, 0, 0, time.Local),
+		time.Date(2026, time.August, 5, 16, 0, 0, 0, time.Local),
+	}
+	hours := expandOutboundCoverageHours(base, through, outboundCoverageLimit)
+	want := []time.Time{
+		time.Date(2026, time.August, 5, 17, 0, 0, 0, time.Local),
+		time.Date(2026, time.August, 5, 16, 0, 0, 0, time.Local),
+		time.Date(2026, time.August, 5, 15, 0, 0, 0, time.Local),
+	}
+	if len(hours) != len(want) {
+		t.Fatalf("got %v want %v", hours, want)
+	}
+	for index := range want {
+		if !hours[index].Equal(want[index]) {
+			t.Fatalf("hours[%d] = %v, want %v", index, hours[index], want[index])
+		}
 	}
 }
 
@@ -177,6 +223,63 @@ func TestFetchOutboundStatusesBatchesRealOutboundOrderNumbers(t *testing.T) {
 		WarehouseSummary: model.WarehouseSummary{Code: "HYTX30", APIBaseURL: server.URL},
 		AppKey:           "test", AppSecret: "test",
 	}, orderNos)
+	if err != nil || calls != 2 || len(records) != 2 || records[0].Status != 3 {
+		t.Fatalf("calls=%d records=%#v err=%v", calls, records, err)
+	}
+}
+
+func TestOutboundSiblingReferencesAndRecordsDeduplicate(t *testing.T) {
+	records := []model.OutboundOrderIndex{
+		{OutboundOrderNo: "OBS-1", ReferOrderNo: "SO-1", Status: 4},
+		{OutboundOrderNo: "obs-1", ReferOrderNo: "so-1", Status: 3},
+		{OutboundOrderNo: "OBS-2", ReferOrderNo: "SO-1", Status: 3},
+	}
+	references := outboundSiblingReferences(records)
+	if len(references) != 1 || references[0] != "SO-1" {
+		t.Fatalf("unexpected references: %#v", references)
+	}
+	unique := uniqueOutboundRecords(records)
+	if len(unique) != 2 || unique[0].Status != 3 || unique[1].OutboundOrderNo != "OBS-2" {
+		t.Fatalf("unexpected unique records: %#v", unique)
+	}
+}
+
+func TestFetchOutboundSiblingDetailsBatchesReferences(t *testing.T) {
+	calls := 0
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		calls++
+		if request.URL.Path != "/v1/outboundOrder/detail" {
+			t.Fatalf("unexpected detail path: %s", request.URL.Path)
+		}
+		var payload struct {
+			Data map[string]any `json:"data"`
+		}
+		if err := json.NewDecoder(request.Body).Decode(&payload); err != nil {
+			t.Fatal(err)
+		}
+		references, ok := payload.Data["referOrderNoList"].([]any)
+		if !ok || len(references) == 0 || len(references) > outboundDetailBatchSize {
+			t.Fatalf("unexpected detail request: %#v", payload.Data)
+		}
+		_ = json.NewEncoder(writer).Encode(map[string]any{
+			"code": 200, "msg": "ok", "data": []any{map[string]any{
+				"outboundOrderNo": fmt.Sprintf("OBS-%d", calls),
+				"referOrderNo":    fmt.Sprint(references[0]),
+				"status":          3,
+			}},
+		})
+	}))
+	defer server.Close()
+
+	references := make([]string, outboundDetailBatchSize+1)
+	for index := range references {
+		references[index] = fmt.Sprintf("SO-%03d", index)
+	}
+	service := &Service{requestTimeout: time.Second}
+	records, err := service.fetchOutboundSiblingDetails(context.Background(), model.WarehouseCredentials{
+		WarehouseSummary: model.WarehouseSummary{Code: "HYTX30", APIBaseURL: server.URL},
+		AppKey:           "test", AppSecret: "test",
+	}, references)
 	if err != nil || calls != 2 || len(records) != 2 || records[0].Status != 3 {
 		t.Fatalf("calls=%d records=%#v err=%v", calls, records, err)
 	}

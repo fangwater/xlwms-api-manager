@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sort"
 	"strings"
 	"time"
 
@@ -34,7 +35,9 @@ const (
 	outboundPageSize        = 50
 	outboundMaxPages        = 500
 	outboundWindow          = time.Hour
+	outboundCoverageLimit   = 5000
 	outboundStatusBatchSize = 50
+	outboundDetailBatchSize = 50
 	// A new installation backfills once, then advances only from its persisted watermark.
 	outboundBootstrapLookback = 24 * time.Hour
 )
@@ -151,11 +154,21 @@ func (s *Service) refreshMatchedOutboundStatuses(ctx context.Context, items []mo
 	total := 0
 	var queryErrors []error
 	for _, credential := range credentials {
-		records, err := s.fetchOutboundStatuses(ctx, credential, orderNos)
-		if err != nil {
-			queryErrors = append(queryErrors, fmt.Errorf("refresh outbound statuses for %s: %w", credential.Code, err))
+		records, statusErr := s.fetchOutboundStatuses(ctx, credential, orderNos)
+		if statusErr != nil {
+			queryErrors = append(queryErrors, fmt.Errorf("refresh outbound statuses for %s: %w", credential.Code, statusErr))
 			continue
 		}
+		references := outboundSiblingReferences(records)
+		if len(references) > 0 {
+			siblings, siblingErr := s.fetchOutboundSiblingDetails(ctx, credential, references)
+			if siblingErr != nil {
+				queryErrors = append(queryErrors, fmt.Errorf("refresh outbound siblings for %s: %w", credential.Code, siblingErr))
+			} else {
+				records = append(records, siblings...)
+			}
+		}
+		records = uniqueOutboundRecords(records)
 		if err := s.store.SaveOutboundStatusRecords(ctx, outboundAccountKey(credential), records); err != nil {
 			queryErrors = append(queryErrors, err)
 			continue
@@ -194,6 +207,67 @@ func (s *Service) fetchOutboundStatuses(ctx context.Context, credential model.Wa
 		}
 	}
 	return records, nil
+}
+
+func (s *Service) fetchOutboundSiblingDetails(ctx context.Context, credential model.WarehouseCredentials, references []string) ([]model.OutboundOrderIndex, error) {
+	client := xlwms.NewClient(credential.APIBaseURL, credential.AppKey, credential.AppSecret, s.requestTimeout)
+	records := make([]model.OutboundOrderIndex, 0, len(references))
+	for start := 0; start < len(references); start += outboundDetailBatchSize {
+		end := start + outboundDetailBatchSize
+		if end > len(references) {
+			end = len(references)
+		}
+		result, err := client.Outbound(ctx, "parcel-detail", map[string]any{
+			"referOrderNoList": references[start:end],
+		})
+		if err != nil {
+			return nil, err
+		}
+		detailRecords, err := xlwms.OutboundOrderRecords(result)
+		if err != nil {
+			return nil, err
+		}
+		for _, record := range detailRecords {
+			records = append(records, indexedOutboundOrder(record))
+		}
+	}
+	return records, nil
+}
+
+func outboundSiblingReferences(records []model.OutboundOrderIndex) []string {
+	seen := make(map[string]struct{}, len(records))
+	references := make([]string, 0, len(records))
+	for _, record := range records {
+		reference := strings.TrimSpace(record.ReferOrderNo)
+		if reference == "" {
+			continue
+		}
+		key := strings.ToUpper(reference)
+		if _, exists := seen[key]; exists {
+			continue
+		}
+		seen[key] = struct{}{}
+		references = append(references, reference)
+	}
+	return references
+}
+
+func uniqueOutboundRecords(records []model.OutboundOrderIndex) []model.OutboundOrderIndex {
+	seen := make(map[string]int, len(records))
+	unique := make([]model.OutboundOrderIndex, 0, len(records))
+	for _, record := range records {
+		key := strings.ToUpper(strings.TrimSpace(record.OutboundOrderNo))
+		if key == "" {
+			continue
+		}
+		if index, exists := seen[key]; exists {
+			unique[index] = record
+			continue
+		}
+		seen[key] = len(unique)
+		unique = append(unique, record)
+	}
+	return unique
 }
 
 func (s *Service) ReconcileReferences(ctx context.Context, references []string) (int, error) {
@@ -266,10 +340,11 @@ func (s *Service) syncOutboundOrders(ctx context.Context, now time.Time, credent
 }
 
 func (s *Service) syncRequiredOutboundWindows(ctx context.Context, through time.Time, credentials []model.WarehouseCredentials) (int, error) {
-	hours, err := s.store.FulfillmentAuditCoverageHours(ctx, through, 5000)
+	hours, err := s.store.FulfillmentAuditCoverageHours(ctx, through, outboundCoverageLimit)
 	if err != nil {
 		return 0, err
 	}
+	hours = expandOutboundCoverageHours(hours, through, outboundCoverageLimit)
 	total := 0
 	var syncErrors []error
 	for _, hour := range hours {
@@ -337,6 +412,30 @@ func outboundSyncCursor(through time.Time, watermark *time.Time) time.Time {
 	return through.Add(-outboundBootstrapLookback)
 }
 
+func expandOutboundCoverageHours(base []time.Time, through time.Time, limit int) []time.Time {
+	seen := make(map[time.Time]struct{}, len(base)*3)
+	hours := make([]time.Time, 0, len(base)*3)
+	for _, hour := range base {
+		hour = hour.In(time.Local).Truncate(outboundWindow)
+		for offset := -outboundWindow; offset <= outboundWindow; offset += outboundWindow {
+			candidate := hour.Add(offset)
+			if !candidate.Before(through) {
+				continue
+			}
+			if _, exists := seen[candidate]; exists {
+				continue
+			}
+			seen[candidate] = struct{}{}
+			hours = append(hours, candidate)
+		}
+	}
+	sort.Slice(hours, func(left, right int) bool { return hours[left].After(hours[right]) })
+	if limit > 0 && len(hours) > limit {
+		return hours[:limit]
+	}
+	return hours
+}
+
 func outboundAccountKey(credential model.WarehouseCredentials) string {
 	digest := sha256.Sum256([]byte(strings.TrimRight(strings.TrimSpace(credential.APIBaseURL), "/") + "\x00" + strings.TrimSpace(credential.AppKey)))
 	return hex.EncodeToString(digest[:])
@@ -384,15 +483,40 @@ func matchIndexedOutboundRecords(items []model.FulfillmentAudit, records []model
 		}
 		selected := candidates[0]
 		warehouse := strings.ToUpper(strings.TrimSpace(item.WarehouseCode))
-		for _, candidate := range candidates {
-			if warehouse != "" && strings.EqualFold(candidate.WarehouseCode, warehouse) {
+		for _, candidate := range candidates[1:] {
+			if preferOutboundRecord(candidate, selected, warehouse) {
 				selected = candidate
-				break
 			}
 		}
 		matches[item.ID] = selected
 	}
 	return matches
+}
+
+func preferOutboundRecord(candidate, selected model.OutboundOrderIndex, warehouse string) bool {
+	if warehouse != "" {
+		candidateMatches := strings.EqualFold(candidate.WarehouseCode, warehouse)
+		selectedMatches := strings.EqualFold(selected.WarehouseCode, warehouse)
+		if candidateMatches != selectedMatches {
+			return candidateMatches
+		}
+	}
+	return outboundStatusPriority(candidate.Status) > outboundStatusPriority(selected.Status)
+}
+
+func outboundStatusPriority(status int) int {
+	switch status {
+	case 3:
+		return 4
+	case 2:
+		return 3
+	case 0, 1:
+		return 2
+	case 4, 5, 6, 7:
+		return 0
+	default:
+		return 1
+	}
 }
 
 func resolutionFromRecord(record model.OutboundOrderIndex) model.FulfillmentAuditResolution {
