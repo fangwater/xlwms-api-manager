@@ -5,11 +5,13 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"xlwms-api-manager/internal/model"
 )
 
 type FulfillmentAuditFilter struct {
+	Archived          bool
 	ShopCode          string
 	WarehouseCode     string
 	ExceptionCategory string
@@ -21,6 +23,9 @@ type FulfillmentAuditFilter struct {
 
 func fulfillmentAuditWhere(filter FulfillmentAuditFilter) (string, []any) {
 	where := []string{"active"}
+	if filter.Archived {
+		where = []string{"NOT active", "oms_status='outbound'"}
+	}
 	args := make([]any, 0, 6)
 	add := func(value any) string {
 		args = append(args, value)
@@ -45,11 +50,14 @@ func fulfillmentAuditWhere(filter FulfillmentAuditFilter) (string, []any) {
 	return strings.Join(where, " AND "), args
 }
 
-func (p *Postgres) FulfillmentAuditShops(ctx context.Context) ([]model.FulfillmentAuditShop, error) {
+func (p *Postgres) FulfillmentAuditShops(ctx context.Context, archived bool) ([]model.FulfillmentAuditShop, error) {
+	condition := "active"
+	if archived {
+		condition = "NOT active AND oms_status='outbound'"
+	}
 	rows, err := p.pool.Query(ctx, `
 SELECT shop_code,max(shop_name) FROM xlwms_fulfillment_audits
-WHERE active GROUP BY shop_code ORDER BY max(shop_name),shop_code
-`)
+WHERE `+condition+` GROUP BY shop_code ORDER BY max(shop_name),shop_code`)
 	if err != nil {
 		return nil, err
 	}
@@ -174,6 +182,61 @@ ORDER BY last_checked_at NULLS FIRST,(wh_code=''),updated_at,id LIMIT $1`, limit
 	return scanFulfillmentAudits(rows)
 }
 
+func (p *Postgres) FulfillmentAuditStatusCandidates(ctx context.Context, limit int) ([]model.FulfillmentAudit, error) {
+	if limit < 1 || limit > 5000 {
+		limit = 5000
+	}
+	rows, err := p.pool.Query(ctx, fulfillmentAuditSelect+`
+WHERE active AND outbound_order_no<>'' AND oms_status<>'outbound'
+ORDER BY coalesce(last_checked_at,first_seen_at),id LIMIT $1`, limit)
+	if err != nil {
+		return nil, fmt.Errorf("list fulfillment status candidates: %w", err)
+	}
+	defer rows.Close()
+	return scanFulfillmentAudits(rows)
+}
+
+func (p *Postgres) FulfillmentAuditsByPlatformOrderNos(ctx context.Context, orderNos []string) ([]model.FulfillmentAudit, error) {
+	orderNos = normalizedOrderReferences(orderNos)
+	if len(orderNos) == 0 {
+		return nil, nil
+	}
+	rows, err := p.pool.Query(ctx, fulfillmentAuditSelect+`
+WHERE active AND upper(platform_order_no)=ANY($1)
+ORDER BY id`, orderNos)
+	if err != nil {
+		return nil, fmt.Errorf("list fulfillment audits by platform order: %w", err)
+	}
+	defer rows.Close()
+	return scanFulfillmentAudits(rows)
+}
+
+func (p *Postgres) FulfillmentAuditCoverageHours(ctx context.Context, before time.Time, limit int) ([]time.Time, error) {
+	if limit < 1 || limit > 5000 {
+		limit = 5000
+	}
+	rows, err := p.pool.Query(ctx, `
+SELECT DISTINCT date_trunc('hour',platform_shipping_at) AS window_start
+FROM xlwms_fulfillment_audits
+WHERE active AND outbound_order_no='' AND platform_shipping_at IS NOT NULL
+  AND platform_shipping_at < $1
+ORDER BY window_start DESC LIMIT $2
+`, before, limit)
+	if err != nil {
+		return nil, fmt.Errorf("list fulfillment audit coverage hours: %w", err)
+	}
+	defer rows.Close()
+	hours := make([]time.Time, 0)
+	for rows.Next() {
+		var hour time.Time
+		if err := rows.Scan(&hour); err != nil {
+			return nil, err
+		}
+		hours = append(hours, hour)
+	}
+	return hours, rows.Err()
+}
+
 func (p *Postgres) UpdateFulfillmentAuditResolution(ctx context.Context, id int64, resolution model.FulfillmentAuditResolution) error {
 	resolution.WarehouseCode = strings.ToUpper(strings.TrimSpace(resolution.WarehouseCode))
 	resolution.OMSStatus = strings.TrimSpace(resolution.OMSStatus)
@@ -260,11 +323,15 @@ FROM xlwms_fulfillment_audits WHERE active
 	}
 	summary.LastQueryAt = lastQueryAt
 	args = append(args, filter.PageSize, (filter.Page-1)*filter.PageSize)
-	rows, err := p.pool.Query(ctx, fulfillmentAuditSelect+` WHERE `+clause+`
-ORDER BY CASE exception_category
+	orderBy := `CASE exception_category
 WHEN 'manual_required' THEN 0 WHEN 'warehouse_overdue' THEN 1
 WHEN 'sync_error' THEN 2 ELSE 3 END,
-coalesce(oms_processing_since,oms_outbound_at,platform_shipping_at,first_seen_at),id
+coalesce(oms_processing_since,oms_outbound_at,platform_shipping_at,first_seen_at),id`
+	if filter.Archived {
+		orderBy = `coalesce(oms_outbound_at,resolved_at,updated_at) DESC,id DESC`
+	}
+	rows, err := p.pool.Query(ctx, fulfillmentAuditSelect+` WHERE `+clause+`
+ORDER BY `+orderBy+`
 LIMIT $`+fmt.Sprint(len(args)-1)+` OFFSET $`+fmt.Sprint(len(args)), args...)
 	if err != nil {
 		return nil, 0, summary, err

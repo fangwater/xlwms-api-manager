@@ -35,10 +35,23 @@ func (s *Server) syncFulfillmentAudits(writer http.ResponseWriter, request *http
 		writeJSON(writer, http.StatusBadRequest, response{Success: false, Error: err.Error()})
 		return
 	}
+	matched := 0
+	if s.fulfillmentAuditor != nil {
+		references := make([]string, 0, len(payload.Orders))
+		for _, item := range payload.Orders {
+			references = append(references, item.PlatformOrderNo)
+		}
+		matched, err = s.fulfillmentAuditor.ReconcileReferences(ctx, references)
+		if err != nil {
+			s.internalError(writer, "reconcile fulfillment snapshot from local index", err)
+			return
+		}
+	}
 	writeJSON(writer, http.StatusOK, response{Success: true, Data: map[string]any{
 		"platform":  strings.ToLower(strings.TrimSpace(payload.Platform)),
 		"shop_code": strings.ToLower(strings.TrimSpace(payload.ShopCode)),
 		"orders":    count,
+		"matched":   matched,
 	}})
 }
 
@@ -59,7 +72,7 @@ func (s *Server) listFulfillmentAudits(writer http.ResponseWriter, request *http
 		s.internalError(writer, "list fulfillment audits", err)
 		return
 	}
-	shops, err := s.store.FulfillmentAuditShops(ctx)
+	shops, err := s.store.FulfillmentAuditShops(ctx, false)
 	if err != nil {
 		s.internalError(writer, "list fulfillment audit shops", err)
 		return
@@ -70,6 +83,34 @@ func (s *Server) listFulfillmentAudits(writer http.ResponseWriter, request *http
 	}
 	writeJSON(writer, http.StatusOK, response{Success: true, Data: map[string]any{
 		"records": items, "total": total, "page": page, "page_size": pageSize, "pages": pages, "summary": summary, "shops": shops,
+	}})
+}
+
+func (s *Server) listArchivedFulfillmentAudits(writer http.ResponseWriter, request *http.Request) {
+	page, pageSize := queryInt(request, "page", 1), queryInt(request, "page_size", 30)
+	ctx, cancel := context.WithTimeout(request.Context(), s.requestTimeout)
+	defer cancel()
+	items, total, summary, err := s.store.ListFulfillmentAudits(ctx, store.FulfillmentAuditFilter{
+		Archived: true, ShopCode: request.URL.Query().Get("shop"),
+		WarehouseCode: request.URL.Query().Get("warehouse"), Query: request.URL.Query().Get("q"),
+		Page: page, PageSize: pageSize,
+	})
+	if err != nil {
+		s.internalError(writer, "list archived fulfillment audits", err)
+		return
+	}
+	shops, err := s.store.FulfillmentAuditShops(ctx, true)
+	if err != nil {
+		s.internalError(writer, "list archived fulfillment shops", err)
+		return
+	}
+	pages := (total + pageSize - 1) / pageSize
+	if pages < 1 {
+		pages = 1
+	}
+	writeJSON(writer, http.StatusOK, response{Success: true, Data: map[string]any{
+		"records": items, "total": total, "page": page, "page_size": pageSize,
+		"pages": pages, "last_query_at": summary.LastQueryAt, "shops": shops,
 	}})
 }
 

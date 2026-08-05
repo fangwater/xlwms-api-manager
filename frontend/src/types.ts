@@ -236,3 +236,8 @@ export type FulfillmentAuditPage = PageData<FulfillmentAudit> & {
   };
   shops: Array<{ code: string; name: string }>;
 };
+
+export type FulfilledOrderPage = PageData<FulfillmentAudit> & {
+  last_query_at?: string;
+  shops: Array<{ code: string; name: string }>;
+};

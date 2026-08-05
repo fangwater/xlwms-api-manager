@@ -1,4 +1,4 @@
-import type { CostDetail, DashboardData, FulfillmentAuditPage, FundsFlow, InventoryKind, InventoryRecord, InventoryThresholdPage, InventoryThresholds, PageData, SKUInventoryThreshold, SKUStockLevelPage, SyncRun, Warehouse, WarehouseSKUSpec } from "./types";
+import type { CostDetail, DashboardData, FulfilledOrderPage, FulfillmentAuditPage, FundsFlow, InventoryKind, InventoryRecord, InventoryThresholdPage, InventoryThresholds, PageData, SKUInventoryThreshold, SKUStockLevelPage, SyncRun, Warehouse, WarehouseSKUSpec } from "./types";
 
 type Envelope<T> = { success: boolean; data?: T; error?: string };
 const apiBase = `${import.meta.env.BASE_URL}api`;
@@ -54,6 +54,8 @@ export const api = {
   resetSKUInventoryThreshold: (warehouseSKU: string) => request<{ deleted: boolean }>(`/inventory-thresholds/${encodeURIComponent(warehouseSKU)}/reset`, { method: "POST" }),
   fulfillmentAudits: (params: { shop?: string; warehouse?: string; category?: string; omsStatus?: string; q?: string; page: number; pageSize: number }) =>
     request<FulfillmentAuditPage>(`/fulfillment-audits${query({ shop: params.shop, warehouse: params.warehouse, category: params.category, oms_status: params.omsStatus, q: params.q, page: params.page, page_size: params.pageSize })}`),
+  fulfilledOrders: (params: { shop?: string; warehouse?: string; q?: string; page: number; pageSize: number }) =>
+    request<FulfilledOrderPage>(`/fulfillment-audits/archived${query({ shop: params.shop, warehouse: params.warehouse, q: params.q, page: params.page, page_size: params.pageSize })}`),
   outboundOrders: <T>(params: { warehouse?: string; q: string; page: number; pageSize: number }) =>
     request<T>(`/outbound-orders${query({ warehouse: params.warehouse, q: params.q, page: params.page, page_size: params.pageSize })}`),
   exportManualFulfillmentAudits: (params: { shop?: string; warehouse?: string; omsStatus?: string; q?: string }) =>

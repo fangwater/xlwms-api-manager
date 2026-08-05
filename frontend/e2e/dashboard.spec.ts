@@ -46,6 +46,18 @@ async function mockAPI(page: Page, options: { indexedParcelMatch?: boolean } = {
       summary: { sku_count: 1, record_count: 1, total_amount: 42, available_amount: 36, lock_amount: 4, transport_amount: 2 }
     };
     else if (path.endsWith("/inventory")) data = { records: [], total: 0, page: 1, page_size: 30, pages: 1 };
+    else if (path.endsWith("/fulfillment-audits/archived")) data = {
+      records: [{
+        id: 2, platform: "temu", shop_code: "panda-buy", shop_name: "PANDA BUY",
+        platform_order_no: "PO-ARCHIVED-1002", platform_status: "pending_pickup", platform_status_code: 4,
+        wh_code: "HYTX30", warehouse_key: "arp-east", tracking_number: "TRACK-ARCHIVED",
+        oms_status: "outbound", oms_status_code: 3, outbound_order_no: "OB-ARCHIVED-1002",
+        oms_tracking_number: "TRACK-ARCHIVED", exception_category: "archived", active: false,
+        oms_outbound_at: "2026-08-05T06:40:00Z", updated_at: "2026-08-05T06:41:00Z"
+      }],
+      total: 2007, page: 1, page_size: 30, pages: 67, last_query_at: "2026-08-05T07:00:00Z",
+      shops: [{ code: "panda-buy", name: "PANDA BUY" }]
+    };
     else if (path.endsWith("/fulfillment-audits")) data = {
       records: [{
         id: 1, platform: "temu", shop_code: "panda-homes", shop_name: "PANDA HOMES",
@@ -57,7 +69,7 @@ async function mockAPI(page: Page, options: { indexedParcelMatch?: boolean } = {
         last_checked_at: "2026-08-01T08:05:00Z", updated_at: "2026-08-01T08:05:00Z"
       }],
       total: 1, page: 1, page_size: 30, pages: 1,
-      summary: { total: 2553, pending_query: 2153, manual_required: 338, warehouse_overdue: 0, sync_error: 0, monitoring: 62, last_query_at: "2026-08-05T07:00:00Z" },
+      summary: { total: 400, pending_query: 0, manual_required: 20, warehouse_overdue: 0, sync_error: 0, monitoring: 380, last_query_at: "2026-08-05T07:00:00Z" },
       shops: [{ code: "panda-homes", name: "PANDA HOMES" }, { code: "panda-buy", name: "PANDA BUY" }]
     };
     else if (path.endsWith("/outbound-orders")) {
@@ -149,7 +161,7 @@ test("fulfillment audit shows asynchronous progress and OMS matches", async ({ p
   await expect(page.getByRole("heading", { name: "履约核查" })).toBeVisible();
   await expect(page.getByText(/最近查询/)).toBeVisible();
   await expect(page.getByText("待查询", { exact: true }).first()).toBeVisible();
-  await expect(page.getByText("2,153")).toBeVisible();
+  await expect(page.getByText("20", { exact: true })).toBeVisible();
   await expect(page.getByText("PO-DEMO-1001")).toBeVisible();
   await expect(page.getByRole("table").getByText("已取消", { exact: true })).toBeVisible();
   await expect(page.getByRole("table").getByText("领星出库单已取消", { exact: true })).toBeVisible();
@@ -157,4 +169,15 @@ test("fulfillment audit shows asynchronous progress and OMS matches", async ({ p
   await page.getByTitle("导出人工订单 CSV").click();
   await expect.poll(async () => (await downloadPromise).suggestedFilename()).toBe("manual-fulfillment-orders-demo.csv");
   await expect(page.locator("body")).not.toHaveCSS("overflow-x", "scroll");
+});
+
+test("archived fulfillment page lists outbound platform orders", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 860 });
+  await mockAPI(page);
+  await page.goto("./fulfilled-orders");
+  await expect(page.getByRole("heading", { name: "已出库平台单" })).toBeVisible();
+  await expect(page.getByText("PO-ARCHIVED-1002")).toBeVisible();
+  await expect(page.getByText("OB-ARCHIVED-1002")).toBeVisible();
+  await expect(page.getByText("2,007")).toBeVisible();
+  await expect(page.getByText(/最近查询/)).toBeVisible();
 });

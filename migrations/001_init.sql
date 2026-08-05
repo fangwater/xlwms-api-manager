@@ -317,8 +317,31 @@ CREATE TABLE IF NOT EXISTS xlwms_outbound_sync_watermarks (
     updated_at timestamptz NOT NULL DEFAULT now()
 );
 
+CREATE TABLE IF NOT EXISTS xlwms_outbound_sync_windows (
+    account_key text NOT NULL,
+    window_start timestamptz NOT NULL,
+    window_end timestamptz NOT NULL,
+    record_count integer NOT NULL DEFAULT 0,
+    completed_at timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (account_key, window_start)
+);
+
+CREATE INDEX IF NOT EXISTS idx_xlwms_outbound_sync_windows_completed
+    ON xlwms_outbound_sync_windows (completed_at DESC);
+
 ALTER TABLE xlwms_outbound_sync_watermarks
     ADD COLUMN IF NOT EXISTS coverage_started_at timestamptz;
 UPDATE xlwms_outbound_sync_watermarks
 SET coverage_started_at=watermark_at-interval '24 hours'
 WHERE coverage_started_at IS NULL AND watermark_at IS NOT NULL;
+
+INSERT INTO xlwms_outbound_sync_windows (account_key,window_start,window_end,record_count)
+SELECT watermark.account_key,window_start,window_start+interval '1 hour',0
+FROM xlwms_outbound_sync_watermarks watermark
+CROSS JOIN LATERAL generate_series(
+    date_trunc('hour',watermark.coverage_started_at),
+    date_trunc('hour',watermark.watermark_at)-interval '1 hour',
+    interval '1 hour'
+) window_start
+WHERE watermark.coverage_started_at IS NOT NULL AND watermark.watermark_at IS NOT NULL
+ON CONFLICT (account_key,window_start) DO NOTHING;

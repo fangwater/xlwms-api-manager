@@ -39,29 +39,18 @@ func (p *Postgres) SaveOutboundSyncWindow(ctx context.Context, accountKey, crede
 	}
 	defer tx.Rollback(ctx)
 	for _, record := range records {
-		record.OutboundOrderNo = strings.TrimSpace(record.OutboundOrderNo)
-		if record.OutboundOrderNo == "" {
-			continue
+		if err = upsertOutboundOrder(ctx, tx, accountKey, record); err != nil {
+			return err
 		}
-		_, err = tx.Exec(ctx, `
-INSERT INTO xlwms_outbound_order_index (
-account_key,wh_code,outbound_order_no,third_order_no,refer_order_no,platform_order_no,
-status,tracking_number,order_created_at,outbound_at,last_seen_at,updated_at
-) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,now(),now())
-ON CONFLICT (account_key,outbound_order_no) DO UPDATE SET
-wh_code=EXCLUDED.wh_code,third_order_no=EXCLUDED.third_order_no,
-refer_order_no=EXCLUDED.refer_order_no,platform_order_no=EXCLUDED.platform_order_no,
-status=EXCLUDED.status,tracking_number=EXCLUDED.tracking_number,
-order_created_at=coalesce(EXCLUDED.order_created_at,xlwms_outbound_order_index.order_created_at),
-outbound_at=coalesce(EXCLUDED.outbound_at,xlwms_outbound_order_index.outbound_at),
-last_seen_at=now(),updated_at=now()
-`, accountKey, strings.ToUpper(strings.TrimSpace(record.WarehouseCode)), record.OutboundOrderNo,
-			strings.TrimSpace(record.ThirdOrderNo), strings.TrimSpace(record.ReferOrderNo),
-			strings.TrimSpace(record.PlatformOrderNo), record.Status, strings.TrimSpace(record.TrackingNumber),
-			record.OrderCreatedAt, record.OutboundAt)
-		if err != nil {
-			return fmt.Errorf("upsert outbound order %s: %w", record.OutboundOrderNo, err)
-		}
+	}
+	if _, err = tx.Exec(ctx, `
+INSERT INTO xlwms_outbound_sync_windows (
+account_key,window_start,window_end,record_count,completed_at
+) VALUES ($1,$2,$3,$4,now())
+ON CONFLICT (account_key,window_start) DO UPDATE SET
+window_end=EXCLUDED.window_end,record_count=EXCLUDED.record_count,completed_at=now()
+`, accountKey, start, through, len(records)); err != nil {
+		return fmt.Errorf("record outbound sync window: %w", err)
 	}
 	if _, err = tx.Exec(ctx, `
 INSERT INTO xlwms_outbound_sync_watermarks (
@@ -76,6 +65,63 @@ last_completed_at=now(),last_error='',updated_at=now()
 		return fmt.Errorf("advance outbound sync watermark: %w", err)
 	}
 	return tx.Commit(ctx)
+}
+
+func (p *Postgres) SaveOutboundStatusRecords(ctx context.Context, accountKey string, records []model.OutboundOrderIndex) error {
+	tx, err := p.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	for _, record := range records {
+		if err := upsertOutboundOrder(ctx, tx, accountKey, record); err != nil {
+			return err
+		}
+	}
+	return tx.Commit(ctx)
+}
+
+func upsertOutboundOrder(ctx context.Context, tx pgx.Tx, accountKey string, record model.OutboundOrderIndex) error {
+	record.OutboundOrderNo = strings.TrimSpace(record.OutboundOrderNo)
+	if record.OutboundOrderNo == "" {
+		return nil
+	}
+	_, err := tx.Exec(ctx, `
+INSERT INTO xlwms_outbound_order_index (
+account_key,wh_code,outbound_order_no,third_order_no,refer_order_no,platform_order_no,
+status,tracking_number,order_created_at,outbound_at,last_seen_at,updated_at
+) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,now(),now())
+ON CONFLICT (account_key,outbound_order_no) DO UPDATE SET
+wh_code=coalesce(nullif(EXCLUDED.wh_code,''),xlwms_outbound_order_index.wh_code),
+third_order_no=coalesce(nullif(EXCLUDED.third_order_no,''),xlwms_outbound_order_index.third_order_no),
+refer_order_no=coalesce(nullif(EXCLUDED.refer_order_no,''),xlwms_outbound_order_index.refer_order_no),
+platform_order_no=coalesce(nullif(EXCLUDED.platform_order_no,''),xlwms_outbound_order_index.platform_order_no),
+status=EXCLUDED.status,
+tracking_number=coalesce(nullif(EXCLUDED.tracking_number,''),xlwms_outbound_order_index.tracking_number),
+order_created_at=coalesce(EXCLUDED.order_created_at,xlwms_outbound_order_index.order_created_at),
+outbound_at=coalesce(EXCLUDED.outbound_at,xlwms_outbound_order_index.outbound_at),
+last_seen_at=now(),updated_at=now()
+`, accountKey, strings.ToUpper(strings.TrimSpace(record.WarehouseCode)), record.OutboundOrderNo,
+		strings.TrimSpace(record.ThirdOrderNo), strings.TrimSpace(record.ReferOrderNo),
+		strings.TrimSpace(record.PlatformOrderNo), record.Status, strings.TrimSpace(record.TrackingNumber),
+		record.OrderCreatedAt, record.OutboundAt)
+	if err != nil {
+		return fmt.Errorf("upsert outbound order %s: %w", record.OutboundOrderNo, err)
+	}
+	return nil
+}
+
+func (p *Postgres) OutboundWindowCovered(ctx context.Context, accountKey string, start time.Time) (bool, error) {
+	var covered bool
+	if err := p.pool.QueryRow(ctx, `
+SELECT EXISTS(
+    SELECT 1 FROM xlwms_outbound_sync_windows
+    WHERE account_key=$1 AND window_start=$2 AND window_end >= $2+interval '1 hour'
+)
+`, accountKey, start).Scan(&covered); err != nil {
+		return false, fmt.Errorf("check outbound sync window: %w", err)
+	}
+	return covered, nil
 }
 
 func (p *Postgres) OutboundSyncCoverage(ctx context.Context) (*time.Time, *time.Time, error) {

@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"time"
 
+	"xlwms-api-manager/internal/auditor"
 	"xlwms-api-manager/internal/config"
 	"xlwms-api-manager/internal/model"
 	"xlwms-api-manager/internal/store"
@@ -18,10 +19,11 @@ import (
 )
 
 type Server struct {
-	store          *store.Postgres
-	syncer         *syncer.Service
-	requestTimeout time.Duration
-	logger         *slog.Logger
+	store              *store.Postgres
+	syncer             *syncer.Service
+	requestTimeout     time.Duration
+	logger             *slog.Logger
+	fulfillmentAuditor *auditor.Service
 }
 
 type response struct {
@@ -30,8 +32,8 @@ type response struct {
 	Error   string `json:"error,omitempty"`
 }
 
-func New(destination *store.Postgres, service *syncer.Service, requestTimeout time.Duration, logger *slog.Logger) http.Handler {
-	server := &Server{store: destination, syncer: service, requestTimeout: requestTimeout, logger: logger}
+func New(destination *store.Postgres, service *syncer.Service, fulfillmentAuditor *auditor.Service, requestTimeout time.Duration, logger *slog.Logger) http.Handler {
+	server := &Server{store: destination, syncer: service, fulfillmentAuditor: fulfillmentAuditor, requestTimeout: requestTimeout, logger: logger}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", server.health)
 	mux.HandleFunc("GET /v1/dashboard/summary", server.dashboard)
@@ -55,6 +57,7 @@ func New(destination *store.Postgres, service *syncer.Service, requestTimeout ti
 	mux.HandleFunc("POST /v1/inventory-thresholds/{warehouseSKU}/reset", server.deleteSKUInventoryThreshold)
 	mux.HandleFunc("POST /v1/temu/warehouse-availability/query", server.temuWarehouseAvailability)
 	mux.HandleFunc("GET /v1/fulfillment-audits", server.listFulfillmentAudits)
+	mux.HandleFunc("GET /v1/fulfillment-audits/archived", server.listArchivedFulfillmentAudits)
 	mux.HandleFunc("GET /v1/fulfillment-audits/export-manual", server.exportManualFulfillmentAudits)
 	mux.HandleFunc("POST /v1/fulfillment-audits/sync", server.syncFulfillmentAudits)
 	mux.HandleFunc("GET /v1/outbound-orders", server.listOutboundOrders)

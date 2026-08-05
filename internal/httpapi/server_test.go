@@ -10,7 +10,7 @@ import (
 )
 
 func TestHealth(t *testing.T) {
-	handler := New(nil, nil, time.Second, slog.Default())
+	handler := New(nil, nil, nil, time.Second, slog.Default())
 	request := httptest.NewRequest(http.MethodGet, "/healthz", nil)
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
@@ -23,7 +23,7 @@ func TestHealth(t *testing.T) {
 }
 
 func TestOutboundRejectsUnknownOperation(t *testing.T) {
-	handler := New(nil, nil, time.Second, slog.Default())
+	handler := New(nil, nil, nil, time.Second, slog.Default())
 	request := httptest.NewRequest(http.MethodPost, "/v1/outbound/not-real", strings.NewReader(`{"warehouse":"WH1","data":{}}`))
 	request.Header.Set("Content-Type", "application/json")
 	recorder := httptest.NewRecorder()
@@ -34,7 +34,7 @@ func TestOutboundRejectsUnknownOperation(t *testing.T) {
 }
 
 func TestOutboundValidatesBeforeCredentialLookup(t *testing.T) {
-	handler := New(nil, nil, time.Second, slog.Default())
+	handler := New(nil, nil, nil, time.Second, slog.Default())
 	request := httptest.NewRequest(http.MethodPost, "/v1/outbound/tracking-label-update", strings.NewReader(`{"warehouse":"WH1","data":{"outboundOrderNo":"O1"}}`))
 	request.Header.Set("Content-Type", "application/json")
 	recorder := httptest.NewRecorder()

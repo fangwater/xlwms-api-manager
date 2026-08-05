@@ -3,8 +3,10 @@ package auditor
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -80,19 +82,6 @@ func TestOutboundSyncCursorBackfillsOnceThenUsesWatermark(t *testing.T) {
 	}
 }
 
-func TestWithinOutboundCoverage(t *testing.T) {
-	start := time.Date(2026, time.August, 4, 17, 0, 0, 0, time.Local)
-	through := time.Date(2026, time.August, 5, 17, 0, 0, 0, time.Local)
-	inside := time.Date(2026, time.August, 5, 14, 31, 0, 0, time.Local)
-	outside := start.Add(-time.Second)
-	if !withinOutboundCoverage(&inside, &start, &through) {
-		t.Fatal("covered time must be classified")
-	}
-	if withinOutboundCoverage(&outside, &start, &through) || withinOutboundCoverage(nil, &start, &through) {
-		t.Fatal("uncovered or missing time must stay pending")
-	}
-}
-
 func TestResolutionFromAuditPreservesKnownMatch(t *testing.T) {
 	status := 2
 	item := model.FulfillmentAudit{
@@ -102,6 +91,16 @@ func TestResolutionFromAuditPreservesKnownMatch(t *testing.T) {
 	resolution := resolutionFromAudit(item)
 	if resolution.OMSStatus != "processing" || resolution.OutboundOrderNo != "OB-1" || resolution.TrackingNumber != "TRACK-1" {
 		t.Fatalf("unexpected preserved resolution: %#v", resolution)
+	}
+}
+
+func TestMergeFulfillmentCandidatesDeduplicatesStatusCandidates(t *testing.T) {
+	merged := mergeFulfillmentCandidates(
+		[]model.FulfillmentAudit{{ID: 1}, {ID: 2}},
+		[]model.FulfillmentAudit{{ID: 2}, {ID: 3}},
+	)
+	if len(merged) != 3 || merged[0].ID != 1 || merged[2].ID != 3 {
+		t.Fatalf("unexpected merged candidates: %#v", merged)
 	}
 }
 
@@ -143,6 +142,42 @@ func TestFetchOutboundWindowPaginatesAtOfficialPageSize(t *testing.T) {
 		AppKey:           "test", AppSecret: "test",
 	}, time.Date(2026, time.August, 5, 13, 0, 0, 0, time.Local), time.Date(2026, time.August, 5, 14, 0, 0, 0, time.Local))
 	if err != nil || calls != 2 || len(records) != outboundPageSize+1 || records[len(records)-1].PlatformOrderNo != "PO-1" {
+		t.Fatalf("calls=%d records=%#v err=%v", calls, records, err)
+	}
+}
+
+func TestFetchOutboundStatusesBatchesRealOutboundOrderNumbers(t *testing.T) {
+	calls := 0
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		calls++
+		var payload struct {
+			Data map[string]any `json:"data"`
+		}
+		if err := json.NewDecoder(request.Body).Decode(&payload); err != nil {
+			t.Fatal(err)
+		}
+		value, _ := payload.Data["outboundOrderNos"].(string)
+		if value == "" || strings.Contains(value, "PO-") {
+			t.Fatalf("status query must contain real outbound order numbers: %#v", payload.Data)
+		}
+		_ = json.NewEncoder(writer).Encode(map[string]any{
+			"code": 200, "msg": "ok", "data": map[string]any{"records": []any{
+				map[string]any{"outboundOrderNo": strings.Split(value, ",")[0], "status": 3},
+			}},
+		})
+	}))
+	defer server.Close()
+
+	orderNos := make([]string, outboundStatusBatchSize+1)
+	for index := range orderNos {
+		orderNos[index] = fmt.Sprintf("OBS-%03d", index)
+	}
+	service := &Service{requestTimeout: time.Second}
+	records, err := service.fetchOutboundStatuses(context.Background(), model.WarehouseCredentials{
+		WarehouseSummary: model.WarehouseSummary{Code: "HYTX30", APIBaseURL: server.URL},
+		AppKey:           "test", AppSecret: "test",
+	}, orderNos)
+	if err != nil || calls != 2 || len(records) != 2 || records[0].Status != 3 {
 		t.Fatalf("calls=%d records=%#v err=%v", calls, records, err)
 	}
 }

@@ -10,7 +10,7 @@ import (
 )
 
 func TestUpdateWarehouseSKUSpecRejectsPrimaryKeyChange(t *testing.T) {
-	handler := New(nil, nil, time.Second, slog.Default())
+	handler := New(nil, nil, nil, time.Second, slog.Default())
 	request := httptest.NewRequest(http.MethodPatch, "/v1/warehouse-sku-specs/SKU-A", strings.NewReader(`{"warehouse_sku":"SKU-B","enabled":true}`))
 	request.Header.Set("Content-Type", "application/json")
 	response := httptest.NewRecorder()
@@ -24,7 +24,7 @@ func TestUpdateWarehouseSKUSpecRejectsPrimaryKeyChange(t *testing.T) {
 }
 
 func TestUpdateWarehouseSKUSpecRequiresEnabledState(t *testing.T) {
-	handler := New(nil, nil, time.Second, slog.Default())
+	handler := New(nil, nil, nil, time.Second, slog.Default())
 	request := httptest.NewRequest(http.MethodPatch, "/v1/warehouse-sku-specs/SKU-A", strings.NewReader(`{"warehouse_sku":"SKU-A"}`))
 	request.Header.Set("Content-Type", "application/json")
 	response := httptest.NewRecorder()
@@ -38,7 +38,7 @@ func TestUpdateWarehouseSKUSpecRequiresEnabledState(t *testing.T) {
 }
 
 func TestUpdateWarehouseSKUPackageSpecRequiresAllMeasurements(t *testing.T) {
-	handler := New(nil, nil, time.Second, slog.Default())
+	handler := New(nil, nil, nil, time.Second, slog.Default())
 	request := httptest.NewRequest(http.MethodPatch, "/v1/warehouse-sku-specs/SKU-A/package", strings.NewReader(`{"length_cm":10}`))
 	request.Header.Set("Content-Type", "application/json")
 	response := httptest.NewRecorder()

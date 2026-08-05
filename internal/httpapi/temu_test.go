@@ -42,7 +42,7 @@ func TestNormalizeTemuSKUsLimitsBatchSize(t *testing.T) {
 }
 
 func TestTemuWarehouseAvailabilityRouteValidatesRequest(t *testing.T) {
-	handler := New(nil, nil, time.Second, slog.Default())
+	handler := New(nil, nil, nil, time.Second, slog.Default())
 	request := httptest.NewRequest(http.MethodPost, "/v1/temu/warehouse-availability/query", strings.NewReader("{}"))
 	request.Header.Set("Content-Type", "application/json")
 	recorder := httptest.NewRecorder()
