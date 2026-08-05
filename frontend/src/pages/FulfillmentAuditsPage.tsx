@@ -122,8 +122,6 @@ function AuditRow({ item }: { item: FulfillmentAudit }) {
 function auditReason(item: FulfillmentAudit) {
   if (item.exception_category === "manual_required") {
     switch (item.oms_status_code) {
-      case 0: return "领星出库单为新建状态";
-      case 1: return "领星已取面单，仍待仓库处理";
       case 4: return "领星出库单已取消";
       case 5: return "领星出库单异常";
       case 6: return "领星出库单拦截中";

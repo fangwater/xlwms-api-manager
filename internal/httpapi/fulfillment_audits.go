@@ -221,10 +221,6 @@ func fulfillmentOMSStatusLabel(status string, statusCode *int) string {
 func manualFulfillmentReason(item model.FulfillmentAudit) string {
 	if item.OMSStatusCode != nil {
 		switch *item.OMSStatusCode {
-		case 0:
-			return "领星出库单为新建状态"
-		case 1:
-			return "领星已取面单，仍待仓库处理"
 		case 4:
 			return "领星出库单已取消"
 		case 5:

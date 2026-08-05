@@ -275,7 +275,7 @@ SELECT id,oms_status='outbound' AS archive,CASE
 WHEN oms_status='outbound' THEN 'archived'
 WHEN oms_status='pending_query' THEN 'pending_query'
 WHEN oms_status='query_error' THEN 'sync_error'
-WHEN oms_status IN ('not_found','pending','exception','unknown') THEN 'manual_required'
+WHEN oms_status IN ('not_found','exception','unknown') THEN 'manual_required'
 WHEN oms_status='processing'
  AND coalesce(oms_processing_since,oms_order_created_at,oms_status_since) <= now()-interval '24 hours'
 THEN 'warehouse_overdue'

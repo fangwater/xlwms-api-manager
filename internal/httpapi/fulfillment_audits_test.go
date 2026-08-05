@@ -9,10 +9,10 @@ import (
 )
 
 func TestManualFulfillmentCSVIncludesBOMAndEscapesSpreadsheetFormula(t *testing.T) {
-	status := 0
+	status := 4
 	contents, err := manualFulfillmentCSV([]model.FulfillmentAudit{{
 		ShopName: "PANDA HOMES", PlatformOrderNo: "=unsafe", WarehouseCode: "HYTX30",
-		OMSStatus: "pending", OMSStatusCode: &status,
+		OMSStatus: "exception", OMSStatusCode: &status,
 	}})
 	if err != nil {
 		t.Fatal(err)
@@ -25,7 +25,7 @@ func TestManualFulfillmentCSVIncludesBOMAndEscapesSpreadsheetFormula(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(rows) != 2 || rows[1][2] != "'=unsafe" || rows[1][5] != "新建" || rows[1][7] != "领星出库单为新建状态" {
+	if len(rows) != 2 || rows[1][2] != "'=unsafe" || rows[1][5] != "已取消" || rows[1][7] != "领星出库单已取消" {
 		t.Fatalf("unexpected CSV rows: %#v", rows)
 	}
 }
