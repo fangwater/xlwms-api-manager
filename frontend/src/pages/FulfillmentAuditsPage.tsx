@@ -66,7 +66,7 @@ export default function FulfillmentAuditsPage({ warehouse }: { warehouse: string
   const exportManual = async () => {
     setExporting(true); setError("");
     try {
-      const file = await api.exportManualFulfillmentAudits({ shop, warehouse, omsStatus, q: submittedQuery });
+      const file = await api.exportManualFulfillmentAudits({ shop, warehouse, omsStatus, q: submittedQuery, splitByWarehouse: !warehouse });
       const url = URL.createObjectURL(file.blob);
       const link = document.createElement("a");
       link.href = url; link.download = file.filename;
@@ -79,7 +79,7 @@ export default function FulfillmentAuditsPage({ warehouse }: { warehouse: string
   const summary = data?.summary;
 
   return <>
-    <PageHeader title="履约核查" subtitle={`Temu 店铺与领星仓库状态${summary?.last_query_at ? ` · 最近查询 ${dateTime(summary.last_query_at)}` : ""}`} actions={<><button className="secondary-button audit-export-button" onClick={() => void exportManual()} disabled={exporting || !summary?.manual_required} title="导出人工订单 CSV"><Download size={16} /><span>{exporting ? "导出中" : "导出人工订单"}</span></button><button className="icon-button bordered" onClick={() => void load()} title="刷新"><RefreshCw size={18} className={loading ? "spin" : ""} /></button></>} />
+    <PageHeader title="履约核查" subtitle={`Temu 店铺与领星仓库状态${summary?.last_query_at ? ` · 最近查询 ${dateTime(summary.last_query_at)}` : ""}`} actions={<><button className="secondary-button audit-export-button" onClick={() => void exportManual()} disabled={exporting || !summary?.manual_required} title={warehouse ? "导出当前仓库人工订单 CSV" : "按仓库拆分导出人工订单 ZIP"}><Download size={16} /><span>{exporting ? "导出中" : warehouse ? "导出人工订单" : "按仓导出人工订单"}</span></button><button className="icon-button bordered" onClick={() => void load()} title="刷新"><RefreshCw size={18} className={loading ? "spin" : ""} /></button></>} />
     <section className="audit-summary">
       <SummaryButton label="核查中" value={summary?.total || 0} icon={<Truck size={17} />} active={!category} onClick={() => { setCategory(""); setPage(1); }} />
       <SummaryButton label="待查询" value={summary?.pending_query || 0} icon={<RefreshCw size={17} />} active={category === "pending_query"} onClick={() => selectCategory("pending_query")} />

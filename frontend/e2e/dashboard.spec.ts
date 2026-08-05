@@ -8,9 +8,11 @@ const warehouses = [
 async function mockAPI(page: Page, options: { indexedParcelMatch?: boolean } = {}) {
   await page.route("**/warehouse-console/healthz", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ success: true, data: { status: "ok" } }) }));
   await page.route("**/warehouse-console/api/**", (route) => {
-    const path = new URL(route.request().url()).pathname;
+    const url = new URL(route.request().url());
+    const path = url.pathname;
     if (path.endsWith("/fulfillment-audits/export-manual")) {
-      return route.fulfill({ status: 200, contentType: "text/csv; charset=utf-8", headers: { "Content-Disposition": "attachment; filename=manual-fulfillment-orders-demo.csv" }, body: "店铺,平台PO单号\nPANDA HOMES,PO-DEMO-1001\n" });
+      const split = url.searchParams.get("split_by_warehouse") === "true";
+      return route.fulfill({ status: 200, contentType: split ? "application/zip" : "text/csv; charset=utf-8", headers: { "Content-Disposition": `attachment; filename=manual-fulfillment-orders-demo.${split ? "zip" : "csv"}` }, body: split ? "PK" : "店铺,平台PO单号\nPANDA HOMES,PO-DEMO-1001\n" });
     }
     let data: unknown = {};
     if (path.endsWith("/warehouses")) data = warehouses;
@@ -166,8 +168,12 @@ test("fulfillment audit shows asynchronous progress and OMS matches", async ({ p
   await expect(page.getByRole("table").getByText("已取消", { exact: true })).toBeVisible();
   await expect(page.getByRole("table").getByText("领星出库单已取消", { exact: true })).toBeVisible();
   const downloadPromise = page.waitForEvent("download");
-  await page.getByTitle("导出人工订单 CSV").click();
-  await expect.poll(async () => (await downloadPromise).suggestedFilename()).toBe("manual-fulfillment-orders-demo.csv");
+  await page.getByTitle("按仓库拆分导出人工订单 ZIP").click();
+  await expect.poll(async () => (await downloadPromise).suggestedFilename()).toBe("manual-fulfillment-orders-demo.zip");
+  await page.locator(".warehouse-select select").selectOption("EAST-01");
+  const singleWarehouseDownload = page.waitForEvent("download");
+  await page.getByTitle("导出当前仓库人工订单 CSV").click();
+  await expect.poll(async () => (await singleWarehouseDownload).suggestedFilename()).toBe("manual-fulfillment-orders-demo.csv");
   await expect(page.locator("body")).not.toHaveCSS("overflow-x", "scroll");
 });
 

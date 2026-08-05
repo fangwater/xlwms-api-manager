@@ -58,8 +58,8 @@ export const api = {
     request<FulfilledOrderPage>(`/fulfillment-audits/archived${query({ shop: params.shop, warehouse: params.warehouse, q: params.q, page: params.page, page_size: params.pageSize })}`),
   outboundOrders: <T>(params: { warehouse?: string; q: string; page: number; pageSize: number }) =>
     request<T>(`/outbound-orders${query({ warehouse: params.warehouse, q: params.q, page: params.page, page_size: params.pageSize })}`),
-  exportManualFulfillmentAudits: (params: { shop?: string; warehouse?: string; omsStatus?: string; q?: string }) =>
-    downloadFile(`/fulfillment-audits/export-manual${query({ shop: params.shop, warehouse: params.warehouse, oms_status: params.omsStatus, q: params.q })}`),
+  exportManualFulfillmentAudits: (params: { shop?: string; warehouse?: string; omsStatus?: string; q?: string; splitByWarehouse?: boolean }) =>
+    downloadFile(`/fulfillment-audits/export-manual${query({ shop: params.shop, warehouse: params.warehouse, oms_status: params.omsStatus, q: params.q, split_by_warehouse: params.splitByWarehouse ? "true" : undefined })}`),
   warehouses: () => request<Warehouse[]>("/warehouses"),
   saveWarehouse: (payload: Record<string, unknown>) => request<Warehouse>("/warehouses", { method: "POST", body: JSON.stringify(payload) }),
   setWarehouseActive: (code: string, active: boolean) => request<Warehouse>(`/warehouses/${encodeURIComponent(code)}/status`, { method: "PATCH", body: JSON.stringify({ active }) }),

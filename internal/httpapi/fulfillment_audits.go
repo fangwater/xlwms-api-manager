@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"archive/zip"
 	"bytes"
 	"context"
 	"encoding/csv"
@@ -9,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 
@@ -129,6 +131,20 @@ func (s *Server) exportManualFulfillmentAudits(writer http.ResponseWriter, reque
 		s.internalError(writer, "export manual fulfillment audits", err)
 		return
 	}
+	if request.URL.Query().Get("split_by_warehouse") == "true" {
+		contents, err := manualFulfillmentWarehouseZIP(items)
+		if err != nil {
+			s.internalError(writer, "encode manual fulfillment audit warehouse ZIP", err)
+			return
+		}
+		filename := "manual-fulfillment-orders-by-warehouse-" + time.Now().Format("20060102-1504") + ".zip"
+		writer.Header().Set("Content-Type", "application/zip")
+		writer.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, filename))
+		writer.Header().Set("X-Content-Type-Options", "nosniff")
+		writer.WriteHeader(http.StatusOK)
+		_, _ = writer.Write(contents)
+		return
+	}
 	contents, err := manualFulfillmentCSV(items)
 	if err != nil {
 		s.internalError(writer, "encode manual fulfillment audit CSV", err)
@@ -169,6 +185,81 @@ func manualFulfillmentCSV(items []model.FulfillmentAudit) ([]byte, error) {
 		return nil, err
 	}
 	return buffer.Bytes(), nil
+}
+
+func manualFulfillmentWarehouseZIP(items []model.FulfillmentAudit) ([]byte, error) {
+	groups := make(map[string][]model.FulfillmentAudit)
+	for _, item := range items {
+		code := strings.ToUpper(strings.TrimSpace(item.WarehouseCode))
+		groups[code] = append(groups[code], item)
+	}
+	codes := make([]string, 0, len(groups))
+	for code := range groups {
+		codes = append(codes, code)
+	}
+	empty := len(codes) == 0
+	if empty {
+		codes = append(codes, "")
+	}
+	sort.Slice(codes, func(left, right int) bool {
+		if codes[left] == "" {
+			return false
+		}
+		if codes[right] == "" {
+			return true
+		}
+		return codes[left] < codes[right]
+	})
+
+	var buffer bytes.Buffer
+	archive := zip.NewWriter(&buffer)
+	for index, code := range codes {
+		contents, err := manualFulfillmentCSV(groups[code])
+		if err != nil {
+			return nil, err
+		}
+		filename := fmt.Sprintf("%02d-manual-fulfillment-orders-%s.csv", index+1, fulfillmentWarehouseExportSlug(code))
+		if empty {
+			filename = "manual-fulfillment-orders-empty.csv"
+		}
+		header := &zip.FileHeader{Name: filename, Method: zip.Deflate}
+		header.SetMode(0o600)
+		header.SetModTime(time.Date(1980, time.January, 1, 0, 0, 0, 0, time.UTC))
+		entry, err := archive.CreateHeader(header)
+		if err != nil {
+			return nil, err
+		}
+		if _, err := entry.Write(contents); err != nil {
+			return nil, err
+		}
+	}
+	if err := archive.Close(); err != nil {
+		return nil, err
+	}
+	return buffer.Bytes(), nil
+}
+
+func fulfillmentWarehouseExportSlug(code string) string {
+	code = strings.ToUpper(strings.TrimSpace(code))
+	if code == "" {
+		return "unmatched-warehouse"
+	}
+	var slug strings.Builder
+	separator := false
+	for _, character := range code {
+		if character >= 'A' && character <= 'Z' || character >= '0' && character <= '9' || character == '-' || character == '_' {
+			slug.WriteRune(character)
+			separator = false
+		} else if !separator {
+			slug.WriteByte('-')
+			separator = true
+		}
+	}
+	value := strings.Trim(slug.String(), "-_")
+	if value == "" {
+		return "unmatched-warehouse"
+	}
+	return value
 }
 
 func spreadsheetSafe(value string) string {
