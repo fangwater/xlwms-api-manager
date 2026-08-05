@@ -25,6 +25,7 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .nav-item { width: 100%; height: 39px; display: flex; align-items: center; gap: 10px; padding: 0 10px; border: 0; border-radius: 6px; background: transparent; color: #aeb4ba; font-size: 13px; text-align: left; transition: background .16s, color .16s; }
 .nav-item:hover { background: #24282c; color: #f7f8f8; }
 .nav-item.active { background: #2a2f33; color: #fff; box-shadow: inset 3px 0 #3b9a7b; }
+.app-switch-link { text-decoration: none; }
 .sidebar-footer { margin-top: auto; padding: 13px 10px 16px; border-top: 1px solid #2b2f33; }
 .service-state { display: flex; align-items: center; gap: 8px; padding: 0 10px 11px; color: #8e969d; font-size: 11px; }
 .status-dot { width: 7px; height: 7px; border-radius: 50%; background: #32a47e; box-shadow: 0 0 0 3px rgba(50,164,126,.12); }
@@ -211,6 +212,8 @@ button:disabled { cursor: not-allowed; opacity: .55; }
   .page-header { min-height: 50px; margin-bottom: 16px; }
   .page-header h1 { font-size: 21px; line-height: 28px; }
   .page-header p { max-width: 220px; line-height: 17px; }
+  .audit-export-button { width: 36px; padding: 0; }
+  .audit-export-button span { display: none; }
   .metric-grid { grid-template-columns: 1fr 1fr; gap: 9px; }
   .metric-card { min-height: 100px; padding: 13px; }
   .metric-card:nth-child(5) { grid-column: 1/-1; }
@@ -243,6 +246,27 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .order-status.status-3 { background: #e8f3ee; color: #246f56; }
 .order-status.status-4 { background: #eef0f1; color: #70777c; }
 .order-status.status-5, .order-status.status-7 { background: #f8e9eb; color: #b13b45; }
+.audit-summary { display: grid; grid-template-columns: repeat(5,minmax(0,1fr)); gap: 10px; margin-bottom: 16px; }
+.audit-summary-item { min-width: 0; min-height: 84px; display: flex; flex-direction: column; align-items: flex-start; justify-content: space-between; padding: 13px 14px; border: 1px solid #e1e5e7; border-radius: 7px; background: #fff; color: #596168; text-align: left; cursor: pointer; }
+.audit-summary-item:hover, .audit-summary-item.active { border-color: #8da79b; box-shadow: 0 3px 12px rgba(26,54,43,.08); }
+.audit-summary-item span { display: flex; align-items: center; gap: 7px; font-size: 11px; font-weight: 650; }
+.audit-summary-item strong { color: #30373b; font-size: 23px; letter-spacing: 0; }
+.audit-summary-item.warning span { color: #987221; }
+.audit-summary-item.danger span { color: #b13b45; }
+.audit-filters { flex-wrap: wrap; }
+.audit-table td { vertical-align: top; }
+.cell-subtitle, .cell-error { max-width: 210px; display: block; margin-top: 4px; overflow: hidden; color: #8a9297; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.cell-error { color: #b13b45; }
+.audit-reason { max-width: 230px; color: #626a70; line-height: 1.45; white-space: normal; }
+.audit-status { min-height: 22px; display: inline-flex; align-items: center; padding: 0 7px; border-radius: 5px; background: #eef0f1; color: #626a70; font-size: 10px; font-weight: 650; white-space: nowrap; }
+.audit-status.oms-processing, .audit-status.oms-pending_query { background: #edf1f4; color: #526d7f; }
+.audit-status.category-pending_query { background: #edf1f4; color: #526d7f; }
+.audit-status.oms-outbound, .audit-status.category-monitoring { background: #e8f3ee; color: #246f56; }
+.audit-status.oms-pending, .audit-status.oms-not_found, .audit-status.category-manual_required { background: #f8e9eb; color: #a93642; }
+.audit-status.oms-exception, .audit-status.oms-query_error, .audit-status.category-sync_error { background: #f5e7ea; color: #a52f3d; }
+.audit-status.category-warehouse_overdue { background: #f6efd9; color: #876516; }
+@media (max-width: 1000px) { .audit-summary { grid-template-columns: repeat(3,minmax(0,1fr)); } }
+@media (max-width: 680px) { .audit-summary { grid-template-columns: 1fr 1fr; } .audit-summary-item:first-child { grid-column: 1/-1; } }
 .outbound-detail { width: min(760px,100%); }
 .detail-body { padding: 20px; }
 .detail-grid { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 12px; margin: 0 0 18px; }

@@ -2,6 +2,17 @@ package xlwms
 
 import "testing"
 
+func TestOutboundOrderRecordsSupportsDetailAndPageData(t *testing.T) {
+	detail, err := OutboundOrderRecords(map[string]any{"data": []any{map[string]any{"outboundOrderNo": "OB1", "status": 2}}})
+	if err != nil || len(detail) != 1 || detail[0].OutboundOrderNo != "OB1" {
+		t.Fatalf("detail=%#v err=%v", detail, err)
+	}
+	page, err := OutboundOrderRecords(map[string]any{"data": map[string]any{"records": []any{map[string]any{"outboundOrderNo": "OB2", "status": 3}}}})
+	if err != nil || len(page) != 1 || page[0].Status != 3 {
+		t.Fatalf("page=%#v err=%v", page, err)
+	}
+}
+
 func TestOutboundPathsCoverOfficialEndpoints(t *testing.T) {
 	want := map[string]string{
 		"parcel-create": "/v1/outboundOrder/create", "parcel-list": "/v1/outboundOrder/pageList",

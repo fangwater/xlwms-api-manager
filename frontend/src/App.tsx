@@ -11,10 +11,11 @@ const CostsPage = lazy(() => import("./pages/CostsPage"));
 const OutboundPage = lazy(() => import("./pages/OutboundPage"));
 const SKUSpecsPage = lazy(() => import("./pages/SKUSpecsPage"));
 const InventoryThresholdsPage = lazy(() => import("./pages/InventoryThresholdsPage"));
+const FulfillmentAuditsPage = lazy(() => import("./pages/FulfillmentAuditsPage"));
 const WarehousesPage = lazy(() => import("./pages/WarehousesPage"));
 const SyncPage = lazy(() => import("./pages/SyncPage"));
 const SettingsPage = lazy(() => import("./pages/SettingsPage"));
-const validPaths = new Set(["/", "/inventory", "/outbound", "/costs", "/warehouses", "/sku-specs", "/inventory-thresholds", "/sync", "/settings"]);
+const validPaths = new Set(["/", "/inventory", "/outbound", "/fulfillment-audits", "/costs", "/warehouses", "/sku-specs", "/inventory-thresholds", "/sync", "/settings"]);
 
 export default function App() {
   const { path, navigate } = useRouter();
@@ -45,6 +46,7 @@ export default function App() {
   let page = <DashboardPage warehouse={warehouse} warehouses={warehouses} />;
   if (path === "/inventory") page = <InventoryPage warehouse={warehouse} warehouses={warehouses} />;
   else if (path === "/outbound") page = <OutboundPage warehouse={warehouse} />;
+  else if (path === "/fulfillment-audits") page = <FulfillmentAuditsPage warehouse={warehouse} />;
   else if (path === "/costs") page = <CostsPage warehouse={warehouse} />;
   else if (path === "/sku-specs") page = <SKUSpecsPage />;
   else if (path === "/inventory-thresholds") page = <InventoryThresholdsPage />;

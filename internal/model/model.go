@@ -218,6 +218,85 @@ type WarehouseSKUSpecResolution struct {
 	MissingSKUs []string                         `json:"missing_skus"`
 	Package     *WarehousePackageSpec            `json:"package,omitempty"`
 }
+
+type FulfillmentAudit struct {
+	ID                 int64      `json:"id"`
+	Platform           string     `json:"platform"`
+	ShopCode           string     `json:"shop_code"`
+	ShopName           string     `json:"shop_name"`
+	PlatformOrderNo    string     `json:"platform_order_no"`
+	PlatformStatus     string     `json:"platform_status"`
+	PlatformStatusCode *int       `json:"platform_status_code,omitempty"`
+	PlatformShippingAt *time.Time `json:"platform_shipping_at,omitempty"`
+	WarehouseKey       string     `json:"warehouse_key"`
+	WarehouseCode      string     `json:"wh_code"`
+	TrackingNumber     string     `json:"tracking_number"`
+	OMSStatus          string     `json:"oms_status"`
+	OMSStatusCode      *int       `json:"oms_status_code,omitempty"`
+	OMSStatusSince     time.Time  `json:"oms_status_since"`
+	OMSProcessingSince *time.Time `json:"oms_processing_since,omitempty"`
+	OMSOrderCreatedAt  *time.Time `json:"oms_order_created_at,omitempty"`
+	OMSOutboundAt      *time.Time `json:"oms_outbound_at,omitempty"`
+	OutboundOrderNo    string     `json:"outbound_order_no"`
+	OMSTrackingNumber  string     `json:"oms_tracking_number"`
+	ExceptionCategory  string     `json:"exception_category"`
+	SyncError          string     `json:"sync_error,omitempty"`
+	Active             bool       `json:"active"`
+	FirstSeenAt        time.Time  `json:"first_seen_at"`
+	LastSeenAt         time.Time  `json:"last_seen_at"`
+	LastCheckedAt      *time.Time `json:"last_checked_at,omitempty"`
+	ResolvedAt         *time.Time `json:"resolved_at,omitempty"`
+	UpdatedAt          time.Time  `json:"updated_at"`
+}
+
+type FulfillmentAuditSnapshotItem struct {
+	PlatformOrderNo    string     `json:"platform_order_no"`
+	PlatformStatus     string     `json:"platform_status"`
+	PlatformStatusCode *int       `json:"platform_status_code,omitempty"`
+	PlatformShippingAt *time.Time `json:"platform_shipping_at,omitempty"`
+	WarehouseKey       string     `json:"warehouse_key"`
+	WarehouseCode      string     `json:"wh_code"`
+	TrackingNumber     string     `json:"tracking_number"`
+}
+
+type FulfillmentAuditResolution struct {
+	WarehouseCode   string
+	OMSStatus       string
+	OMSStatusCode   *int
+	OMSOrderCreated *time.Time
+	OMSOutboundAt   *time.Time
+	OutboundOrderNo string
+	TrackingNumber  string
+	SyncError       string
+}
+
+type FulfillmentAuditSummary struct {
+	Total            int        `json:"total"`
+	PendingQuery     int        `json:"pending_query"`
+	ManualRequired   int        `json:"manual_required"`
+	WarehouseOverdue int        `json:"warehouse_overdue"`
+	SyncError        int        `json:"sync_error"`
+	Monitoring       int        `json:"monitoring"`
+	LastQueryAt      *time.Time `json:"last_query_at,omitempty"`
+}
+
+type OutboundOrderIndex struct {
+	WarehouseCode   string     `json:"whCode"`
+	OutboundOrderNo string     `json:"outboundOrderNo"`
+	ThirdOrderNo    string     `json:"thirdOrderNo"`
+	ReferOrderNo    string     `json:"referOrderNo"`
+	PlatformOrderNo string     `json:"platformOrderNo"`
+	Status          int        `json:"status"`
+	TrackingNumber  string     `json:"logisticsTrackNo"`
+	OrderCreatedAt  *time.Time `json:"orderCreateTime,omitempty"`
+	OutboundAt      *time.Time `json:"outboundTime,omitempty"`
+}
+
+type FulfillmentAuditShop struct {
+	Code string `json:"code"`
+	Name string `json:"name"`
+}
+
 type InventorySummary struct {
 	TotalAmount      float64            `json:"total_amount"`
 	AvailableAmount  float64            `json:"available_amount"`

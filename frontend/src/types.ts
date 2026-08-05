@@ -197,3 +197,42 @@ export type SKUInventoryThreshold = InventoryThresholds & {
 export type InventoryThresholdPage = PageData<SKUInventoryThreshold> & {
   default_thresholds: InventoryThresholds;
 };
+
+export type FulfillmentAudit = {
+  id: number;
+  platform: string;
+  shop_code: string;
+  shop_name: string;
+  platform_order_no: string;
+  platform_status: string;
+  platform_status_code?: number;
+  platform_shipping_at?: string;
+  warehouse_key: string;
+  wh_code: string;
+  tracking_number: string;
+  oms_status: string;
+  oms_status_code?: number;
+  oms_status_since: string;
+  oms_processing_since?: string;
+  oms_order_created_at?: string;
+  oms_outbound_at?: string;
+  outbound_order_no: string;
+  oms_tracking_number: string;
+  exception_category: string;
+  sync_error?: string;
+  last_checked_at?: string;
+  updated_at: string;
+};
+
+export type FulfillmentAuditPage = PageData<FulfillmentAudit> & {
+  summary: {
+    total: number;
+    pending_query: number;
+    manual_required: number;
+    warehouse_overdue: number;
+    sync_error: number;
+    monitoring: number;
+    last_query_at?: string;
+  };
+  shops: Array<{ code: string; name: string }>;
+};

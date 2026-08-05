@@ -1,4 +1,4 @@
-import type { CostDetail, DashboardData, FundsFlow, InventoryKind, InventoryRecord, InventoryThresholdPage, InventoryThresholds, PageData, SKUInventoryThreshold, SKUStockLevelPage, SyncRun, Warehouse, WarehouseSKUSpec } from "./types";
+import type { CostDetail, DashboardData, FulfillmentAuditPage, FundsFlow, InventoryKind, InventoryRecord, InventoryThresholdPage, InventoryThresholds, PageData, SKUInventoryThreshold, SKUStockLevelPage, SyncRun, Warehouse, WarehouseSKUSpec } from "./types";
 
 type Envelope<T> = { success: boolean; data?: T; error?: string };
 const apiBase = `${import.meta.env.BASE_URL}api`;
@@ -20,6 +20,21 @@ function query(params: Record<string, string | number | undefined>): string {
   return rendered ? `?${rendered}` : "";
 }
 
+async function downloadFile(path: string): Promise<{ blob: Blob; filename: string }> {
+  const response = await fetch(`${apiBase}${path}`);
+  if (!response.ok) {
+    let message = `导出失败 (${response.status})`;
+    try {
+      const payload = await response.json() as Envelope<never>;
+      if (payload.error) message = payload.error;
+    } catch { /* The server may return a non-JSON proxy error. */ }
+    throw new Error(message);
+  }
+  const disposition = response.headers.get("Content-Disposition") || "";
+  const filename = disposition.match(/filename="?([^";]+)"?/i)?.[1] || "manual-fulfillment-orders.csv";
+  return { blob: await response.blob(), filename };
+}
+
 export const api = {
   health: async () => {
     const response = await fetch(`${import.meta.env.BASE_URL}healthz`);
@@ -37,6 +52,12 @@ export const api = {
   updateInventoryThresholdDefaults: (payload: InventoryThresholds) => request<InventoryThresholds>("/inventory-thresholds/defaults", { method: "PATCH", body: JSON.stringify(payload) }),
   updateSKUInventoryThreshold: (warehouseSKU: string, payload: InventoryThresholds) => request<SKUInventoryThreshold>(`/inventory-thresholds/${encodeURIComponent(warehouseSKU)}`, { method: "PATCH", body: JSON.stringify(payload) }),
   resetSKUInventoryThreshold: (warehouseSKU: string) => request<{ deleted: boolean }>(`/inventory-thresholds/${encodeURIComponent(warehouseSKU)}/reset`, { method: "POST" }),
+  fulfillmentAudits: (params: { shop?: string; warehouse?: string; category?: string; omsStatus?: string; q?: string; page: number; pageSize: number }) =>
+    request<FulfillmentAuditPage>(`/fulfillment-audits${query({ shop: params.shop, warehouse: params.warehouse, category: params.category, oms_status: params.omsStatus, q: params.q, page: params.page, page_size: params.pageSize })}`),
+  outboundOrders: <T>(params: { warehouse?: string; q: string; page: number; pageSize: number }) =>
+    request<T>(`/outbound-orders${query({ warehouse: params.warehouse, q: params.q, page: params.page, page_size: params.pageSize })}`),
+  exportManualFulfillmentAudits: (params: { shop?: string; warehouse?: string; omsStatus?: string; q?: string }) =>
+    downloadFile(`/fulfillment-audits/export-manual${query({ shop: params.shop, warehouse: params.warehouse, oms_status: params.omsStatus, q: params.q })}`),
   warehouses: () => request<Warehouse[]>("/warehouses"),
   saveWarehouse: (payload: Record<string, unknown>) => request<Warehouse>("/warehouses", { method: "POST", body: JSON.stringify(payload) }),
   setWarehouseActive: (code: string, active: boolean) => request<Warehouse>(`/warehouses/${encodeURIComponent(code)}/status`, { method: "PATCH", body: JSON.stringify({ active }) }),

@@ -2,10 +2,41 @@ package xlwms
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
 )
+
+type OutboundOrderRecord struct {
+	WarehouseCode   string `json:"whCode"`
+	OutboundOrderNo string `json:"outboundOrderNo"`
+	ThirdOrderNo    string `json:"thirdOrderNo"`
+	ReferOrderNo    string `json:"referOrderNo"`
+	PlatformOrderNo string `json:"platformOrderNo"`
+	Status          int    `json:"status"`
+	TrackingNumber  string `json:"logisticsTrackNo"`
+	OrderCreateTime string `json:"orderCreateTime"`
+	OutboundTime    string `json:"outboundTime"`
+}
+
+func OutboundOrderRecords(result map[string]any) ([]OutboundOrderRecord, error) {
+	raw, err := json.Marshal(result["data"])
+	if err != nil {
+		return nil, err
+	}
+	var records []OutboundOrderRecord
+	if err := json.Unmarshal(raw, &records); err == nil {
+		return records, nil
+	}
+	var page struct {
+		Records []OutboundOrderRecord `json:"records"`
+	}
+	if err := json.Unmarshal(raw, &page); err != nil {
+		return nil, fmt.Errorf("decode outbound order records: %w", err)
+	}
+	return page.Records, nil
+}
 
 const (
 	ParcelCreatePath        = "/v1/outboundOrder/create"

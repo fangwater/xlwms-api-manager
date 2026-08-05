@@ -15,14 +15,15 @@ const (
 )
 
 type Config struct {
-	DatabaseURL       string
-	CredentialKeyFile string
-	APIBaseURL        string
-	AppKey            string
-	AppSecret         string
-	Listen            string
-	RequestTimeout    time.Duration
-	SyncTimeout       time.Duration
+	DatabaseURL              string
+	CredentialKeyFile        string
+	APIBaseURL               string
+	AppKey                   string
+	AppSecret                string
+	Listen                   string
+	RequestTimeout           time.Duration
+	SyncTimeout              time.Duration
+	FulfillmentAuditInterval time.Duration
 }
 
 func Load() (Config, error) {
@@ -31,14 +32,15 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 	cfg := Config{
-		DatabaseURL:       strings.TrimSpace(os.Getenv("DATABASE_URL")),
-		CredentialKeyFile: envOrDefault("XLWMS_CREDENTIAL_KEY_FILE", filepath.Join(cwd, ".warehouse_credentials_key")),
-		APIBaseURL:        strings.TrimRight(envOrDefault("XLWMS_API_BASE_URL", DefaultAPIBaseURL), "/"),
-		AppKey:            os.Getenv("XLWMS_APP_KEY"),
-		AppSecret:         os.Getenv("XLWMS_APP_SECRET"),
-		Listen:            envOrDefault("XLWMS_LISTEN", DefaultListen),
-		RequestTimeout:    30 * time.Second,
-		SyncTimeout:       30 * time.Minute,
+		DatabaseURL:              strings.TrimSpace(os.Getenv("DATABASE_URL")),
+		CredentialKeyFile:        envOrDefault("XLWMS_CREDENTIAL_KEY_FILE", filepath.Join(cwd, ".warehouse_credentials_key")),
+		APIBaseURL:               strings.TrimRight(envOrDefault("XLWMS_API_BASE_URL", DefaultAPIBaseURL), "/"),
+		AppKey:                   os.Getenv("XLWMS_APP_KEY"),
+		AppSecret:                os.Getenv("XLWMS_APP_SECRET"),
+		Listen:                   envOrDefault("XLWMS_LISTEN", DefaultListen),
+		RequestTimeout:           30 * time.Second,
+		SyncTimeout:              30 * time.Minute,
+		FulfillmentAuditInterval: time.Hour,
 	}
 	if cfg.DatabaseURL == "" {
 		return Config{}, errors.New("DATABASE_URL is required")
@@ -47,6 +49,9 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 	if cfg.SyncTimeout, err = positiveDuration("XLWMS_SYNC_TIMEOUT", cfg.SyncTimeout); err != nil {
+		return Config{}, err
+	}
+	if cfg.FulfillmentAuditInterval, err = positiveDuration("XLWMS_FULFILLMENT_AUDIT_INTERVAL", cfg.FulfillmentAuditInterval); err != nil {
 		return Config{}, err
 	}
 	return cfg, nil

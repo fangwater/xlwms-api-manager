@@ -1,4 +1,4 @@
-import { Truck, Bell, Boxes, ChartNoAxesCombined, ChevronDown, Database, Menu, PackageCheck, PanelLeftClose, RefreshCw, Settings, SlidersHorizontal, Warehouse as WarehouseIcon } from "lucide-react";
+import { Truck, Bell, Boxes, ChartNoAxesCombined, ChevronDown, ClipboardCheck, Database, ExternalLink, Menu, PackageCheck, PanelLeftClose, RefreshCw, Settings, SlidersHorizontal, Warehouse as WarehouseIcon } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import type { Warehouse } from "../types";
 
@@ -7,6 +7,7 @@ const groups = [
     { path: "/", label: "运营总览", icon: ChartNoAxesCombined },
     { path: "/inventory", label: "库存中心", icon: Boxes },
     { path: "/outbound", label: "出库管理", icon: Truck },
+    { path: "/fulfillment-audits", label: "履约核查", icon: ClipboardCheck },
     { path: "/costs", label: "费用中心", icon: Database }
   ] },
   { label: "管理", items: [
@@ -16,7 +17,7 @@ const groups = [
     { path: "/sync", label: "同步中心", icon: RefreshCw }
   ] }
 ];
-const pageNames: Record<string, string> = { "/": "运营总览", "/inventory": "库存中心", "/outbound": "出库管理", "/costs": "费用中心", "/warehouses": "仓库管理", "/sku-specs": "SKU 规格", "/inventory-thresholds": "库存安全线", "/sync": "同步中心", "/settings": "系统设置" };
+const pageNames: Record<string, string> = { "/": "运营总览", "/inventory": "库存中心", "/outbound": "出库管理", "/fulfillment-audits": "履约核查", "/costs": "费用中心", "/warehouses": "仓库管理", "/sku-specs": "SKU 规格", "/inventory-thresholds": "库存安全线", "/sync": "同步中心", "/settings": "系统设置" };
 
 export default function Layout({ children, warehouses, warehouse, onWarehouseChange, online, path, onNavigate }: { children: ReactNode; warehouses: Warehouse[]; warehouse: string; onWarehouseChange: (value: string) => void; online: boolean | null; path: string; onNavigate: (path: string) => void }) {
   const [open, setOpen] = useState(false);
@@ -27,7 +28,7 @@ export default function Layout({ children, warehouses, warehouse, onWarehouseCha
       <nav aria-label="主导航">
         {groups.map((group) => <div className="nav-group" key={group.label}><div className="nav-label">{group.label}</div>{group.items.map((item) => { const Icon = item.icon; return <button key={item.path} className={`nav-item ${path === item.path ? "active" : ""}`} onClick={() => go(item.path)}><Icon size={18} /><span>{item.label}</span></button>; })}</div>)}
       </nav>
-      <div className="sidebar-footer"><div className="service-state"><span className={`status-dot ${online === null ? "checking" : online ? "" : "offline"}`} />{online === null ? "连接检测中" : online ? "服务运行中" : "服务未连接"}</div><button className={`nav-item ${path === "/settings" ? "active" : ""}`} onClick={() => go("/settings")}><Settings size={18} /><span>系统设置</span></button></div>
+      <div className="sidebar-footer"><div className="service-state"><span className={`status-dot ${online === null ? "checking" : online ? "" : "offline"}`} />{online === null ? "连接检测中" : online ? "服务运行中" : "服务未连接"}</div><a className="nav-item app-switch-link" href="/temu/"><ExternalLink size={18} /><span>Temu 履约台</span></a><button className={`nav-item ${path === "/settings" ? "active" : ""}`} onClick={() => go("/settings")}><Settings size={18} /><span>系统设置</span></button></div>
     </aside>
     {open && <button className="backdrop" onClick={() => setOpen(false)} aria-label="关闭导航" />}
     <div className="workspace">

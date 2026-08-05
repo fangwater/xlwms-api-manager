@@ -12,6 +12,7 @@ import (
 	"syscall"
 	"time"
 
+	"xlwms-api-manager/internal/auditor"
 	"xlwms-api-manager/internal/config"
 	"xlwms-api-manager/internal/credentials"
 	"xlwms-api-manager/internal/httpapi"
@@ -50,6 +51,8 @@ func run(ctx context.Context, logger *slog.Logger) error {
 		return err
 	}
 	service := syncer.New(ctx, destination, cfg.RequestTimeout, cfg.SyncTimeout, logger)
+	auditService := auditor.New(destination, cfg.RequestTimeout, logger)
+	go backgroundFulfillmentAudits(ctx, auditService, cfg.FulfillmentAuditInterval, cfg.RequestTimeout*10, logger)
 	listener, err := net.Listen("tcp", cfg.Listen)
 	if err != nil {
 		return fmt.Errorf("listen on %s: %w", cfg.Listen, err)
@@ -75,6 +78,39 @@ func run(ctx context.Context, logger *slog.Logger) error {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 	return server.Shutdown(shutdownCtx)
+}
+
+func backgroundFulfillmentAudits(ctx context.Context, service *auditor.Service, interval, timeout time.Duration, logger *slog.Logger) {
+	run := func() {
+		checkCtx, cancel := context.WithTimeout(ctx, timeout)
+		defer cancel()
+		stats, err := service.Check(checkCtx, 5000)
+		if err != nil {
+			logger.Warn("fulfillment audit check incomplete", "synced", stats.Synced, "checked", stats.Checked, "error", err)
+		} else if stats.Checked > 0 || stats.Synced > 0 {
+			logger.Info("fulfillment audit check completed", "synced", stats.Synced, "checked", stats.Checked, "matched", stats.Matched, "missing", stats.Missing, "pending", stats.Pending, "failed", stats.Failed)
+		}
+	}
+	run()
+	for {
+		timer := time.NewTimer(time.Until(nextFulfillmentAuditRun(time.Now(), interval)))
+		select {
+		case <-ctx.Done():
+			if !timer.Stop() {
+				<-timer.C
+			}
+			return
+		case <-timer.C:
+			run()
+		}
+	}
+}
+
+func nextFulfillmentAuditRun(now time.Time, interval time.Duration) time.Time {
+	if interval <= 0 {
+		interval = time.Hour
+	}
+	return now.Truncate(interval).Add(interval)
 }
 
 func requireLoopbackAddress(address string) error {

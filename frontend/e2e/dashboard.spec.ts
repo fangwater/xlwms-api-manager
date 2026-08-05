@@ -5,10 +5,13 @@ const warehouses = [
   { wh_code: "WEST-02", name: "西部分拨仓", api_base_url: "https://api.xlwms.com/openapi", app_key_hint: "demo...key", active: true, updated_at: "2026-08-01T08:00:00Z" }
 ];
 
-async function mockAPI(page: Page) {
+async function mockAPI(page: Page, options: { indexedParcelMatch?: boolean } = {}) {
   await page.route("**/warehouse-console/healthz", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ success: true, data: { status: "ok" } }) }));
   await page.route("**/warehouse-console/api/**", (route) => {
     const path = new URL(route.request().url()).pathname;
+    if (path.endsWith("/fulfillment-audits/export-manual")) {
+      return route.fulfill({ status: 200, contentType: "text/csv; charset=utf-8", headers: { "Content-Disposition": "attachment; filename=manual-fulfillment-orders-demo.csv" }, body: "店铺,平台PO单号\nPANDA HOMES,PO-DEMO-1001\n" });
+    }
     let data: unknown = {};
     if (path.endsWith("/warehouses")) data = warehouses;
     else if (path.endsWith("/dashboard/summary")) data = {
@@ -43,7 +46,30 @@ async function mockAPI(page: Page) {
       summary: { sku_count: 1, record_count: 1, total_amount: 42, available_amount: 36, lock_amount: 4, transport_amount: 2 }
     };
     else if (path.endsWith("/inventory")) data = { records: [], total: 0, page: 1, page_size: 30, pages: 1 };
-    else if (path.includes("/outbound/parcel-list")) data = { code: 200, msg: "", data: { records: [{ whCode: "EAST-01", outboundOrderNo: "OB-DEMO-1001", thirdOrderNo: "EXT-DEMO-88", status: 2, logisticsChannel: "DEMO-CHANNEL", logisticsTrackNo: "TRACK-DEMO", orderCreateTime: "2026-08-01 09:30:00" }], total: 1, page: 1, pageSize: 30, pages: 1 } };
+    else if (path.endsWith("/fulfillment-audits")) data = {
+      records: [{
+        id: 1, platform: "temu", shop_code: "panda-homes", shop_name: "PANDA HOMES",
+        platform_order_no: "PO-DEMO-1001", platform_status: "pending_pickup", platform_status_code: 4,
+        wh_code: "HYTX30", warehouse_key: "arp-east", tracking_number: "TRACK-DEMO",
+        oms_status: "exception", oms_status_code: 4, outbound_order_no: "OB-DEMO-1001",
+        oms_tracking_number: "TRACK-DEMO", exception_category: "manual_required", active: true,
+        first_seen_at: "2026-08-01T08:00:00Z", last_seen_at: "2026-08-01T08:00:00Z",
+        last_checked_at: "2026-08-01T08:05:00Z", updated_at: "2026-08-01T08:05:00Z"
+      }],
+      total: 1, page: 1, page_size: 30, pages: 1,
+      summary: { total: 2553, pending_query: 2153, manual_required: 338, warehouse_overdue: 0, sync_error: 0, monitoring: 62, last_query_at: "2026-08-05T07:00:00Z" },
+      shops: [{ code: "panda-homes", name: "PANDA HOMES" }, { code: "panda-buy", name: "PANDA BUY" }]
+    };
+    else if (path.endsWith("/outbound-orders")) {
+      const records = options.indexedParcelMatch === false ? [] : [{ whCode: "EAST-01", outboundOrderNo: "OB-DEMO-1001", thirdOrderNo: "EXT-DEMO-88", platformOrderNo: "PO-DEMO-1001", status: 2, logisticsTrackNo: "TRACK-DEMO", orderCreateTime: "2026-08-01T01:30:00Z" }];
+      data = { records, total: records.length, page: 1, page_size: 30, pages: 1, last_query_at: "2026-08-05T07:00:00Z" };
+    }
+    else if (path.endsWith("/funds-flows")) data = { records: [{ id: 1, wh_code: "EAST-01", order_no: "OB-DEMO-1001", platform_order_no: "PO-DEMO-1001" }], total: 1, page: 1, page_size: 100, pages: 1 };
+    else if (path.includes("/outbound/parcel-list")) {
+      const requestData = route.request().postDataJSON()?.data || {};
+      const records = [{ whCode: "EAST-01", outboundOrderNo: "OB-DEMO-1001", thirdOrderNo: "EXT-DEMO-88", platformOrderNo: "PO-DEMO-1001", status: 2, logisticsChannel: "DEMO-CHANNEL", logisticsTrackNo: "TRACK-DEMO", orderCreateTime: "2026-08-01 09:30:00" }];
+      data = { code: 200, msg: "", data: { records, total: records.length, page: requestData.page || 1, pageSize: requestData.pageSize || 30, pages: 1 } };
+    }
     else if (path.endsWith("/sync/runs")) data = [];
     route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ success: true, data }) });
   });
@@ -68,6 +94,7 @@ test("mobile navigation reaches all inventory views", async ({ page }) => {
   await expect(page.getByRole("heading", { name: "运营总览" })).toBeVisible();
   await page.getByTitle("打开导航").click();
   await expect(page.getByRole("navigation", { name: "主导航" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Temu 履约台" })).toHaveAttribute("href", "/temu/");
   await page.getByRole("button", { name: "库存中心" }).click();
   await expect(page.getByRole("heading", { name: "库存中心" })).toBeVisible();
   await expect(page.getByRole("tablist").getByRole("button")).toHaveCount(8);
@@ -83,6 +110,51 @@ test("outbound workspace renders parcel orders", async ({ page }) => {
   await page.goto("./outbound");
   await expect(page.getByRole("heading", { name: "出库管理" })).toBeVisible();
   await expect(page.getByText("OB-DEMO-1001")).toBeVisible();
+  await expect(page.getByText("PO-DEMO-1001")).toBeVisible();
   await expect(page.getByText("仓库处理中")).toBeVisible();
+  const fundsRequests: string[] = [];
+  page.on("request", request => { if (request.url().includes("/funds-flows")) fundsRequests.push(request.url()); });
+  const indexedRequest = page.waitForRequest(request => request.url().includes("/outbound-orders?") && request.url().includes("q=PO-DEMO-1001"));
+  await page.getByPlaceholder("平台单号或出库单号").fill("PO-DEMO-1001");
+  await page.getByRole("button", { name: "查询" }).click();
+  const request = await indexedRequest;
+  expect(request.method()).toBe("GET");
+  await expect(page.getByText("PO-DEMO-1001")).toBeVisible();
+  await expect(page.getByText(/最近查询/)).toBeVisible();
+  expect(fundsRequests).toHaveLength(0);
   await page.screenshot({ path: "/tmp/xlwms-outbound-desktop.png", fullPage: true });
+});
+
+test("parcel search uses only the watermarked local index after a miss", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 860 });
+  await page.addInitScript(() => localStorage.setItem("xlwms-warehouse", "EAST-01"));
+  await mockAPI(page, { indexedParcelMatch: false });
+  const requests: string[] = [];
+  page.on("request", request => {
+    if (request.url().includes("/outbound-orders")) requests.push("outbound-index");
+    if (request.url().includes("/funds-flows")) requests.push("funds-flow");
+    if (request.url().includes("/outbound/parcel-list") && request.postDataJSON()?.data?.outboundOrderNos) requests.push("outbound-filter");
+  });
+  await page.goto("./outbound");
+  await page.getByPlaceholder("平台单号或出库单号").fill("PO-DEMO-1001");
+  await page.getByRole("button", { name: "查询" }).click();
+  await expect(page.getByText("当前筛选暂无出库单")).toBeVisible();
+  expect(requests).toEqual(["outbound-index"]);
+});
+
+test("fulfillment audit shows asynchronous progress and OMS matches", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await mockAPI(page);
+  await page.goto("./fulfillment-audits");
+  await expect(page.getByRole("heading", { name: "履约核查" })).toBeVisible();
+  await expect(page.getByText(/最近查询/)).toBeVisible();
+  await expect(page.getByText("待查询", { exact: true }).first()).toBeVisible();
+  await expect(page.getByText("2,153")).toBeVisible();
+  await expect(page.getByText("PO-DEMO-1001")).toBeVisible();
+  await expect(page.getByRole("table").getByText("已取消", { exact: true })).toBeVisible();
+  await expect(page.getByRole("table").getByText("领星出库单已取消", { exact: true })).toBeVisible();
+  const downloadPromise = page.waitForEvent("download");
+  await page.getByTitle("导出人工订单 CSV").click();
+  await expect.poll(async () => (await downloadPromise).suggestedFilename()).toBe("manual-fulfillment-orders-demo.csv");
+  await expect(page.locator("body")).not.toHaveCSS("overflow-x", "scroll");
 });
