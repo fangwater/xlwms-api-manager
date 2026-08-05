@@ -2,7 +2,7 @@ import { AlertTriangle, Download, RefreshCw, Search, ShieldAlert, Truck, Warehou
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { api } from "../api";
 import { EmptyState, ErrorState, LoadingState, PageHeader, Pagination, dateTime } from "../components/Common";
-import type { FulfillmentAudit, FulfillmentAuditPage } from "../types";
+import type { FulfillmentAudit, FulfillmentAuditPage, Warehouse as WarehouseType } from "../types";
 
 const categoryLabels: Record<string, string> = {
   pending_query: "待查询",
@@ -34,7 +34,7 @@ const omsStatusCodeLabels: Record<number, string> = {
   7: "面单异常"
 };
 
-export default function FulfillmentAuditsPage({ warehouse }: { warehouse: string }) {
+export default function FulfillmentAuditsPage({ warehouse, warehouses, onWarehouseChange }: { warehouse: string; warehouses: WarehouseType[]; onWarehouseChange: (value: string) => void }) {
   const [page, setPage] = useState(1);
   const [query, setQuery] = useState("");
   const [submittedQuery, setSubmittedQuery] = useState("");
@@ -91,7 +91,10 @@ export default function FulfillmentAuditsPage({ warehouse }: { warehouse: string
       <label className="search-field"><Search size={17} /><input value={query} onChange={event => setQuery(event.target.value)} onKeyDown={event => { if (event.key === "Enter") submitSearch(); }} placeholder="PO 单号、出库单号或跟踪号" /></label>
       <button className="secondary-button" onClick={submitSearch}>查询</button>
       <label className="select-field"><select value={shop} onChange={event => { setShop(event.target.value); setPage(1); }}><option value="">全部店铺</option>{data?.shops.map(item => <option value={item.code} key={item.code}>{item.name || item.code}</option>)}</select></label>
-      <label className="select-field"><select value={omsStatus} onChange={event => { setOMSStatus(event.target.value); setPage(1); }}><option value="">全部 OMS 状态</option>{Object.entries(omsStatusLabels).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></label>
+      <div className="audit-filter-pair">
+        <label className="select-field"><select aria-label="选择仓库" value={warehouse} onChange={event => { onWarehouseChange(event.target.value); setPage(1); }}><option value="">全部仓库</option>{warehouses.map(item => <option value={item.wh_code} key={item.wh_code}>{item.name || item.wh_code}</option>)}</select></label>
+        <label className="select-field"><select aria-label="选择 OMS 状态" value={omsStatus} onChange={event => { setOMSStatus(event.target.value); setPage(1); }}><option value="">全部 OMS 状态</option>{Object.entries(omsStatusLabels).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></label>
+      </div>
     </div>
     {error && <ErrorState message={error} onRetry={() => void load()} />}
     {loading && !data ? <LoadingState label="正在加载履约状态" /> : data?.records.length ? <div className="table-panel"><div className="table-scroll"><table className="data-table audit-table"><thead><tr><th>店铺 / PO</th><th>仓库</th><th>OMS 状态</th><th>核查结果</th><th>状态时长</th><th>出库时间</th><th>跟踪号</th><th>最近核查</th></tr></thead><tbody>{data.records.map(item => <AuditRow item={item} key={item.id} />)}</tbody></table></div></div> : <EmptyState label="当前筛选暂无履约核查订单" />}

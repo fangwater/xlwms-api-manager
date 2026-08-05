@@ -47,7 +47,7 @@ export default function App() {
   let page = <DashboardPage warehouse={warehouse} warehouses={warehouses} />;
   if (path === "/inventory") page = <InventoryPage warehouse={warehouse} warehouses={warehouses} />;
   else if (path === "/outbound") page = <OutboundPage warehouse={warehouse} />;
-  else if (path === "/fulfillment-audits") page = <FulfillmentAuditsPage warehouse={warehouse} />;
+  else if (path === "/fulfillment-audits") page = <FulfillmentAuditsPage warehouse={warehouse} warehouses={warehouses} onWarehouseChange={selectWarehouse} />;
   else if (path === "/fulfilled-orders") page = <FulfilledOrdersPage warehouse={warehouse} />;
   else if (path === "/costs") page = <CostsPage warehouse={warehouse} />;
   else if (path === "/sku-specs") page = <SKUSpecsPage />;

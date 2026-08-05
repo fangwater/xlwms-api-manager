@@ -161,6 +161,10 @@ test("fulfillment audit shows asynchronous progress and OMS matches", async ({ p
   await mockAPI(page);
   await page.goto("./fulfillment-audits");
   await expect(page.getByRole("heading", { name: "履约核查" })).toBeVisible();
+  const auditFilters = page.locator(".audit-filters");
+  await expect(auditFilters.getByLabel("选择仓库")).toBeVisible();
+  await expect(auditFilters.getByLabel("选择 OMS 状态")).toBeVisible();
+  await expect(page.locator(".warehouse-select")).toHaveCount(0);
   await expect(page.getByText(/最近查询/)).toBeVisible();
   await expect(page.getByText("待查询", { exact: true }).first()).toBeVisible();
   await expect(page.getByText("20", { exact: true })).toBeVisible();
@@ -170,7 +174,7 @@ test("fulfillment audit shows asynchronous progress and OMS matches", async ({ p
   const downloadPromise = page.waitForEvent("download");
   await page.getByTitle("按仓库拆分导出人工订单 ZIP").click();
   await expect.poll(async () => (await downloadPromise).suggestedFilename()).toBe("manual-fulfillment-orders-demo.zip");
-  await page.locator(".warehouse-select select").selectOption("EAST-01");
+  await auditFilters.getByLabel("选择仓库").selectOption("EAST-01");
   const singleWarehouseDownload = page.waitForEvent("download");
   await page.getByTitle("导出当前仓库人工订单 CSV").click();
   await expect.poll(async () => (await singleWarehouseDownload).suggestedFilename()).toBe("manual-fulfillment-orders-demo.csv");
