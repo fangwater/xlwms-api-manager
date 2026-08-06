@@ -12,9 +12,11 @@ import (
 
 type FulfillmentAuditFilter struct {
 	Archived          bool
+	Platform          string
 	ShopCode          string
 	WarehouseCode     string
 	ExceptionCategory string
+	TrackingCategory  string
 	OMSStatus         string
 	Query             string
 	Page              int
@@ -31,6 +33,9 @@ func fulfillmentAuditWhere(filter FulfillmentAuditFilter) (string, []any) {
 		args = append(args, value)
 		return fmt.Sprintf("$%d", len(args))
 	}
+	if value := strings.ToLower(strings.TrimSpace(filter.Platform)); value != "" {
+		where = append(where, "platform="+add(value))
+	}
 	if value := strings.ToLower(strings.TrimSpace(filter.ShopCode)); value != "" {
 		where = append(where, "shop_code="+add(value))
 	}
@@ -40,12 +45,15 @@ func fulfillmentAuditWhere(filter FulfillmentAuditFilter) (string, []any) {
 	if value := strings.TrimSpace(filter.ExceptionCategory); value != "" {
 		where = append(where, "exception_category="+add(value))
 	}
+	if value := strings.TrimSpace(filter.TrackingCategory); value != "" {
+		where = append(where, "tracking_category="+add(value))
+	}
 	if value := strings.TrimSpace(filter.OMSStatus); value != "" {
 		where = append(where, "oms_status="+add(value))
 	}
 	if value := strings.TrimSpace(filter.Query); value != "" {
 		placeholder := add("%" + value + "%")
-		where = append(where, "(platform_order_no ILIKE "+placeholder+" OR outbound_order_no ILIKE "+placeholder+" OR tracking_number ILIKE "+placeholder+" OR oms_tracking_number ILIKE "+placeholder+")")
+		where = append(where, "(platform_order_no ILIKE "+placeholder+" OR outbound_order_no ILIKE "+placeholder+" OR tracking_number ILIKE "+placeholder+" OR oms_tracking_number ILIKE "+placeholder+" OR last_mile_tracking_number ILIKE "+placeholder+")")
 	}
 	return strings.Join(where, " AND "), args
 }
@@ -53,7 +61,7 @@ func fulfillmentAuditWhere(filter FulfillmentAuditFilter) (string, []any) {
 func (p *Postgres) FulfillmentAuditShops(ctx context.Context, archived bool) ([]model.FulfillmentAuditShop, error) {
 	condition := "active"
 	if archived {
-		condition = "NOT active AND oms_status='outbound'"
+		condition = "NOT active AND oms_status='outbound' AND platform='temu'"
 	}
 	rows, err := p.pool.Query(ctx, `
 SELECT shop_code,max(shop_name) FROM xlwms_fulfillment_audits
@@ -196,6 +204,142 @@ ORDER BY coalesce(last_checked_at,first_seen_at),id LIMIT $1`, limit)
 	return scanFulfillmentAudits(rows)
 }
 
+const (
+	FulfillmentTrackingQueuePickupException = "pickup_exception"
+	FulfillmentTrackingQueueRegular         = "regular"
+)
+
+type FulfillmentTrackingBatch struct {
+	Items          []model.FulfillmentAudit
+	QueueName      string
+	PreviousCursor int64
+	NextCursor     int64
+	Wrapped        bool
+}
+
+func (p *Postgres) FulfillmentTrackingCandidates(ctx context.Context, queueName string, limit int) (FulfillmentTrackingBatch, error) {
+	batch := FulfillmentTrackingBatch{QueueName: queueName}
+	if limit < 1 || limit > 5000 {
+		limit = 500
+	}
+	categoryClause, err := fulfillmentTrackingCategoryClause(queueName)
+	if err != nil {
+		return batch, err
+	}
+	if err := p.pool.QueryRow(ctx, `
+SELECT coalesce((SELECT cursor_audit_id FROM xlwms_fulfillment_tracking_watermarks WHERE queue_name=$1),0)
+`, queueName).Scan(&batch.PreviousCursor); err != nil {
+		return batch, fmt.Errorf("get %s fulfillment tracking watermark: %w", queueName, err)
+	}
+	rows, err := p.pool.Query(ctx, fulfillmentAuditSelect+`
+WHERE NOT active AND platform='temu' AND oms_status='outbound'
+  AND `+categoryClause+`
+  AND (tracking_checked_at IS NULL OR tracking_checked_at < now()-interval '1 hour')
+	ORDER BY CASE WHEN id>$1 THEN 0 ELSE 1 END,id
+	LIMIT $2`, batch.PreviousCursor, limit)
+	if err != nil {
+		return batch, fmt.Errorf("list %s fulfillment tracking candidates: %w", queueName, err)
+	}
+	defer rows.Close()
+	items, err := scanFulfillmentAudits(rows)
+	if err != nil {
+		return batch, err
+	}
+	return completeFulfillmentTrackingBatch(batch, items), nil
+}
+
+func fulfillmentTrackingCategoryClause(queueName string) (string, error) {
+	switch queueName {
+	case FulfillmentTrackingQueuePickupException:
+		return "tracking_category='pickup_exception'", nil
+	case FulfillmentTrackingQueueRegular:
+		return "tracking_category NOT IN ('picked_up','pickup_exception')", nil
+	default:
+		return "", fmt.Errorf("unsupported fulfillment tracking queue %q", queueName)
+	}
+}
+
+func completeFulfillmentTrackingBatch(batch FulfillmentTrackingBatch, items []model.FulfillmentAudit) FulfillmentTrackingBatch {
+	batch.Items = items
+	if len(items) > 0 {
+		batch.NextCursor = items[len(items)-1].ID
+		for _, item := range items {
+			if batch.PreviousCursor > 0 && item.ID <= batch.PreviousCursor {
+				batch.Wrapped = true
+				break
+			}
+		}
+	}
+	return batch
+}
+
+func (p *Postgres) AdvanceFulfillmentTrackingWatermark(ctx context.Context, batch FulfillmentTrackingBatch, failed int) error {
+	if len(batch.Items) == 0 {
+		return nil
+	}
+	_, err := p.pool.Exec(ctx, `
+INSERT INTO xlwms_fulfillment_tracking_watermarks (
+queue_name,cursor_audit_id,last_batch_at,last_batch_count,last_failed_count,last_cycle_completed_at,updated_at
+) VALUES ($1,$2,now(),$3,$4,CASE WHEN $5 THEN now() ELSE NULL END,now())
+ON CONFLICT (queue_name) DO UPDATE SET
+cursor_audit_id=EXCLUDED.cursor_audit_id,
+last_batch_at=EXCLUDED.last_batch_at,
+last_batch_count=EXCLUDED.last_batch_count,
+last_failed_count=EXCLUDED.last_failed_count,
+last_cycle_completed_at=CASE WHEN $5 THEN now() ELSE xlwms_fulfillment_tracking_watermarks.last_cycle_completed_at END,
+updated_at=now()
+`, batch.QueueName, batch.NextCursor, len(batch.Items), failed, batch.Wrapped)
+	if err != nil {
+		return fmt.Errorf("advance %s fulfillment tracking watermark: %w", batch.QueueName, err)
+	}
+	return nil
+}
+
+func (p *Postgres) UpdateFulfillmentTrackingResolution(ctx context.Context, id int64, resolution model.FulfillmentTrackingResolution) error {
+	_, err := p.pool.Exec(ctx, `
+UPDATE xlwms_fulfillment_audits SET
+last_mile_tracking_number=$2,tracking_status=$3,tracking_status_text=$4,
+tracking_updated_at=$5,tracking_checked_at=now(),tracking_error=$6,tracking_category=$7,
+tracking_package_count=$8,picked_up_package_count=$9,pickup_exception_reason=$10,
+pickup_confirmed_at=$11,updated_at=now()
+WHERE id=$1 AND oms_status='outbound'
+`, id, strings.TrimSpace(resolution.LastMileTrackingNumber), strings.TrimSpace(resolution.TrackingStatus),
+		strings.TrimSpace(resolution.TrackingStatusText), resolution.TrackingUpdatedAt,
+		strings.TrimSpace(resolution.TrackingError), strings.TrimSpace(resolution.TrackingCategory),
+		resolution.TrackingPackageCount, resolution.PickedUpPackageCount,
+		strings.TrimSpace(resolution.PickupExceptionReason), resolution.PickupConfirmedAt)
+	if err != nil {
+		return fmt.Errorf("update fulfillment tracking resolution: %w", err)
+	}
+	return nil
+}
+
+func (p *Postgres) RefreshFulfillmentTrackingCategories(ctx context.Context) error {
+	_, err := p.pool.Exec(ctx, `
+WITH classified AS (
+SELECT id,CASE
+  WHEN tracking_package_count>0 AND picked_up_package_count>=tracking_package_count THEN 'picked_up'
+  WHEN pickup_exception_reason='pickup_failed' THEN 'pickup_exception'
+  WHEN coalesce(oms_outbound_at,platform_shipping_at) <= now()-interval '24 hours' THEN 'pickup_exception'
+  WHEN tracking_error<>'' THEN 'tracking_error'
+  ELSE 'awaiting_pickup' END AS category,
+CASE
+  WHEN tracking_package_count>0 AND picked_up_package_count>=tracking_package_count THEN ''
+  WHEN pickup_exception_reason='pickup_failed' THEN 'pickup_failed'
+  WHEN coalesce(oms_outbound_at,platform_shipping_at) <= now()-interval '24 hours' THEN 'pickup_overdue'
+  ELSE '' END AS reason
+FROM xlwms_fulfillment_audits
+WHERE NOT active AND platform='temu' AND oms_status='outbound'
+)
+UPDATE xlwms_fulfillment_audits audit SET
+tracking_category=classified.category,pickup_exception_reason=classified.reason,
+updated_at=CASE WHEN audit.tracking_category IS DISTINCT FROM classified.category
+ OR audit.pickup_exception_reason IS DISTINCT FROM classified.reason THEN now() ELSE audit.updated_at END
+FROM classified WHERE audit.id=classified.id
+`)
+	return err
+}
+
 func (p *Postgres) FulfillmentAuditsByPlatformOrderNos(ctx context.Context, orderNos []string) ([]model.FulfillmentAudit, error) {
 	orderNos = normalizedOrderReferences(orderNos)
 	if len(orderNos) == 0 {
@@ -335,7 +479,9 @@ WHEN 'manual_required' THEN 0 WHEN 'warehouse_overdue' THEN 1
 WHEN 'sync_error' THEN 2 ELSE 3 END,
 coalesce(oms_processing_since,oms_outbound_at,platform_shipping_at,first_seen_at),id`
 	if filter.Archived {
-		orderBy = `coalesce(oms_outbound_at,resolved_at,updated_at) DESC,id DESC`
+		orderBy = `CASE tracking_category WHEN 'pickup_exception' THEN 0
+		WHEN 'tracking_error' THEN 1 WHEN 'awaiting_pickup' THEN 2 ELSE 3 END,
+		coalesce(oms_outbound_at,resolved_at,updated_at) DESC,id DESC`
 	}
 	rows, err := p.pool.Query(ctx, fulfillmentAuditSelect+` WHERE `+clause+`
 ORDER BY `+orderBy+`
@@ -346,6 +492,29 @@ LIMIT $`+fmt.Sprint(len(args)-1)+` OFFSET $`+fmt.Sprint(len(args)), args...)
 	defer rows.Close()
 	items, err := scanFulfillmentAudits(rows)
 	return items, total, summary, err
+}
+
+func (p *Postgres) FulfilledTrackingSummary(ctx context.Context, filter FulfillmentAuditFilter) (model.FulfilledTrackingSummary, error) {
+	filter.Archived = true
+	filter.TrackingCategory = ""
+	clause, args := fulfillmentAuditWhere(filter)
+	var summary model.FulfilledTrackingSummary
+	err := p.pool.QueryRow(ctx, `
+SELECT count(*),
+       count(*) FILTER (WHERE tracking_category='awaiting_pickup'),
+       count(*) FILTER (WHERE tracking_category='picked_up'),
+       count(*) FILTER (WHERE tracking_category='pickup_exception'),
+       count(*) FILTER (WHERE tracking_category='tracking_error'),
+       max(tracking_checked_at)
+FROM xlwms_fulfillment_audits WHERE `+clause, args...).Scan(
+		&summary.Total, &summary.AwaitingPickup, &summary.PickedUp,
+		&summary.PickupException, &summary.TrackingError, &summary.LastTrackingAt,
+	)
+	if err != nil {
+		return summary, err
+	}
+	summary.LastQueryAt, err = p.LatestOutboundQueryEvent(ctx)
+	return summary, err
 }
 
 func (p *Postgres) ExportManualFulfillmentAudits(ctx context.Context, filter FulfillmentAuditFilter) ([]model.FulfillmentAudit, error) {
@@ -365,6 +534,9 @@ const fulfillmentAuditSelect = `SELECT id,platform,shop_code,shop_name,platform_
 platform_status,platform_status_code,platform_shipping_at,warehouse_key,wh_code,
 tracking_number,oms_status,oms_status_code,oms_status_since,oms_processing_since,
 oms_order_created_at,oms_outbound_at,outbound_order_no,oms_tracking_number,
+	last_mile_tracking_number,tracking_status,tracking_status_text,tracking_updated_at,
+	tracking_checked_at,tracking_error,tracking_category,tracking_package_count,
+	picked_up_package_count,pickup_exception_reason,pickup_confirmed_at,
 exception_category,sync_error,active,first_seen_at,last_seen_at,last_checked_at,resolved_at,updated_at
 FROM xlwms_fulfillment_audits `
 
@@ -383,9 +555,13 @@ func scanFulfillmentAudits(rows fulfillmentAuditRows) ([]model.FulfillmentAudit,
 			&item.PlatformShippingAt, &item.WarehouseKey, &item.WarehouseCode,
 			&item.TrackingNumber, &item.OMSStatus, &item.OMSStatusCode, &item.OMSStatusSince,
 			&item.OMSProcessingSince, &item.OMSOrderCreatedAt, &item.OMSOutboundAt,
-			&item.OutboundOrderNo, &item.OMSTrackingNumber, &item.ExceptionCategory,
-			&item.SyncError, &item.Active, &item.FirstSeenAt, &item.LastSeenAt,
-			&item.LastCheckedAt, &item.ResolvedAt, &item.UpdatedAt); err != nil {
+			&item.OutboundOrderNo, &item.OMSTrackingNumber, &item.LastMileTrackingNumber,
+			&item.TrackingStatus, &item.TrackingStatusText, &item.TrackingUpdatedAt,
+			&item.TrackingCheckedAt, &item.TrackingError, &item.TrackingCategory,
+			&item.TrackingPackageCount, &item.PickedUpPackageCount,
+			&item.PickupExceptionReason, &item.PickupConfirmedAt,
+			&item.ExceptionCategory, &item.SyncError, &item.Active, &item.FirstSeenAt,
+			&item.LastSeenAt, &item.LastCheckedAt, &item.ResolvedAt, &item.UpdatedAt); err != nil {
 			return nil, err
 		}
 		items = append(items, item)

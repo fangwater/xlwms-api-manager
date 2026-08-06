@@ -1,10 +1,20 @@
 package store
 
 import (
+	"reflect"
 	"testing"
 
 	"xlwms-api-manager/internal/model"
 )
+
+func TestDateRangeFiltersComposeWithWarehouseFilter(t *testing.T) {
+	where, args := appendDateRangeFilters([]string{"wh_code = $1"}, []any{"EAST-01"}, "cost_time", "2026-08-01", "2026-08-05")
+	wantWhere := []string{"wh_code = $1", "cost_time >= $2::date", "cost_time < ($3::date + interval '1 day')"}
+	wantArgs := []any{"EAST-01", "2026-08-01", "2026-08-05"}
+	if !reflect.DeepEqual(where, wantWhere) || !reflect.DeepEqual(args, wantArgs) {
+		t.Fatalf("unexpected composed filters: where=%#v args=%#v", where, args)
+	}
+}
 
 func TestFundsFlowSourceKeyPreservesDistinctRowsAndOccurrences(t *testing.T) {
 	first := map[string]any{"whCode": "PA30", "orderNo": "ORDER-1", "costTotal": 10}

@@ -198,6 +198,39 @@ export type InventoryThresholdPage = PageData<SKUInventoryThreshold> & {
   default_thresholds: InventoryThresholds;
 };
 
+export type InventoryAlert = {
+  wh_code: string;
+  wh_name: string;
+  warehouse_sku: string;
+  product_name: string;
+  total_amount: number;
+  available_amount: number;
+  lock_amount: number;
+  transport_amount: number;
+  threshold: number;
+  customized: boolean;
+  alert: boolean;
+  inventory_at: string;
+  config_updated_at: string;
+};
+
+export type InventoryAlertPage = PageData<InventoryAlert> & {
+  default_threshold: number;
+  summary: {
+    alert_count: number;
+    out_of_stock_count: number;
+    warehouse_count: number;
+    sku_count: number;
+  };
+};
+
+export type WarehouseSKUInventoryAlertThreshold = {
+  wh_code: string;
+  warehouse_sku: string;
+  threshold: number;
+  updated_at: string;
+};
+
 export type FulfillmentAudit = {
   id: number;
   platform: string;
@@ -219,6 +252,17 @@ export type FulfillmentAudit = {
   outbound_order_no: string;
   oms_tracking_number: string;
   exception_category: string;
+  last_mile_tracking_number: string;
+  tracking_status: string;
+  tracking_status_text: string;
+  tracking_updated_at?: string;
+  tracking_checked_at?: string;
+  tracking_error?: string;
+  tracking_category: string;
+  tracking_package_count: number;
+  picked_up_package_count: number;
+  pickup_exception_reason?: string;
+  pickup_confirmed_at?: string;
   sync_error?: string;
   last_checked_at?: string;
   updated_at: string;
@@ -239,5 +283,109 @@ export type FulfillmentAuditPage = PageData<FulfillmentAudit> & {
 
 export type FulfilledOrderPage = PageData<FulfillmentAudit> & {
   last_query_at?: string;
+  last_tracking_at?: string;
+  summary: {
+    total: number;
+    awaiting_pickup: number;
+    picked_up: number;
+    pickup_exception: number;
+    tracking_error: number;
+    last_tracking_at?: string;
+  };
   shops: Array<{ code: string; name: string }>;
+};
+
+export type PlatformOrderProduct = {
+  sku: string;
+  qty: number;
+  productName: string;
+};
+
+export type PlatformWarehouseDetail = {
+  platformSku: string;
+  warehouseId: string;
+  warehouseName: string;
+  qty: number;
+};
+
+export type PendingPlatformOrder = {
+  orderNo: string;
+  platformOrderNo: string;
+  platformCode: string;
+  platformSkuList: PlatformOrderProduct[];
+  platformWarehouseDetails: PlatformWarehouseDetail[];
+  skuList: PlatformOrderProduct[];
+  storeCode: string;
+  storeName: string;
+  site: string;
+  siteNameCn: string;
+  siteNameEn: string;
+  remark: string;
+  sendWhCode: string;
+  sendWhName: string;
+  receiptCountryCode: string;
+  receiptCountryName: string;
+  trackNo: string;
+  requestDeliveryTime: string;
+  requestDeliveryTimeRecognizeStatus: number;
+  requestDeliveryTimeFailReason: string;
+  logisticsCarrier: string;
+  logisticsCarrierName: string;
+  logisticsChannelCode: string;
+  logisticsChannelName: string;
+  orderTime: string;
+  payTime: string;
+  source: string;
+  createTime: string;
+  auditTime: string;
+  status: number;
+  exceptionCause: string;
+  auditCause: string;
+  subStatus: number;
+  markShipmentStatus: number;
+  markShipmentTime: string;
+  markShipmentFailReason: string;
+  deliveryOptionType: number;
+  platformOrderType: string;
+  platformSplitRequired: string;
+  platformSplitReason: string;
+  splitStatus: number;
+  printingStatus: number;
+  directMailOrder: boolean;
+  platformChannelCode: string;
+  platformChannelName: string;
+};
+
+export type PendingPlatformOrderPage = PageData<PendingPlatformOrder> & {
+  queried_at: string;
+};
+
+export type PlatformOrderAutomaticRoute = {
+  platform_order_no: string;
+  platform_warehouse_id: string;
+  platform_warehouse_name: string;
+  warehouse_code: string;
+  warehouse_name: string;
+};
+
+export type PlatformOrderRoutingPreview = {
+  ready: boolean;
+  routes: PlatformOrderAutomaticRoute[];
+  unresolved: Array<{ platform_order_no: string; reason: string }>;
+  channel_code: string;
+  channel_name: string;
+  carriers: Array<{ value: string; label: string }>;
+  queried_at: string;
+};
+
+export type PlatformOrderAssignmentResult = {
+  total: number;
+  success: number;
+  failed: number;
+  failures: Array<{ platform_order_no: string; error: string }>;
+  warehouse_code: string;
+  warehouse_codes: string[];
+  channel_code: string;
+  logistics_carrier: string;
+  completed_at: string;
 };

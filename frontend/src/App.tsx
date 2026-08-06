@@ -9,14 +9,16 @@ const DashboardPage = lazy(() => import("./pages/DashboardPage"));
 const InventoryPage = lazy(() => import("./pages/InventoryPage"));
 const CostsPage = lazy(() => import("./pages/CostsPage"));
 const OutboundPage = lazy(() => import("./pages/OutboundPage"));
+const PlatformOrdersPage = lazy(() => import("./pages/PlatformOrdersPage"));
 const SKUSpecsPage = lazy(() => import("./pages/SKUSpecsPage"));
 const InventoryThresholdsPage = lazy(() => import("./pages/InventoryThresholdsPage"));
+const InventoryAlertsPage = lazy(() => import("./pages/InventoryAlertsPage"));
 const FulfillmentAuditsPage = lazy(() => import("./pages/FulfillmentAuditsPage"));
 const FulfilledOrdersPage = lazy(() => import("./pages/FulfilledOrdersPage"));
 const WarehousesPage = lazy(() => import("./pages/WarehousesPage"));
 const SyncPage = lazy(() => import("./pages/SyncPage"));
 const SettingsPage = lazy(() => import("./pages/SettingsPage"));
-const validPaths = new Set(["/", "/inventory", "/outbound", "/fulfillment-audits", "/fulfilled-orders", "/costs", "/warehouses", "/sku-specs", "/inventory-thresholds", "/sync", "/settings"]);
+const validPaths = new Set(["/", "/inventory", "/outbound", "/platform-orders", "/fulfillment-audits", "/fulfilled-orders", "/costs", "/warehouses", "/inventory-alerts", "/sku-specs", "/inventory-thresholds", "/sync", "/settings"]);
 
 export default function App() {
   const { path, navigate } = useRouter();
@@ -47,9 +49,11 @@ export default function App() {
   let page = <DashboardPage warehouse={warehouse} warehouses={warehouses} />;
   if (path === "/inventory") page = <InventoryPage warehouse={warehouse} warehouses={warehouses} />;
   else if (path === "/outbound") page = <OutboundPage warehouse={warehouse} />;
+  else if (path === "/platform-orders") page = <PlatformOrdersPage />;
   else if (path === "/fulfillment-audits") page = <FulfillmentAuditsPage warehouse={warehouse} warehouses={warehouses} onWarehouseChange={selectWarehouse} />;
-  else if (path === "/fulfilled-orders") page = <FulfilledOrdersPage warehouse={warehouse} />;
-  else if (path === "/costs") page = <CostsPage warehouse={warehouse} />;
+  else if (path === "/fulfilled-orders") page = <FulfilledOrdersPage warehouse={warehouse} warehouses={warehouses} onWarehouseChange={selectWarehouse} />;
+  else if (path === "/costs") page = <CostsPage warehouse={warehouse} warehouses={warehouses} onWarehouseChange={selectWarehouse} />;
+  else if (path === "/inventory-alerts") page = <InventoryAlertsPage warehouse={warehouse} />;
   else if (path === "/sku-specs") page = <SKUSpecsPage />;
   else if (path === "/inventory-thresholds") page = <InventoryThresholdsPage />;
   else if (path === "/warehouses") page = <WarehousesPage warehouses={warehouses} onChanged={loadWarehouses} />;

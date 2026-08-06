@@ -92,13 +92,24 @@ func (s *Server) listArchivedFulfillmentAudits(writer http.ResponseWriter, reque
 	page, pageSize := queryInt(request, "page", 1), queryInt(request, "page_size", 30)
 	ctx, cancel := context.WithTimeout(request.Context(), s.requestTimeout)
 	defer cancel()
-	items, total, summary, err := s.store.ListFulfillmentAudits(ctx, store.FulfillmentAuditFilter{
-		Archived: true, ShopCode: request.URL.Query().Get("shop"),
+	if err := s.store.RefreshFulfillmentTrackingCategories(ctx); err != nil {
+		s.internalError(writer, "refresh fulfillment tracking categories", err)
+		return
+	}
+	filter := store.FulfillmentAuditFilter{
+		Archived: true, Platform: "temu", ShopCode: request.URL.Query().Get("shop"),
 		WarehouseCode: request.URL.Query().Get("warehouse"), Query: request.URL.Query().Get("q"),
-		Page: page, PageSize: pageSize,
-	})
+		TrackingCategory: request.URL.Query().Get("tracking_category"),
+		Page:             page, PageSize: pageSize,
+	}
+	items, total, _, err := s.store.ListFulfillmentAudits(ctx, filter)
 	if err != nil {
 		s.internalError(writer, "list archived fulfillment audits", err)
+		return
+	}
+	trackingSummary, err := s.store.FulfilledTrackingSummary(ctx, filter)
+	if err != nil {
+		s.internalError(writer, "summarize fulfilled tracking", err)
 		return
 	}
 	shops, err := s.store.FulfillmentAuditShops(ctx, true)
@@ -112,7 +123,8 @@ func (s *Server) listArchivedFulfillmentAudits(writer http.ResponseWriter, reque
 	}
 	writeJSON(writer, http.StatusOK, response{Success: true, Data: map[string]any{
 		"records": items, "total": total, "page": page, "page_size": pageSize,
-		"pages": pages, "last_query_at": summary.LastQueryAt, "shops": shops,
+		"pages": pages, "last_query_at": trackingSummary.LastQueryAt,
+		"last_tracking_at": trackingSummary.LastTrackingAt, "summary": trackingSummary, "shops": shops,
 	}})
 }
 

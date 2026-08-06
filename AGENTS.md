@@ -18,6 +18,14 @@
 - Do not invent a signing algorithm. Implement authentication only from official documentation or a verified request example.
 - Raw API exports may contain customer and logistics data. Write exports with file mode `600`.
 
+## Related Temu Service
+
+- The independent Temu Go service lives at `/home/ubuntu/temu-api-manager` and owns Temu credentials, request signing, package numbers, and calls to `temu.track.trackinginfo.get`.
+- XLWMS must use the Temu Go service for tracking instead of signing or sending Temu OpenAPI requests directly.
+- The local Temu service defaults to `http://127.0.0.1:18082/temu`; keep it configurable through `TEMU_GO_BASE_URL`.
+- Select the Temu shop with `X-Temu-Shop`. Order tracking is `GET /api/orders/{parentOrderSN}/tracking?language=en` and package tracking is `GET /api/packages/{packageSn}/tracking?language=en`.
+- XLWMS owns the cross-shop and cross-warehouse tracking monitor. Store only the normalized tracking state needed for operations; do not copy Temu shop credentials or raw tracking responses into this project.
+
 
 ## Warehouse Registry
 

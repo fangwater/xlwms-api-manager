@@ -16,8 +16,10 @@ import (
 	"xlwms-api-manager/internal/config"
 	"xlwms-api-manager/internal/credentials"
 	"xlwms-api-manager/internal/httpapi"
+	"xlwms-api-manager/internal/oms"
 	"xlwms-api-manager/internal/store"
 	"xlwms-api-manager/internal/syncer"
+	"xlwms-api-manager/internal/temutracking"
 )
 
 func main() {
@@ -51,14 +53,20 @@ func run(ctx context.Context, logger *slog.Logger) error {
 		return err
 	}
 	service := syncer.New(ctx, destination, cfg.RequestTimeout, cfg.SyncTimeout, logger)
-	auditService := auditor.New(destination, cfg.RequestTimeout, logger)
+	trackingClient := temutracking.NewClient(cfg.TemuGoBaseURL, cfg.RequestTimeout)
+	auditService := auditor.NewWithTracking(destination, trackingClient, cfg.RequestTimeout,
+		cfg.FulfillmentTrackingLimit, cfg.FulfillmentTrackingWorkers, logger)
+	var platformOrders *oms.Client
+	if cfg.OMSUsername != "" {
+		platformOrders = oms.NewClient(cfg.OMSBaseURL, cfg.OMSUsername, cfg.OMSPassword, cfg.RequestTimeout)
+	}
 	go backgroundFulfillmentAudits(ctx, auditService, cfg.FulfillmentAuditInterval, cfg.RequestTimeout*10, logger)
 	listener, err := net.Listen("tcp", cfg.Listen)
 	if err != nil {
 		return fmt.Errorf("listen on %s: %w", cfg.Listen, err)
 	}
 	server := &http.Server{
-		Handler:           httpapi.New(destination, service, auditService, cfg.RequestTimeout, logger),
+		Handler:           httpapi.NewWithPlatformOrderOperations(destination, service, auditService, platformOrders, trackingClient, cfg.RequestTimeout, logger),
 		ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 30 * time.Second, WriteTimeout: 30 * time.Second, IdleTimeout: 60 * time.Second,
 		BaseContext: func(net.Listener) context.Context { return ctx },
 	}
@@ -86,9 +94,9 @@ func backgroundFulfillmentAudits(ctx context.Context, service *auditor.Service, 
 		defer cancel()
 		stats, err := service.Check(checkCtx, 5000)
 		if err != nil {
-			logger.Warn("fulfillment audit check incomplete", "synced", stats.Synced, "checked", stats.Checked, "error", err)
-		} else if stats.Checked > 0 || stats.Synced > 0 {
-			logger.Info("fulfillment audit check completed", "synced", stats.Synced, "checked", stats.Checked, "matched", stats.Matched, "missing", stats.Missing, "pending", stats.Pending, "failed", stats.Failed)
+			logger.Warn("fulfillment audit check incomplete", "synced", stats.Synced, "checked", stats.Checked, "tracking_checked", stats.TrackingChecked, "tracking_failed", stats.TrackingFailed, "error", err)
+		} else if stats.Checked > 0 || stats.Synced > 0 || stats.TrackingChecked > 0 {
+			logger.Info("fulfillment audit check completed", "synced", stats.Synced, "checked", stats.Checked, "matched", stats.Matched, "missing", stats.Missing, "pending", stats.Pending, "failed", stats.Failed, "tracking_checked", stats.TrackingChecked, "pickup_exceptions", stats.PickupExceptions)
 		}
 	}
 	run()

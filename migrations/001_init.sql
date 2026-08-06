@@ -228,6 +228,27 @@ CREATE TABLE IF NOT EXISTS xlwms_sku_inventory_thresholds (
     updated_at timestamptz NOT NULL DEFAULT now()
 );
 
+CREATE TABLE IF NOT EXISTS xlwms_inventory_alert_defaults (
+    id smallint PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+    threshold numeric NOT NULL DEFAULT 100 CHECK (threshold >= 0),
+    updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+INSERT INTO xlwms_inventory_alert_defaults (id)
+VALUES (1)
+ON CONFLICT (id) DO NOTHING;
+
+CREATE TABLE IF NOT EXISTS xlwms_warehouse_sku_alert_thresholds (
+    wh_code text NOT NULL REFERENCES xlwms_warehouses(wh_code) ON DELETE CASCADE,
+    warehouse_sku text NOT NULL REFERENCES xlwms_warehouse_sku_specs(warehouse_sku) ON DELETE CASCADE,
+    threshold numeric NOT NULL CHECK (threshold >= 0),
+    updated_at timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (wh_code, warehouse_sku)
+);
+
+CREATE INDEX IF NOT EXISTS idx_xlwms_warehouse_sku_alert_thresholds_sku
+    ON xlwms_warehouse_sku_alert_thresholds (warehouse_sku, wh_code);
+
 INSERT INTO xlwms_warehouse_sku_specs (warehouse_sku, product_name, source)
 SELECT sku, max(product_name), 'inventory'
 FROM xlwms_inventory_records
@@ -275,12 +296,39 @@ CREATE TABLE IF NOT EXISTS xlwms_fulfillment_audits (
     UNIQUE (platform, shop_code, platform_order_no)
 );
 
+ALTER TABLE xlwms_fulfillment_audits
+    ADD COLUMN IF NOT EXISTS last_mile_tracking_number text NOT NULL DEFAULT '',
+    ADD COLUMN IF NOT EXISTS tracking_status text NOT NULL DEFAULT '',
+    ADD COLUMN IF NOT EXISTS tracking_status_text text NOT NULL DEFAULT '',
+    ADD COLUMN IF NOT EXISTS tracking_updated_at timestamptz,
+    ADD COLUMN IF NOT EXISTS tracking_checked_at timestamptz,
+    ADD COLUMN IF NOT EXISTS tracking_error text NOT NULL DEFAULT '',
+    ADD COLUMN IF NOT EXISTS tracking_category text NOT NULL DEFAULT 'awaiting_pickup',
+    ADD COLUMN IF NOT EXISTS tracking_package_count integer NOT NULL DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS picked_up_package_count integer NOT NULL DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS pickup_exception_reason text NOT NULL DEFAULT '',
+    ADD COLUMN IF NOT EXISTS pickup_confirmed_at timestamptz;
+
+CREATE INDEX IF NOT EXISTS idx_xlwms_fulfillment_audits_tracking
+    ON xlwms_fulfillment_audits (tracking_category, wh_code, shop_code, oms_outbound_at DESC);
+
 CREATE INDEX IF NOT EXISTS idx_xlwms_fulfillment_audits_queue
     ON xlwms_fulfillment_audits (active, last_checked_at, updated_at);
 CREATE INDEX IF NOT EXISTS idx_xlwms_fulfillment_audits_filters
     ON xlwms_fulfillment_audits (shop_code, wh_code, exception_category, updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_xlwms_fulfillment_audits_order
     ON xlwms_fulfillment_audits (platform_order_no);
+
+CREATE TABLE IF NOT EXISTS xlwms_fulfillment_tracking_watermarks (
+    queue_name text PRIMARY KEY,
+    cursor_audit_id bigint NOT NULL DEFAULT 0,
+    last_batch_at timestamptz,
+    last_batch_count integer NOT NULL DEFAULT 0,
+    last_failed_count integer NOT NULL DEFAULT 0,
+    last_cycle_completed_at timestamptz,
+    updated_at timestamptz NOT NULL DEFAULT now(),
+    CHECK (queue_name IN ('pickup_exception', 'regular'))
+);
 
 CREATE TABLE IF NOT EXISTS xlwms_outbound_order_index (
     account_key text NOT NULL,

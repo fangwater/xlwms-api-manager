@@ -99,6 +99,12 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .search-field input { width: 100%; min-width: 0; border: 0; outline: 0; color: #343a3f; font-size: 12px; }
 .search-field input::placeholder { color: #a4aaae; }
 .select-field select { min-width: 140px; border: 0; outline: 0; background: transparent; color: #4e555b; font-size: 11px; }
+.cost-filters { flex-wrap: wrap; }
+.cost-filters .search-field { flex: 1 1 260px; }
+.cost-filter-options { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; }
+.date-range-field { height: 35px; display: flex; align-items: center; gap: 7px; padding: 0 10px; border: 1px solid #dce0e2; border-radius: 6px; background: #fff; color: #81888e; }
+.date-range-field input { width: 112px; min-width: 0; border: 0; outline: 0; background: transparent; color: #4e555b; font-size: 11px; }
+.date-range-field span { color: #9aa0a5; font-size: 10px; }
 .table-panel { overflow: hidden; border-radius: 0 0 8px 8px; }
 .filter-bar + .table-panel { border-top: 0; }
 .table-scroll { width: 100%; overflow-x: auto; }
@@ -224,6 +230,9 @@ button:disabled { cursor: not-allowed; opacity: .55; }
   .search-field { width: calc(100% - 45px); }
   .select-field { flex: 1; }
   .select-field select { width: 100%; }
+  .cost-filters .search-field, .cost-filter-options { width: 100%; max-width: none; }
+  .date-range-field { width: 100%; }
+  .date-range-field input { flex: 1; width: auto; }
   .form-grid { grid-template-columns: 1fr; }
   .form-grid label.full { grid-column: auto; }
   .modal form { padding: 16px; }
@@ -266,6 +275,12 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .audit-status.oms-pending, .audit-status.oms-not_found, .audit-status.category-manual_required { background: #f8e9eb; color: #a93642; }
 .audit-status.oms-exception, .audit-status.oms-query_error, .audit-status.category-sync_error { background: #f5e7ea; color: #a52f3d; }
 .audit-status.category-warehouse_overdue { background: #f6efd9; color: #876516; }
+.audit-status.category-awaiting_pickup { background: #edf1f4; color: #526d7f; }
+.audit-status.category-picked_up { background: #e8f3ee; color: #246f56; }
+.audit-status.category-pickup_exception { background: #f8e9eb; color: #a93642; }
+.audit-status.category-tracking_error { background: #f6efd9; color: #876516; }
+.tracking-progress { min-width: 68px; display: inline-flex; align-items: center; gap: 4px; font-variant-numeric: tabular-nums; }
+.tracking-table td { vertical-align: top; }
 @media (max-width: 1000px) { .audit-summary { grid-template-columns: repeat(3,minmax(0,1fr)); } }
 @media (max-width: 680px) { .audit-summary { grid-template-columns: 1fr 1fr; } .audit-summary-item:first-child { grid-column: 1/-1; } .audit-filter-pair { width: 100%; } }
 .outbound-detail { width: min(760px,100%); }

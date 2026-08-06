@@ -10,20 +10,30 @@ import (
 )
 
 const (
-	DefaultAPIBaseURL = "https://api.xlwms.com/openapi"
-	DefaultListen     = "127.0.0.1:18083"
+	DefaultAPIBaseURL                 = "https://api.xlwms.com/openapi"
+	DefaultOMSBaseURL                 = "https://oms.xlwms.com"
+	DefaultTemuGoBaseURL              = "http://127.0.0.1:18082/temu"
+	DefaultListen                     = "127.0.0.1:18083"
+	DefaultFulfillmentTrackingLimit   = 500
+	DefaultFulfillmentTrackingWorkers = 8
 )
 
 type Config struct {
-	DatabaseURL              string
-	CredentialKeyFile        string
-	APIBaseURL               string
-	AppKey                   string
-	AppSecret                string
-	Listen                   string
-	RequestTimeout           time.Duration
-	SyncTimeout              time.Duration
-	FulfillmentAuditInterval time.Duration
+	DatabaseURL                string
+	CredentialKeyFile          string
+	APIBaseURL                 string
+	AppKey                     string
+	AppSecret                  string
+	OMSBaseURL                 string
+	OMSUsername                string
+	OMSPassword                string
+	TemuGoBaseURL              string
+	Listen                     string
+	RequestTimeout             time.Duration
+	SyncTimeout                time.Duration
+	FulfillmentAuditInterval   time.Duration
+	FulfillmentTrackingLimit   int
+	FulfillmentTrackingWorkers int
 }
 
 func Load() (Config, error) {
@@ -32,18 +42,27 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 	cfg := Config{
-		DatabaseURL:              strings.TrimSpace(os.Getenv("DATABASE_URL")),
-		CredentialKeyFile:        envOrDefault("XLWMS_CREDENTIAL_KEY_FILE", filepath.Join(cwd, ".warehouse_credentials_key")),
-		APIBaseURL:               strings.TrimRight(envOrDefault("XLWMS_API_BASE_URL", DefaultAPIBaseURL), "/"),
-		AppKey:                   os.Getenv("XLWMS_APP_KEY"),
-		AppSecret:                os.Getenv("XLWMS_APP_SECRET"),
-		Listen:                   envOrDefault("XLWMS_LISTEN", DefaultListen),
-		RequestTimeout:           30 * time.Second,
-		SyncTimeout:              30 * time.Minute,
-		FulfillmentAuditInterval: time.Hour,
+		DatabaseURL:                strings.TrimSpace(os.Getenv("DATABASE_URL")),
+		CredentialKeyFile:          envOrDefault("XLWMS_CREDENTIAL_KEY_FILE", filepath.Join(cwd, ".warehouse_credentials_key")),
+		APIBaseURL:                 strings.TrimRight(envOrDefault("XLWMS_API_BASE_URL", DefaultAPIBaseURL), "/"),
+		AppKey:                     os.Getenv("XLWMS_APP_KEY"),
+		AppSecret:                  os.Getenv("XLWMS_APP_SECRET"),
+		OMSBaseURL:                 strings.TrimRight(envOrDefault("XLWMS_OMS_BASE_URL", DefaultOMSBaseURL), "/"),
+		OMSUsername:                strings.TrimSpace(os.Getenv("XLWMS_OMS_USERNAME")),
+		OMSPassword:                os.Getenv("XLWMS_OMS_PASSWORD"),
+		TemuGoBaseURL:              strings.TrimRight(envOrDefault("TEMU_GO_BASE_URL", DefaultTemuGoBaseURL), "/"),
+		Listen:                     envOrDefault("XLWMS_LISTEN", DefaultListen),
+		RequestTimeout:             30 * time.Second,
+		SyncTimeout:                30 * time.Minute,
+		FulfillmentAuditInterval:   time.Hour,
+		FulfillmentTrackingLimit:   DefaultFulfillmentTrackingLimit,
+		FulfillmentTrackingWorkers: DefaultFulfillmentTrackingWorkers,
 	}
 	if cfg.DatabaseURL == "" {
 		return Config{}, errors.New("DATABASE_URL is required")
+	}
+	if (cfg.OMSUsername == "") != (cfg.OMSPassword == "") {
+		return Config{}, errors.New("XLWMS_OMS_USERNAME and XLWMS_OMS_PASSWORD must be configured together")
 	}
 	if cfg.RequestTimeout, err = positiveDuration("XLWMS_REQUEST_TIMEOUT", cfg.RequestTimeout); err != nil {
 		return Config{}, err
@@ -53,6 +72,15 @@ func Load() (Config, error) {
 	}
 	if cfg.FulfillmentAuditInterval, err = positiveDuration("XLWMS_FULFILLMENT_AUDIT_INTERVAL", cfg.FulfillmentAuditInterval); err != nil {
 		return Config{}, err
+	}
+	if cfg.FulfillmentTrackingLimit, err = PositiveInt("XLWMS_FULFILLMENT_TRACKING_LIMIT", cfg.FulfillmentTrackingLimit); err != nil {
+		return Config{}, err
+	}
+	if cfg.FulfillmentTrackingWorkers, err = PositiveInt("XLWMS_FULFILLMENT_TRACKING_CONCURRENCY", cfg.FulfillmentTrackingWorkers); err != nil {
+		return Config{}, err
+	}
+	if cfg.FulfillmentTrackingWorkers > 32 {
+		return Config{}, errors.New("XLWMS_FULFILLMENT_TRACKING_CONCURRENCY must not exceed 32")
 	}
 	return cfg, nil
 }

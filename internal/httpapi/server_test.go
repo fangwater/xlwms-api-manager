@@ -43,3 +43,21 @@ func TestOutboundValidatesBeforeCredentialLookup(t *testing.T) {
 		t.Fatalf("got status %d", recorder.Code)
 	}
 }
+
+func TestCostEndpointsRejectInvalidDateRangesBeforeStoreLookup(t *testing.T) {
+	tests := []string{
+		"/v1/funds-flows?start_date=2026-08-05&end_date=2026-08-01",
+		"/v1/cost-details?start_date=08-01-2026",
+	}
+	for _, path := range tests {
+		t.Run(path, func(t *testing.T) {
+			handler := New(nil, nil, nil, time.Second, slog.Default())
+			request := httptest.NewRequest(http.MethodGet, path, nil)
+			recorder := httptest.NewRecorder()
+			handler.ServeHTTP(recorder, request)
+			if recorder.Code != http.StatusBadRequest {
+				t.Fatalf("got status %d", recorder.Code)
+			}
+		})
+	}
+}

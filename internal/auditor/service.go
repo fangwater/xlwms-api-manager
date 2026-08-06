@@ -17,18 +17,24 @@ import (
 )
 
 type Service struct {
-	store          *store.Postgres
-	requestTimeout time.Duration
-	logger         *slog.Logger
+	store           *store.Postgres
+	requestTimeout  time.Duration
+	logger          *slog.Logger
+	tracking        trackingSource
+	trackingLimit   int
+	trackingWorkers int
 }
 
 type CheckStats struct {
-	Checked int `json:"checked"`
-	Matched int `json:"matched"`
-	Missing int `json:"missing"`
-	Pending int `json:"pending"`
-	Failed  int `json:"failed"`
-	Synced  int `json:"synced"`
+	Checked          int `json:"checked"`
+	Matched          int `json:"matched"`
+	Missing          int `json:"missing"`
+	Pending          int `json:"pending"`
+	Failed           int `json:"failed"`
+	Synced           int `json:"synced"`
+	TrackingChecked  int `json:"tracking_checked"`
+	TrackingFailed   int `json:"tracking_failed"`
+	PickupExceptions int `json:"pickup_exceptions"`
 }
 
 const (
@@ -43,7 +49,11 @@ const (
 )
 
 func New(destination *store.Postgres, requestTimeout time.Duration, logger *slog.Logger) *Service {
-	return &Service{store: destination, requestTimeout: requestTimeout, logger: logger}
+	return NewWithTracking(destination, nil, requestTimeout, 500, 8, logger)
+}
+
+func NewWithTracking(destination *store.Postgres, tracking trackingSource, requestTimeout time.Duration, limit, workers int, logger *slog.Logger) *Service {
+	return &Service{store: destination, requestTimeout: requestTimeout, logger: logger, tracking: tracking, trackingLimit: limit, trackingWorkers: workers}
 }
 
 func (s *Service) Check(ctx context.Context, limit int) (CheckStats, error) {
@@ -74,7 +84,7 @@ func (s *Service) Check(ctx context.Context, limit int) (CheckStats, error) {
 	candidates = mergeFulfillmentCandidates(candidates, statusCandidates)
 	stats.Checked = len(candidates)
 	if len(candidates) == 0 {
-		return stats, syncErr
+		return s.finishTrackingCheck(ctx, stats, syncErr, now)
 	}
 	references := make([]string, 0, len(candidates))
 	for _, item := range candidates {
@@ -115,7 +125,7 @@ func (s *Service) Check(ctx context.Context, limit int) (CheckStats, error) {
 	if err := s.store.RefreshFulfillmentAuditCategories(ctx); err != nil {
 		return stats, errors.Join(syncErr, err)
 	}
-	return stats, syncErr
+	return s.finishTrackingCheck(ctx, stats, syncErr, now)
 }
 
 func mergeFulfillmentCandidates(groups ...[]model.FulfillmentAudit) []model.FulfillmentAudit {

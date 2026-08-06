@@ -13,6 +13,7 @@
 - 库存概览、库龄结构、仓库库存分布和同步记录
 - 按仓库、SKU、产品、箱型、条码和关联单号查询
 - Temu 发货前实时 SKU 库存查询、东西区域安全库存判断和 DPS 优先选仓
+- Temu 已出库订单追踪、24 小时揽收超时识别及店铺/仓库维度筛选
 - 独立 Go SHEIN 订单、在线物流下单、面单和物流轨迹工作台
 - 桌面与移动端自适应管理界面
 
@@ -70,7 +71,7 @@ chmod 600 .env
 npm --prefix frontend ci
 ```
 
-在 `.env` 中配置 `DATABASE_URL`。全局 `XLWMS_APP_KEY` 和 `XLWMS_APP_SECRET` 只用于本地初始配置；日常同步从加密仓库注册表读取每个启用仓库的凭据。
+在 `.env` 中配置 `DATABASE_URL`。全局 `XLWMS_APP_KEY` 和 `XLWMS_APP_SECRET` 只用于本地初始配置；日常同步从加密仓库注册表读取每个启用仓库的凭据。平台订单栏目仅由后端读取 `XLWMS_OMS_USERNAME` 和 `XLWMS_OMS_PASSWORD`；前端不接触凭据或 OMS Token。物流匹配根据订单的平台仓 ID 和 Temu Go 中已有的仓库映射自动确定实际发货仓，无法精确映射时禁止审核。
 
 分别启动后端和前端：
 
@@ -99,13 +100,24 @@ make build
 ```text
 GET    /healthz
 GET    /v1/dashboard/summary
+GET    /v1/platform-orders/pending
+POST   /v1/platform-orders/routing-preview
+POST   /v1/platform-orders/assign-and-approve
 GET    /v1/warehouses
 POST   /v1/warehouses
 PATCH  /v1/warehouses/{code}/status
 GET    /v1/inventory
 GET    /v1/inventory/sku-levels
+GET    /v1/inventory-alerts
+PATCH  /v1/inventory-alerts/default
+PATCH  /v1/inventory-alerts/config
+POST   /v1/inventory-alerts/config/reset
 POST   /v1/inventory/query/{kind}
 POST   /v1/temu/warehouse-availability/query
+GET    /v1/fulfillment-audits
+GET    /v1/fulfillment-audits/archived
+GET    /v1/fulfillment-audits/export-manual
+POST   /v1/fulfillment-audits/sync
 POST   /v1/sync/inventory
 GET    /v1/funds-flows
 GET    /v1/cost-details
@@ -114,6 +126,9 @@ POST   /v1/sync/cost-details
 POST   /v1/outbound/{operation}
 GET    /v1/sync/runs
 ```
+`GET /v1/platform-orders/pending` 支持 `q` 参数按平台单号精确查询；仅返回当前仍处于待处理状态的订单。
+
+库存警告按启用仓的正品可用库存计算。未单独配置的“仓库 + SKU”使用默认告警线 `100`，可用库存低于或等于告警线时进入告警列表；单项配置通过仓库码和仓库 SKU 精确覆盖。
 
 出库操作统一使用 `POST /v1/outbound/{operation}`，`operation` 可选：`parcel-create`、`parcel-list`、`parcel-detail`、`parcel-cancel`、`cancel-status`、`bulk-product-create`、`bulk-list`、`bulk-detail`、`bulk-cancel`、`tracking-label-update`、`bulk-box-create`、`message-detail`、`message-reply`。请求体为 `{"warehouse":"WH_CODE","data":...}`。出库列表和详情实时查询领星，不在本地复制收件信息。
 
@@ -140,6 +155,26 @@ GET    /v1/sync/runs
 
 - 单仓可用库存小于等于 0 时不可选择。
 - 美东或美西区域内两仓可用库存合计小于等于 50 时，该区域转人工。
+
+## Temu 出库物流跟踪
+
+XLWMS 不保存 Temu 凭据，也不直接签名 Temu OpenAPI 请求。追踪查询统一调用独立的
+`/home/ubuntu/temu-api-manager` Go 服务；默认地址为
+`http://127.0.0.1:18082/temu`，可通过 `TEMU_GO_BASE_URL` 覆盖。XLWMS 按订单店铺发送
+`X-Temu-Shop`，通过 `GET /api/orders/{parentOrderSN}/tracking?language=en` 获取包裹轨迹。
+
+后台履约核查任务会追踪领星已出库的 Temu 订单，并仅保存运营所需的标准化状态：
+
+- 任一包裹出现 `Last Mile Carrier Pick up failed` 时，立即归类为“揽收异常订单”。
+- 自领星出库时间起达到 24 小时，仍有包裹未出现 `Last Mile Carrier Picked up` 时，归类为“揽收异常订单”；`Last-Mile Manifest` 包含在该规则内。
+- 订单的所有包裹均出现 `Last Mile Carrier Picked up` 后，才归类为“已揽收”。
+
+`GET /v1/fulfillment-audits/archived` 支持 `shop`、`warehouse`、
+`tracking_category` 和 `q` 组合筛选。追踪分类为 `awaiting_pickup`、`picked_up`、
+`pickup_exception` 或 `tracking_error`。揽收异常与普通待追踪订单使用独立的持久化
+watermark 轮转，互不挤占批次；Temu 查询失败会保存本次查询时间和错误，只有本地结果
+未保存成功时才停止推进 watermark。每个队列的单次追踪量和共享并发数分别由
+`XLWMS_FULFILLMENT_TRACKING_LIMIT`、`XLWMS_FULFILLMENT_TRACKING_CONCURRENCY` 控制。
 
 ## SHEIN Go 工作台
 

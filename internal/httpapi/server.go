@@ -8,6 +8,8 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
+	"strings"
+	"sync"
 	"time"
 
 	"xlwms-api-manager/internal/auditor"
@@ -24,6 +26,9 @@ type Server struct {
 	requestTimeout     time.Duration
 	logger             *slog.Logger
 	fulfillmentAuditor *auditor.Service
+	platformOrders     platformOrderSource
+	platformMappings   platformWarehouseMappingSource
+	platformOrderMu    sync.Mutex
 }
 
 type response struct {
@@ -33,10 +38,24 @@ type response struct {
 }
 
 func New(destination *store.Postgres, service *syncer.Service, fulfillmentAuditor *auditor.Service, requestTimeout time.Duration, logger *slog.Logger) http.Handler {
-	server := &Server{store: destination, syncer: service, fulfillmentAuditor: fulfillmentAuditor, requestTimeout: requestTimeout, logger: logger}
+	return NewWithPlatformOrders(destination, service, fulfillmentAuditor, nil, requestTimeout, logger)
+}
+
+func NewWithPlatformOrders(destination *store.Postgres, service *syncer.Service, fulfillmentAuditor *auditor.Service, platformOrders platformOrderSource, requestTimeout time.Duration, logger *slog.Logger) http.Handler {
+	return NewWithPlatformOrderOperations(destination, service, fulfillmentAuditor, platformOrders, nil, requestTimeout, logger)
+}
+
+func NewWithPlatformOrderOperations(destination *store.Postgres, service *syncer.Service, fulfillmentAuditor *auditor.Service, platformOrders platformOrderSource, platformMappings platformWarehouseMappingSource, requestTimeout time.Duration, logger *slog.Logger) http.Handler {
+	server := &Server{
+		store: destination, syncer: service, fulfillmentAuditor: fulfillmentAuditor, platformOrders: platformOrders,
+		platformMappings: platformMappings, requestTimeout: requestTimeout, logger: logger,
+	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", server.health)
 	mux.HandleFunc("GET /v1/dashboard/summary", server.dashboard)
+	mux.HandleFunc("GET /v1/platform-orders/pending", server.pendingPlatformOrders)
+	mux.HandleFunc("POST /v1/platform-orders/routing-preview", server.platformOrderRoutingPreview)
+	mux.HandleFunc("POST /v1/platform-orders/assign-and-approve", server.assignAndApprovePlatformOrdersAuto)
 	mux.HandleFunc("GET /v1/warehouses", server.listWarehouses)
 	mux.HandleFunc("POST /v1/warehouses", server.upsertWarehouse)
 	mux.HandleFunc("PATCH /v1/warehouses/{code}/status", server.warehouseStatus)
@@ -45,6 +64,10 @@ func New(destination *store.Postgres, service *syncer.Service, fulfillmentAudito
 	mux.HandleFunc("GET /v1/cost-details/{warehouse}/{costNo}/items", server.costItems)
 	mux.HandleFunc("GET /v1/inventory", server.inventory)
 	mux.HandleFunc("GET /v1/inventory/sku-levels", server.skuStockLevels)
+	mux.HandleFunc("GET /v1/inventory-alerts", server.listInventoryAlerts)
+	mux.HandleFunc("PATCH /v1/inventory-alerts/default", server.updateInventoryAlertDefault)
+	mux.HandleFunc("PATCH /v1/inventory-alerts/config", server.updateInventoryAlertConfig)
+	mux.HandleFunc("POST /v1/inventory-alerts/config/reset", server.resetInventoryAlertConfig)
 	mux.HandleFunc("GET /v1/warehouse-sku-specs", server.listWarehouseSKUSpecs)
 	mux.HandleFunc("POST /v1/warehouse-sku-specs", server.saveWarehouseSKUSpec)
 	mux.HandleFunc("PATCH /v1/warehouse-sku-specs/{warehouseSKU}", server.updateWarehouseSKUSpec)
@@ -155,11 +178,17 @@ func (s *Server) warehouseStatus(writer http.ResponseWriter, request *http.Reque
 }
 
 func (s *Server) fundsFlows(writer http.ResponseWriter, request *http.Request) {
+	startDate, endDate, err := queryDateRange(request)
+	if err != nil {
+		writeJSON(writer, http.StatusBadRequest, response{Success: false, Error: err.Error()})
+		return
+	}
 	ctx, cancel := context.WithTimeout(request.Context(), s.requestTimeout)
 	defer cancel()
 	items, total, err := s.store.ListFundsFlows(ctx, store.FundsFlowFilter{
 		WarehouseCode: request.URL.Query().Get("warehouse"), Query: request.URL.Query().Get("q"),
-		DetailStatus: request.URL.Query().Get("detail_status"), Page: queryInt(request, "page", 1), PageSize: queryInt(request, "page_size", 30),
+		DetailStatus: request.URL.Query().Get("detail_status"), StartDate: startDate, EndDate: endDate,
+		Page: queryInt(request, "page", 1), PageSize: queryInt(request, "page_size", 30),
 	})
 	if err != nil {
 		s.internalError(writer, "list funds flows", err)
@@ -169,10 +198,18 @@ func (s *Server) fundsFlows(writer http.ResponseWriter, request *http.Request) {
 }
 
 func (s *Server) costDetails(writer http.ResponseWriter, request *http.Request) {
+	startDate, endDate, err := queryDateRange(request)
+	if err != nil {
+		writeJSON(writer, http.StatusBadRequest, response{Success: false, Error: err.Error()})
+		return
+	}
 	ctx, cancel := context.WithTimeout(request.Context(), s.requestTimeout)
 	defer cancel()
 	page, pageSize := queryInt(request, "page", 1), queryInt(request, "page_size", 30)
-	items, total, err := s.store.ListCostDetails(ctx, request.URL.Query().Get("warehouse"), request.URL.Query().Get("q"), page, pageSize)
+	items, total, err := s.store.ListCostDetails(ctx, store.CostDetailFilter{
+		WarehouseCode: request.URL.Query().Get("warehouse"), Query: request.URL.Query().Get("q"),
+		StartDate: startDate, EndDate: endDate, Page: page, PageSize: pageSize,
+	})
 	if err != nil {
 		s.internalError(writer, "list cost details", err)
 		return
@@ -420,6 +457,30 @@ func queryInt(request *http.Request, name string, fallback int) int {
 	}
 	return value
 }
+
+func queryDateRange(request *http.Request) (string, string, error) {
+	startDate := strings.TrimSpace(request.URL.Query().Get("start_date"))
+	endDate := strings.TrimSpace(request.URL.Query().Get("end_date"))
+	var start, end time.Time
+	var err error
+	if startDate != "" {
+		start, err = time.Parse(time.DateOnly, startDate)
+		if err != nil {
+			return "", "", errors.New("start_date must use YYYY-MM-DD")
+		}
+	}
+	if endDate != "" {
+		end, err = time.Parse(time.DateOnly, endDate)
+		if err != nil {
+			return "", "", errors.New("end_date must use YYYY-MM-DD")
+		}
+	}
+	if !start.IsZero() && !end.IsZero() && end.Before(start) {
+		return "", "", errors.New("end_date must not be before start_date")
+	}
+	return startDate, endDate, nil
+}
+
 func decodeJSON(writer http.ResponseWriter, request *http.Request, target any) bool {
 	return decode(writer, request, target, false)
 }

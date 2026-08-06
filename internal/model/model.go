@@ -179,6 +179,36 @@ type SKUInventoryThreshold struct {
 	UpdatedAt   time.Time  `json:"updated_at"`
 }
 
+type InventoryAlert struct {
+	WarehouseCode   string    `json:"wh_code"`
+	WarehouseName   string    `json:"wh_name"`
+	WarehouseSKU    string    `json:"warehouse_sku"`
+	ProductName     string    `json:"product_name"`
+	TotalAmount     float64   `json:"total_amount"`
+	AvailableAmount float64   `json:"available_amount"`
+	LockAmount      float64   `json:"lock_amount"`
+	TransportAmount float64   `json:"transport_amount"`
+	Threshold       float64   `json:"threshold"`
+	Customized      bool      `json:"customized"`
+	Alert           bool      `json:"alert"`
+	InventoryAt     time.Time `json:"inventory_at"`
+	ConfigUpdatedAt time.Time `json:"config_updated_at"`
+}
+
+type InventoryAlertSummary struct {
+	AlertCount      int `json:"alert_count"`
+	OutOfStockCount int `json:"out_of_stock_count"`
+	WarehouseCount  int `json:"warehouse_count"`
+	SKUCount        int `json:"sku_count"`
+}
+
+type WarehouseSKUInventoryAlertThreshold struct {
+	WarehouseCode string    `json:"wh_code"`
+	WarehouseSKU  string    `json:"warehouse_sku"`
+	Threshold     float64   `json:"threshold"`
+	UpdatedAt     time.Time `json:"updated_at"`
+}
+
 type WarehouseSKUQuantity struct {
 	WarehouseSKU string `json:"warehouse_sku"`
 	Quantity     int    `json:"quantity"`
@@ -220,33 +250,44 @@ type WarehouseSKUSpecResolution struct {
 }
 
 type FulfillmentAudit struct {
-	ID                 int64      `json:"id"`
-	Platform           string     `json:"platform"`
-	ShopCode           string     `json:"shop_code"`
-	ShopName           string     `json:"shop_name"`
-	PlatformOrderNo    string     `json:"platform_order_no"`
-	PlatformStatus     string     `json:"platform_status"`
-	PlatformStatusCode *int       `json:"platform_status_code,omitempty"`
-	PlatformShippingAt *time.Time `json:"platform_shipping_at,omitempty"`
-	WarehouseKey       string     `json:"warehouse_key"`
-	WarehouseCode      string     `json:"wh_code"`
-	TrackingNumber     string     `json:"tracking_number"`
-	OMSStatus          string     `json:"oms_status"`
-	OMSStatusCode      *int       `json:"oms_status_code,omitempty"`
-	OMSStatusSince     time.Time  `json:"oms_status_since"`
-	OMSProcessingSince *time.Time `json:"oms_processing_since,omitempty"`
-	OMSOrderCreatedAt  *time.Time `json:"oms_order_created_at,omitempty"`
-	OMSOutboundAt      *time.Time `json:"oms_outbound_at,omitempty"`
-	OutboundOrderNo    string     `json:"outbound_order_no"`
-	OMSTrackingNumber  string     `json:"oms_tracking_number"`
-	ExceptionCategory  string     `json:"exception_category"`
-	SyncError          string     `json:"sync_error,omitempty"`
-	Active             bool       `json:"active"`
-	FirstSeenAt        time.Time  `json:"first_seen_at"`
-	LastSeenAt         time.Time  `json:"last_seen_at"`
-	LastCheckedAt      *time.Time `json:"last_checked_at,omitempty"`
-	ResolvedAt         *time.Time `json:"resolved_at,omitempty"`
-	UpdatedAt          time.Time  `json:"updated_at"`
+	ID                     int64      `json:"id"`
+	Platform               string     `json:"platform"`
+	ShopCode               string     `json:"shop_code"`
+	ShopName               string     `json:"shop_name"`
+	PlatformOrderNo        string     `json:"platform_order_no"`
+	PlatformStatus         string     `json:"platform_status"`
+	PlatformStatusCode     *int       `json:"platform_status_code,omitempty"`
+	PlatformShippingAt     *time.Time `json:"platform_shipping_at,omitempty"`
+	WarehouseKey           string     `json:"warehouse_key"`
+	WarehouseCode          string     `json:"wh_code"`
+	TrackingNumber         string     `json:"tracking_number"`
+	OMSStatus              string     `json:"oms_status"`
+	OMSStatusCode          *int       `json:"oms_status_code,omitempty"`
+	OMSStatusSince         time.Time  `json:"oms_status_since"`
+	OMSProcessingSince     *time.Time `json:"oms_processing_since,omitempty"`
+	OMSOrderCreatedAt      *time.Time `json:"oms_order_created_at,omitempty"`
+	OMSOutboundAt          *time.Time `json:"oms_outbound_at,omitempty"`
+	OutboundOrderNo        string     `json:"outbound_order_no"`
+	OMSTrackingNumber      string     `json:"oms_tracking_number"`
+	LastMileTrackingNumber string     `json:"last_mile_tracking_number"`
+	TrackingStatus         string     `json:"tracking_status"`
+	TrackingStatusText     string     `json:"tracking_status_text"`
+	TrackingUpdatedAt      *time.Time `json:"tracking_updated_at,omitempty"`
+	TrackingCheckedAt      *time.Time `json:"tracking_checked_at,omitempty"`
+	TrackingError          string     `json:"tracking_error,omitempty"`
+	TrackingCategory       string     `json:"tracking_category"`
+	TrackingPackageCount   int        `json:"tracking_package_count"`
+	PickedUpPackageCount   int        `json:"picked_up_package_count"`
+	PickupExceptionReason  string     `json:"pickup_exception_reason,omitempty"`
+	PickupConfirmedAt      *time.Time `json:"pickup_confirmed_at,omitempty"`
+	ExceptionCategory      string     `json:"exception_category"`
+	SyncError              string     `json:"sync_error,omitempty"`
+	Active                 bool       `json:"active"`
+	FirstSeenAt            time.Time  `json:"first_seen_at"`
+	LastSeenAt             time.Time  `json:"last_seen_at"`
+	LastCheckedAt          *time.Time `json:"last_checked_at,omitempty"`
+	ResolvedAt             *time.Time `json:"resolved_at,omitempty"`
+	UpdatedAt              time.Time  `json:"updated_at"`
 }
 
 type FulfillmentAuditSnapshotItem struct {
@@ -270,6 +311,19 @@ type FulfillmentAuditResolution struct {
 	SyncError       string
 }
 
+type FulfillmentTrackingResolution struct {
+	LastMileTrackingNumber string
+	TrackingStatus         string
+	TrackingStatusText     string
+	TrackingUpdatedAt      *time.Time
+	TrackingError          string
+	TrackingCategory       string
+	TrackingPackageCount   int
+	PickedUpPackageCount   int
+	PickupExceptionReason  string
+	PickupConfirmedAt      *time.Time
+}
+
 type FulfillmentAuditSummary struct {
 	Total            int        `json:"total"`
 	PendingQuery     int        `json:"pending_query"`
@@ -280,6 +334,15 @@ type FulfillmentAuditSummary struct {
 	LastQueryAt      *time.Time `json:"last_query_at,omitempty"`
 }
 
+type FulfilledTrackingSummary struct {
+	Total           int        `json:"total"`
+	AwaitingPickup  int        `json:"awaiting_pickup"`
+	PickedUp        int        `json:"picked_up"`
+	PickupException int        `json:"pickup_exception"`
+	TrackingError   int        `json:"tracking_error"`
+	LastQueryAt     *time.Time `json:"last_query_at,omitempty"`
+	LastTrackingAt  *time.Time `json:"last_tracking_at,omitempty"`
+}
 type OutboundOrderIndex struct {
 	WarehouseCode   string     `json:"whCode"`
 	OutboundOrderNo string     `json:"outboundOrderNo"`

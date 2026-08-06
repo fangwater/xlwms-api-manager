@@ -179,8 +179,33 @@ type FundsFlowFilter struct {
 	WarehouseCode string
 	Query         string
 	DetailStatus  string
+	StartDate     string
+	EndDate       string
 	Page          int
 	PageSize      int
+}
+
+type CostDetailFilter struct {
+	WarehouseCode string
+	Query         string
+	StartDate     string
+	EndDate       string
+	Page          int
+	PageSize      int
+}
+
+func appendDateRangeFilters(where []string, args []any, column, startDate, endDate string) ([]string, []any) {
+	add := func(value string) string {
+		args = append(args, value)
+		return fmt.Sprintf("$%d", len(args))
+	}
+	if startDate = strings.TrimSpace(startDate); startDate != "" {
+		where = append(where, column+" >= "+add(startDate)+"::date")
+	}
+	if endDate = strings.TrimSpace(endDate); endDate != "" {
+		where = append(where, column+" < ("+add(endDate)+"::date + interval '1 day')")
+	}
+	return where, args
 }
 
 func (p *Postgres) ListFundsFlows(ctx context.Context, filter FundsFlowFilter) ([]model.FundsFlow, int, error) {
@@ -206,6 +231,7 @@ func (p *Postgres) ListFundsFlows(ctx context.Context, filter FundsFlowFilter) (
 	if status := strings.TrimSpace(filter.DetailStatus); status != "" {
 		where = append(where, "detail_sync_status = "+add(status))
 	}
+	where, args = appendDateRangeFilters(where, args, "cost_time", filter.StartDate, filter.EndDate)
 	clause := strings.Join(where, " AND ")
 	var total int
 	if err := p.pool.QueryRow(ctx, "SELECT count(*) FROM xlwms_funds_flows WHERE "+clause, args...).Scan(&total); err != nil {
@@ -240,29 +266,30 @@ func (p *Postgres) ListFundsFlows(ctx context.Context, filter FundsFlowFilter) (
 	return items, total, rows.Err()
 }
 
-func (p *Postgres) ListCostDetails(ctx context.Context, warehouseCode, query string, page, pageSize int) ([]model.CostDetail, int, error) {
-	if page < 1 {
-		page = 1
+func (p *Postgres) ListCostDetails(ctx context.Context, filter CostDetailFilter) ([]model.CostDetail, int, error) {
+	if filter.Page < 1 {
+		filter.Page = 1
 	}
-	if pageSize < 1 || pageSize > 100 {
-		pageSize = 30
+	if filter.PageSize < 1 || filter.PageSize > 100 {
+		filter.PageSize = 30
 	}
 	where := []string{"1=1"}
-	args := make([]any, 0, 5)
+	args := make([]any, 0, 7)
 	add := func(value any) string { args = append(args, value); return fmt.Sprintf("$%d", len(args)) }
-	if code := strings.ToUpper(strings.TrimSpace(warehouseCode)); code != "" {
+	if code := strings.ToUpper(strings.TrimSpace(filter.WarehouseCode)); code != "" {
 		where = append(where, "d.wh_code = "+add(code))
 	}
-	if query = strings.TrimSpace(query); query != "" {
+	if query := strings.TrimSpace(filter.Query); query != "" {
 		placeholder := add("%" + query + "%")
 		where = append(where, "(d.cost_no ILIKE "+placeholder+" OR d.query_order_no ILIKE "+placeholder+" OR coalesce(d.platform_order_no, '') ILIKE "+placeholder+")")
 	}
+	where, args = appendDateRangeFilters(where, args, "d.create_time", filter.StartDate, filter.EndDate)
 	clause := strings.Join(where, " AND ")
 	var total int
 	if err := p.pool.QueryRow(ctx, "SELECT count(*) FROM xlwms_cost_details d WHERE "+clause, args...).Scan(&total); err != nil {
 		return nil, 0, err
 	}
-	args = append(args, pageSize, (page-1)*pageSize)
+	args = append(args, filter.PageSize, (filter.Page-1)*filter.PageSize)
 	rows, err := p.pool.Query(ctx, `
 		SELECT d.wh_code, d.cost_no, d.query_order_no, coalesce(d.cost_total, 0)::float8,
 		       coalesce(d.currency_code, ''), d.module_type, d.cost_status, d.bill_status,
@@ -277,7 +304,7 @@ func (p *Postgres) ListCostDetails(ctx context.Context, warehouseCode, query str
 		return nil, 0, err
 	}
 	defer rows.Close()
-	items := make([]model.CostDetail, 0, pageSize)
+	items := make([]model.CostDetail, 0, filter.PageSize)
 	for rows.Next() {
 		var item model.CostDetail
 		if err := rows.Scan(&item.WarehouseCode, &item.CostNo, &item.QueryOrderNo, &item.CostTotal, &item.CurrencyCode, &item.ModuleType, &item.CostStatus, &item.BillStatus, &item.CreateTime, &item.PlatformOrderNo, &item.ItemCount); err != nil {
