@@ -171,9 +171,9 @@ type AssignmentFailure struct {
 }
 
 type AssignmentResult struct {
-	TotalQuantity   int                 `json:"totalQuantity"`
-	SuccessQuantity int                 `json:"successQuantity"`
-	FailQuantity    int                 `json:"failQuantity"`
+	TotalQuantity   FlexibleInt         `json:"totalQuantity"`
+	SuccessQuantity FlexibleInt         `json:"successQuantity"`
+	FailQuantity    FlexibleInt         `json:"failQuantity"`
 	FailList        []AssignmentFailure `json:"failList"`
 }
 
@@ -402,8 +402,8 @@ func (c *Client) AssignAndApprove(ctx context.Context, input AssignmentRequest) 
 		}
 		result := envelope.Data
 		if result.TotalQuantity == 0 && result.SuccessQuantity == 0 && result.FailQuantity == 0 && len(result.FailList) == 0 {
-			result.TotalQuantity = len(input.Orders)
-			result.SuccessQuantity = len(input.Orders)
+			result.TotalQuantity = FlexibleInt(len(input.Orders))
+			result.SuccessQuantity = FlexibleInt(len(input.Orders))
 		}
 		return result, nil
 	})

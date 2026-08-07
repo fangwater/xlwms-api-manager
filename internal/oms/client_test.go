@@ -119,7 +119,12 @@ func TestLogisticsAssignmentUsesVerifiedWebContract(t *testing.T) {
 			if _, exists := body["auditingFlag"]; exists {
 				t.Errorf("batch fetch-only payload must not contain auditingFlag")
 			}
-			writeOMSJSON(writer, apiEnvelope[AssignmentResult]{Code: 200})
+			writeOMSJSON(writer, map[string]any{
+				"code": 200,
+				"data": map[string]any{
+					"totalQuantity": "2", "successQuantity": "2", "failQuantity": "0", "failList": []any{},
+				},
+			})
 		default:
 			http.NotFound(writer, request)
 		}

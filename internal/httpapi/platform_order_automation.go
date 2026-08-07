@@ -160,7 +160,7 @@ func (s *Server) assignAndApprovePlatformOrdersAuto(writer http.ResponseWriter, 
 			}
 			continue
 		}
-		groupSuccess := result.SuccessQuantity
+		groupSuccess := int(result.SuccessQuantity)
 		if groupSuccess < 0 {
 			groupSuccess = 0
 		}
