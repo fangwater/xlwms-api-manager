@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"sort"
@@ -10,6 +11,7 @@ import (
 
 	"xlwms-api-manager/internal/model"
 	"xlwms-api-manager/internal/oms"
+	"xlwms-api-manager/internal/store"
 	"xlwms-api-manager/internal/temutracking"
 )
 
@@ -41,6 +43,7 @@ type automaticPlatformOrderRoute struct {
 	logisticsChannelCode string
 	logisticsChannelName string
 	channelGroupFlag     int
+	operator             platformOrderOperator
 }
 
 type unresolvedPlatformOrderRoute struct {
@@ -59,7 +62,7 @@ type automaticRoutingPreview struct {
 }
 
 func (s *Server) platformOrderRoutingPreview(writer http.ResponseWriter, request *http.Request) {
-	if _, ok := s.platformOrders.(platformOrderOperator); !ok || s.platformMappings == nil || s.platformFulfillment == nil {
+	if _, ok := s.platformOrders.(platformOrderOperator); !ok || s.platformMappings == nil || s.platformFulfillment == nil || s.platformAccounts == nil {
 		writeJSON(writer, http.StatusServiceUnavailable, response{Success: false, Error: "平台订单自动仓库映射未配置"})
 		return
 	}
@@ -84,8 +87,7 @@ func (s *Server) platformOrderRoutingPreview(writer http.ResponseWriter, request
 }
 
 func (s *Server) assignAndApprovePlatformOrdersAuto(writer http.ResponseWriter, request *http.Request) {
-	operator, ok := s.platformOrders.(platformOrderOperator)
-	if !ok || s.platformMappings == nil || s.platformFulfillment == nil {
+	if _, ok := s.platformOrders.(platformOrderOperator); !ok || s.platformMappings == nil || s.platformFulfillment == nil || s.platformAccounts == nil {
 		writeJSON(writer, http.StatusServiceUnavailable, response{Success: false, Error: "OMS 平台订单自动操作未配置"})
 		return
 	}
@@ -146,7 +148,7 @@ func (s *Server) assignAndApprovePlatformOrdersAuto(writer http.ResponseWriter, 
 			platformByInternal[route.internalOrderNo] = route.PlatformOrderNo
 		}
 		selected := routes[0]
-		result, assignErr := operator.AssignAndApprove(ctx, oms.AssignmentRequest{
+		result, assignErr := selected.operator.AssignAndApprove(ctx, oms.AssignmentRequest{
 			Orders: internalOrderNos, WarehouseCode: warehouseCode,
 			LogisticsChannelCode: selected.logisticsChannelCode, LogisticsChannelName: selected.logisticsChannelName,
 			LogisticsChannelGroupFlag: selected.channelGroupFlag, LogisticsCarrier: payload.LogisticsCarrier,
@@ -193,14 +195,6 @@ func (s *Server) resolveAutomaticPlatformOrderRoutes(ctx context.Context, platfo
 		Carriers:  []platformOrderCarrierOption{{Value: oms.AutoMatchCarrierValue, Label: "自动匹配"}, {Value: oms.OtherCarrierValue, Label: "Other"}},
 		QueriedAt: time.Now().UTC(),
 	}
-	warehouses, err := operator.WarehouseOptions(ctx)
-	if err != nil {
-		return preview, fmt.Errorf("query OMS warehouse options: %w", err)
-	}
-	activeWarehouses := make(map[string]oms.WarehouseOption, len(warehouses))
-	for _, warehouse := range warehouses {
-		activeWarehouses[strings.ToUpper(strings.TrimSpace(warehouse.WarehouseCode))] = warehouse
-	}
 	mappings, err := s.platformMappings.WarehouseMappings(ctx)
 	if err != nil {
 		return preview, fmt.Errorf("query platform warehouse mappings: %w", err)
@@ -237,6 +231,9 @@ func (s *Server) resolveAutomaticPlatformOrderRoutes(ctx context.Context, platfo
 		return preview, nil
 	}
 
+	operatorCache := make(map[string]platformOrderOperator)
+	warehouseCache := make(map[string]oms.WarehouseOption)
+	accountReasons := make(map[string]string)
 	channelCache := make(map[string]oms.LogisticsChannelOption)
 	channelMissing := make(map[string]bool)
 	for index, order := range orders {
@@ -280,14 +277,41 @@ func (s *Server) resolveAutomaticPlatformOrderRoutes(ctx context.Context, platfo
 			}
 			break
 		}
-		warehouse, available := activeWarehouses[warehouseCode]
-		if !available {
-			preview.Unresolved = append(preview.Unresolved, unresolvedPlatformOrderRoute{PlatformOrderNo: platformOrderNo, Reason: "当前 OMS 发货账号无权使用购面单仓库 " + warehouseCode})
+		if _, checked := operatorCache[warehouseCode]; !checked && accountReasons[warehouseCode] == "" {
+			warehouseOperator, accountErr := s.platformAccounts.OperatorForWarehouse(ctx, warehouseCode)
+			if accountErr != nil {
+				if errors.Is(accountErr, store.ErrWarehouseOMSAccountNotConfigured) {
+					accountReasons[warehouseCode] = "购面单仓库 " + warehouseCode + " 尚未配置 OMS 发货账号"
+				} else {
+					accountReasons[warehouseCode] = "购面单仓库 " + warehouseCode + " 的 OMS 发货账号不可用"
+				}
+			} else {
+				warehouses, warehouseErr := warehouseOperator.WarehouseOptions(ctx)
+				if warehouseErr != nil {
+					accountReasons[warehouseCode] = "购面单仓库 " + warehouseCode + " 的 OMS 发货账号不可用"
+				} else {
+					for _, option := range warehouses {
+						if strings.EqualFold(strings.TrimSpace(option.WarehouseCode), warehouseCode) {
+							operatorCache[warehouseCode] = warehouseOperator
+							warehouseCache[warehouseCode] = option
+							break
+						}
+					}
+					if operatorCache[warehouseCode] == nil {
+						accountReasons[warehouseCode] = "配置的 OMS 发货账号无权使用购面单仓库 " + warehouseCode
+					}
+				}
+			}
+		}
+		if reason := accountReasons[warehouseCode]; reason != "" {
+			preview.Unresolved = append(preview.Unresolved, unresolvedPlatformOrderRoute{PlatformOrderNo: platformOrderNo, Reason: reason})
 			continue
 		}
+		warehouse := warehouseCache[warehouseCode]
+		warehouseOperator := operatorCache[warehouseCode]
 		channel, checked := channelCache[warehouseCode]
 		if !checked && !channelMissing[warehouseCode] {
-			channels, channelErr := operator.LogisticsChannels(ctx, warehouseCode)
+			channels, channelErr := warehouseOperator.LogisticsChannels(ctx, warehouseCode)
 			if channelErr != nil {
 				return preview, fmt.Errorf("query logistics channels for warehouse %s: %w", warehouseCode, channelErr)
 			}
@@ -310,7 +334,7 @@ func (s *Server) resolveAutomaticPlatformOrderRoutes(ctx context.Context, platfo
 			PlatformOrderNo: platformOrderNo, PlatformWarehouseID: platformWarehouseID, PlatformWarehouse: platformWarehouseName,
 			WarehouseCode: warehouse.WarehouseCode, WarehouseName: warehouse.WarehouseName, internalOrderNo: order.OrderNo,
 			logisticsChannelCode: channel.LogisticsChannel, logisticsChannelName: channel.LogisticsChannelName,
-			channelGroupFlag: channel.ChannelGroupFlag,
+			channelGroupFlag: channel.ChannelGroupFlag, operator: warehouseOperator,
 		})
 	}
 	preview.Ready = len(preview.Routes) == len(platformOrderNos) && len(preview.Unresolved) == 0

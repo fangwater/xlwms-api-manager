@@ -148,6 +148,11 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .warehouse-cell > div { display: flex; flex-direction: column; gap: 2px; }
 .warehouse-cell small { color: #90979c; font-size: 10px; }
 .key-hint { display: inline-flex; align-items: center; gap: 6px; padding: 5px 7px; border-radius: 5px; background: #f1f3f4; color: #666e74; font-family: ui-monospace, monospace; }
+.warehouse-account-cell { min-width: 210px; display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.warehouse-account-cell > div { min-width: 0; display: flex; align-items: center; gap: 7px; }
+.warehouse-account-cell small { max-width: 96px; overflow: hidden; color: #858d92; font-family: ui-monospace, monospace; font-size: 9px; text-overflow: ellipsis; }
+.account-modal { width: min(520px,100%); }
+.account-clear-button { margin-right: auto; }
 .toggle { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; }
 .toggle input { position: absolute; opacity: 0; pointer-events: none; }
 .toggle > span { width: 32px; height: 18px; position: relative; border-radius: 10px; background: #cbd0d3; transition: background .16s; }

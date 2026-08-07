@@ -1,8 +1,8 @@
 import { expect, test, type Page } from "@playwright/test";
 
 const warehouses = [
-  { wh_code: "EAST-01", name: "华东一号仓", api_base_url: "https://api.xlwms.com/openapi", app_key_hint: "demo...key", active: true, updated_at: "2026-08-01T08:00:00Z" },
-  { wh_code: "WEST-02", name: "西部分拨仓", api_base_url: "https://api.xlwms.com/openapi", app_key_hint: "demo...key", active: true, updated_at: "2026-08-01T08:00:00Z" }
+  { wh_code: "EAST-01", name: "华东一号仓", api_base_url: "https://api.xlwms.com/openapi", app_key_hint: "demo...key", oms_account_configured: true, oms_account_hint: "op***01", active: true, updated_at: "2026-08-01T08:00:00Z" },
+  { wh_code: "WEST-02", name: "西部分拨仓", api_base_url: "https://api.xlwms.com/openapi", app_key_hint: "demo...key", oms_account_configured: false, oms_account_hint: "", active: true, updated_at: "2026-08-01T08:00:00Z" }
 ];
 
 async function mockAPI(page: Page, options: { indexedParcelMatch?: boolean } = {}) {
@@ -416,4 +416,28 @@ test("outbound tracking classifies pickup exceptions and combines filters", asyn
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBeTruthy();
   await expect(page.getByRole("heading", { name: "出库物流跟踪" })).toBeVisible();
   await page.screenshot({ path: "/tmp/xlwms-outbound-tracking-mobile.png", fullPage: true });
+});
+
+test("warehouse page configures an encrypted OMS shipping account", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 860 });
+  await mockAPI(page);
+  await page.goto("./warehouses");
+
+  await expect(page.getByRole("heading", { name: "仓库管理" })).toBeVisible();
+  await expect(page.getByText("op***01")).toBeVisible();
+  await expect(page.getByText("未绑定发货账号")).toBeVisible();
+  await page.getByTitle("更换 OMS 发货账号").click();
+
+  const dialog = page.getByRole("dialog", { name: "OMS 发货账号" });
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByText("华东一号仓 · EAST-01")).toBeVisible();
+  await dialog.getByLabel("OMS 用户名").fill("warehouse-operator");
+  await dialog.getByLabel("OMS 密码").fill("test-password");
+
+  const saveRequest = page.waitForRequest(request => request.method() === "PUT" && request.url().endsWith("/warehouses/EAST-01/oms-account"));
+  await page.screenshot({ path: "/tmp/xlwms-warehouse-account-desktop.png", fullPage: true });
+  await dialog.getByRole("button", { name: "保存账号" }).click();
+  expect((await saveRequest).postDataJSON()).toEqual({ username: "warehouse-operator", password: "test-password" });
+  await expect(dialog).toHaveCount(0);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBeTruthy();
 });

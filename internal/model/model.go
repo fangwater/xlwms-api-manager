@@ -6,18 +6,26 @@ import (
 )
 
 type WarehouseSummary struct {
-	Code       string    `json:"wh_code"`
-	Name       string    `json:"name"`
-	APIBaseURL string    `json:"api_base_url"`
-	AppKeyHint string    `json:"app_key_hint"`
-	Active     bool      `json:"active"`
-	UpdatedAt  time.Time `json:"updated_at"`
+	Code                 string    `json:"wh_code"`
+	Name                 string    `json:"name"`
+	APIBaseURL           string    `json:"api_base_url"`
+	AppKeyHint           string    `json:"app_key_hint"`
+	OMSAccountConfigured bool      `json:"oms_account_configured"`
+	OMSAccountHint       string    `json:"oms_account_hint"`
+	Active               bool      `json:"active"`
+	UpdatedAt            time.Time `json:"updated_at"`
 }
 
 type WarehouseCredentials struct {
 	WarehouseSummary
 	AppKey    string `json:"-"`
 	AppSecret string `json:"-"`
+}
+
+type WarehouseOMSAccount struct {
+	WarehouseCode string `json:"-"`
+	Username      string `json:"-"`
+	Password      string `json:"-"`
 }
 
 type FundsFlow struct {

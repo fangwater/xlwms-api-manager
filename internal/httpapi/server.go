@@ -29,6 +29,7 @@ type Server struct {
 	platformOrders      platformOrderSource
 	platformMappings    platformWarehouseMappingSource
 	platformFulfillment platformOrderFulfillmentSource
+	platformAccounts    platformOrderAccountSource
 	platformOrderMu     sync.Mutex
 }
 
@@ -50,10 +51,23 @@ func NewWithPlatformOrderOperations(destination *store.Postgres, service *syncer
 	return newWithPlatformOrderOperations(destination, service, fulfillmentAuditor, platformOrders, platformMappings, destination, requestTimeout, logger)
 }
 
+func NewWithWarehousePlatformOrderOperations(destination *store.Postgres, service *syncer.Service, fulfillmentAuditor *auditor.Service, platformOrders platformOrderSource, platformMappings platformWarehouseMappingSource, omsBaseURL string, requestTimeout time.Duration, logger *slog.Logger) http.Handler {
+	accounts := &postgresPlatformOrderAccounts{store: destination, baseURL: omsBaseURL, timeout: requestTimeout}
+	return newWithPlatformOrderAccountOperations(destination, service, fulfillmentAuditor, platformOrders, platformMappings, destination, accounts, requestTimeout, logger)
+}
+
 func newWithPlatformOrderOperations(destination *store.Postgres, service *syncer.Service, fulfillmentAuditor *auditor.Service, platformOrders platformOrderSource, platformMappings platformWarehouseMappingSource, platformFulfillment platformOrderFulfillmentSource, requestTimeout time.Duration, logger *slog.Logger) http.Handler {
+	var accounts platformOrderAccountSource
+	if operator, ok := platformOrders.(platformOrderOperator); ok {
+		accounts = fixedPlatformOrderAccounts{operator: operator}
+	}
+	return newWithPlatformOrderAccountOperations(destination, service, fulfillmentAuditor, platformOrders, platformMappings, platformFulfillment, accounts, requestTimeout, logger)
+}
+
+func newWithPlatformOrderAccountOperations(destination *store.Postgres, service *syncer.Service, fulfillmentAuditor *auditor.Service, platformOrders platformOrderSource, platformMappings platformWarehouseMappingSource, platformFulfillment platformOrderFulfillmentSource, platformAccounts platformOrderAccountSource, requestTimeout time.Duration, logger *slog.Logger) http.Handler {
 	server := &Server{
 		store: destination, syncer: service, fulfillmentAuditor: fulfillmentAuditor, platformOrders: platformOrders,
-		platformMappings: platformMappings, platformFulfillment: platformFulfillment,
+		platformMappings: platformMappings, platformFulfillment: platformFulfillment, platformAccounts: platformAccounts,
 		requestTimeout: requestTimeout, logger: logger,
 	}
 	mux := http.NewServeMux()
@@ -65,6 +79,8 @@ func newWithPlatformOrderOperations(destination *store.Postgres, service *syncer
 	mux.HandleFunc("GET /v1/warehouses", server.listWarehouses)
 	mux.HandleFunc("POST /v1/warehouses", server.upsertWarehouse)
 	mux.HandleFunc("PATCH /v1/warehouses/{code}/status", server.warehouseStatus)
+	mux.HandleFunc("PUT /v1/warehouses/{code}/oms-account", server.setWarehouseOMSAccount)
+	mux.HandleFunc("DELETE /v1/warehouses/{code}/oms-account", server.clearWarehouseOMSAccount)
 	mux.HandleFunc("GET /v1/funds-flows", server.fundsFlows)
 	mux.HandleFunc("GET /v1/cost-details", server.costDetails)
 	mux.HandleFunc("GET /v1/cost-details/{warehouse}/{costNo}/items", server.costItems)
@@ -123,7 +139,7 @@ func (s *Server) dashboard(writer http.ResponseWriter, request *http.Request) {
 func (s *Server) listWarehouses(writer http.ResponseWriter, request *http.Request) {
 	ctx, cancel := context.WithTimeout(request.Context(), s.requestTimeout)
 	defer cancel()
-	warehouses, err := s.store.ListWarehouses(ctx, request.URL.Query().Get("active_only") == "true")
+	warehouses, err := s.store.ListWarehousesWithOMS(ctx, request.URL.Query().Get("active_only") == "true")
 	if err != nil {
 		s.internalError(writer, "list warehouses", err)
 		return

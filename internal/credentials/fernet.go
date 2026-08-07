@@ -66,3 +66,14 @@ func MaskAppKey(appKey string) string {
 	}
 	return string(runes[:4]) + "..." + string(runes[len(runes)-4:])
 }
+
+func MaskIdentifier(value string) string {
+	runes := []rune(strings.TrimSpace(value))
+	if len(runes) == 0 {
+		return ""
+	}
+	if len(runes) <= 4 {
+		return strings.Repeat("*", len(runes))
+	}
+	return string(runes[:2]) + "***" + string(runes[len(runes)-2:])
+}

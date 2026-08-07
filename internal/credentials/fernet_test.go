@@ -41,3 +41,12 @@ func TestMaskAppKey(t *testing.T) {
 		t.Fatalf("unexpected short mask %q", got)
 	}
 }
+
+func TestMaskIdentifier(t *testing.T) {
+	if got := MaskIdentifier("shipping@example.com"); got != "sh***om" {
+		t.Fatalf("unexpected mask %q", got)
+	}
+	if got := MaskIdentifier("user"); got != "****" {
+		t.Fatalf("unexpected short mask %q", got)
+	}
+}

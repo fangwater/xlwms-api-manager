@@ -3,6 +3,8 @@ export type Warehouse = {
   name: string;
   api_base_url: string;
   app_key_hint: string;
+  oms_account_configured: boolean;
+  oms_account_hint: string;
   active: boolean;
   updated_at: string;
 };

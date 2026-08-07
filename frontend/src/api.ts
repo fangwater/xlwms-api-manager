@@ -78,6 +78,8 @@ export const api = {
   warehouses: () => request<Warehouse[]>("/warehouses"),
   saveWarehouse: (payload: Record<string, unknown>) => request<Warehouse>("/warehouses", { method: "POST", body: JSON.stringify(payload) }),
   setWarehouseActive: (code: string, active: boolean) => request<Warehouse>(`/warehouses/${encodeURIComponent(code)}/status`, { method: "PATCH", body: JSON.stringify({ active }) }),
+  setWarehouseOMSAccount: (code: string, payload: { username: string; password: string }) => request<Warehouse>(`/warehouses/${encodeURIComponent(code)}/oms-account`, { method: "PUT", body: JSON.stringify(payload) }),
+  clearWarehouseOMSAccount: (code: string) => request<Warehouse>(`/warehouses/${encodeURIComponent(code)}/oms-account`, { method: "DELETE" }),
   inventory: (params: { kind: InventoryKind; warehouse?: string; q?: string; stockType?: string; page: number; pageSize: number }) =>
     request<PageData<InventoryRecord>>(`/inventory${query({ kind: params.kind, warehouse: params.warehouse, q: params.q, stock_type: params.stockType, page: params.page, page_size: params.pageSize })}`),
   fundsFlows: (params: { warehouse?: string; q?: string; detailStatus?: string; startDate?: string; endDate?: string; page: number; pageSize: number }) =>

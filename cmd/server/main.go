@@ -66,7 +66,7 @@ func run(ctx context.Context, logger *slog.Logger) error {
 		return fmt.Errorf("listen on %s: %w", cfg.Listen, err)
 	}
 	server := &http.Server{
-		Handler:           httpapi.NewWithPlatformOrderOperations(destination, service, auditService, platformOrders, trackingClient, cfg.RequestTimeout, logger),
+		Handler:           httpapi.NewWithWarehousePlatformOrderOperations(destination, service, auditService, platformOrders, trackingClient, cfg.OMSBaseURL, cfg.RequestTimeout, logger),
 		ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 30 * time.Second, WriteTimeout: 30 * time.Second, IdleTimeout: 60 * time.Second,
 		BaseContext: func(net.Listener) context.Context { return ctx },
 	}
