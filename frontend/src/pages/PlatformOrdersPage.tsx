@@ -179,10 +179,10 @@ function PlatformOrderRoutingDialog({ platformOrderNos, onClose, onComplete }: {
     <section className="modal platform-routing-modal" role="dialog" aria-modal="true" aria-labelledby="platform-routing-title">
       <header><div><h2 id="platform-routing-title">分配仓库和物流</h2><p>已选择 {platformOrderNos.length} 个待处理平台单</p></div><button className="icon-button" type="button" disabled={submitting} onClick={onClose} title="关闭"><X size={18} /></button></header>
       <form onSubmit={(event) => void submit(event)}>
-        {optionsLoading ? <LoadingState label="正在根据平台面单匹配实际发货仓库" /> : !preview ? <div className="routing-options-error"><AlertTriangle size={18} /><span>{optionsError || "无法加载自动仓库匹配"}</span><button className="secondary-button" type="button" onClick={() => void loadOptions()}>重试</button></div> : <>
+        {optionsLoading ? <LoadingState label="正在根据购面单结果匹配实际发货仓库" /> : !preview ? <div className="routing-options-error"><AlertTriangle size={18} /><span>{optionsError || "无法加载自动仓库匹配"}</span><button className="secondary-button" type="button" onClick={() => void loadOptions()}>重试</button></div> : <>
           <div className="routing-fixed-channel"><span>平台面单渠道</span><strong>{preview.channel_name}</strong><small>{preview.channel_code}</small></div>
           <section className={`routing-auto-routes ${preview.ready ? "ready" : "blocked"}`} aria-label="自动匹配实际发货仓库">
-            <div className="routing-auto-title">{preview.ready ? <CheckCircle2 size={17} /> : <AlertTriangle size={17} />}<strong>自动匹配实际发货仓库</strong><span>{preview.routes.length} / {platformOrderNos.length} 单</span></div>
+            <div className="routing-auto-title">{preview.ready ? <CheckCircle2 size={17} /> : <AlertTriangle size={17} />}<strong>按购面单结果匹配发货仓库</strong><span>{preview.routes.length} / {platformOrderNos.length} 单</span></div>
             <ul>{preview.routes.map((route) => <li key={route.platform_order_no}>
               <div><strong>{route.platform_order_no}</strong><small>{route.platform_warehouse_name || route.platform_warehouse_id}</small></div>
               <span><Truck size={15} /><b>{route.warehouse_name || route.warehouse_code}</b><small>{route.warehouse_code}</small></span>
@@ -192,7 +192,7 @@ function PlatformOrderRoutingDialog({ platformOrderNos, onClose, onComplete }: {
           <fieldset className="routing-carriers"><legend>物流商</legend><div>
             {preview.carriers.map((item) => <label className={carrier === item.value ? "active" : ""} key={item.value}><input type="radio" name="logistics-carrier" value={item.value} checked={carrier === item.value} onChange={(event) => setCarrier(event.target.value)} /><span>{item.label}</span></label>)}
           </div></fieldset>
-          <label className="routing-confirmation"><input type="checkbox" checked={confirmed} onChange={(event) => setConfirmed(event.target.checked)} /><span>我确认按以上自动匹配仓库获取平台面单并立即审核</span></label>
+          <label className="routing-confirmation"><input type="checkbox" checked={confirmed} onChange={(event) => setConfirmed(event.target.checked)} /><span>我确认按以上购面单仓库分配订单并立即审核</span></label>
           {submitError && <div className="routing-submit-error" role="alert"><AlertTriangle size={16} /><span>{submitError}</span></div>}
           <footer><button className="secondary-button" type="button" disabled={submitting} onClick={onClose}>取消</button><button className="primary-button" type="submit" disabled={!canSubmit}><ShieldCheck size={16} />{submitting ? "正在审核" : "确定并审核"}</button></footer>
         </>}

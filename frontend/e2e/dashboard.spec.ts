@@ -273,13 +273,14 @@ test("selected platform orders use automatic warehouse routing and the configure
   expect(dialogBox!.x + dialogBox!.width).toBeLessThanOrEqual(1280);
   await expect(dialog.getByText("上传物流面单")).toBeVisible();
   await expect(dialog.getByLabel("自动匹配实际发货仓库")).toBeVisible();
+  await expect(dialog.getByText("按购面单结果匹配发货仓库")).toBeVisible();
   await expect(dialog.getByText("平台美东仓")).toBeVisible();
   await expect(dialog.getByText("美东演示仓")).toBeVisible();
   await expect(dialog.getByLabel("实际发货仓库", { exact: true })).toHaveCount(0);
   await expect(dialog.getByLabel("OMS 操作账号")).toHaveCount(0);
   await expect(dialog.getByLabel("OMS 操作密码")).toHaveCount(0);
   await dialog.getByRole("radio", { name: "Other" }).check();
-  await dialog.getByRole("checkbox", { name: /我确认按以上自动匹配仓库/ }).check();
+  await dialog.getByRole("checkbox", { name: /我确认按以上购面单仓库/ }).check();
   let postActionRefreshes = 0;
   page.on("request", (request) => {
     if (request.method() === "GET" && request.url().includes("/platform-orders/pending")) postActionRefreshes++;

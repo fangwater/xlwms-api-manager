@@ -8,12 +8,17 @@ import (
 	"strings"
 	"time"
 
+	"xlwms-api-manager/internal/model"
 	"xlwms-api-manager/internal/oms"
 	"xlwms-api-manager/internal/temutracking"
 )
 
 type platformWarehouseMappingSource interface {
 	WarehouseMappings(context.Context) ([]temutracking.WarehouseMapping, error)
+}
+
+type platformOrderFulfillmentSource interface {
+	FulfillmentAuditsByPlatformOrderNos(context.Context, []string) ([]model.FulfillmentAudit, error)
 }
 
 type automaticRoutingRequest struct {
@@ -54,7 +59,7 @@ type automaticRoutingPreview struct {
 }
 
 func (s *Server) platformOrderRoutingPreview(writer http.ResponseWriter, request *http.Request) {
-	if _, ok := s.platformOrders.(platformOrderOperator); !ok || s.platformMappings == nil {
+	if _, ok := s.platformOrders.(platformOrderOperator); !ok || s.platformMappings == nil || s.platformFulfillment == nil {
 		writeJSON(writer, http.StatusServiceUnavailable, response{Success: false, Error: "平台订单自动仓库映射未配置"})
 		return
 	}
@@ -72,7 +77,7 @@ func (s *Server) platformOrderRoutingPreview(writer http.ResponseWriter, request
 	preview, err := s.resolveAutomaticPlatformOrderRoutes(ctx, platformOrderNos)
 	if err != nil {
 		s.logger.Warn("preview automatic OMS platform order routes", "error", err)
-		writeJSON(writer, http.StatusBadGateway, response{Success: false, Error: "无法读取现有平台仓库映射，请稍后重试"})
+		writeJSON(writer, http.StatusBadGateway, response{Success: false, Error: "无法读取购面单仓库记录，请稍后重试"})
 		return
 	}
 	writeJSON(writer, http.StatusOK, response{Success: true, Data: preview})
@@ -80,7 +85,7 @@ func (s *Server) platformOrderRoutingPreview(writer http.ResponseWriter, request
 
 func (s *Server) assignAndApprovePlatformOrdersAuto(writer http.ResponseWriter, request *http.Request) {
 	operator, ok := s.platformOrders.(platformOrderOperator)
-	if !ok || s.platformMappings == nil {
+	if !ok || s.platformMappings == nil || s.platformFulfillment == nil {
 		writeJSON(writer, http.StatusServiceUnavailable, response{Success: false, Error: "OMS 平台订单自动操作未配置"})
 		return
 	}
@@ -110,7 +115,7 @@ func (s *Server) assignAndApprovePlatformOrdersAuto(writer http.ResponseWriter, 
 	preview, err := s.resolveAutomaticPlatformOrderRoutes(ctx, platformOrderNos)
 	if err != nil {
 		s.logger.Warn("resolve automatic OMS platform order routes", "error", err)
-		writeJSON(writer, http.StatusBadGateway, response{Success: false, Error: "无法读取现有平台仓库映射，订单未审核"})
+		writeJSON(writer, http.StatusBadGateway, response{Success: false, Error: "无法读取购面单仓库记录，订单未审核"})
 		return
 	}
 	if !preview.Ready {
@@ -200,9 +205,26 @@ func (s *Server) resolveAutomaticPlatformOrderRoutes(ctx context.Context, platfo
 	if err != nil {
 		return preview, fmt.Errorf("query platform warehouse mappings: %w", err)
 	}
-	mappingByPlatformWarehouse := make(map[string]temutracking.WarehouseMapping, len(mappings))
+	mappingsByOMSWarehouse := make(map[string][]temutracking.WarehouseMapping, len(mappings))
 	for _, mapping := range mappings {
-		mappingByPlatformWarehouse[strings.TrimSpace(mapping.TemuWarehouseID)] = mapping
+		code := strings.ToUpper(strings.TrimSpace(mapping.OMSWarehouseCode))
+		if code != "" {
+			mappingsByOMSWarehouse[code] = append(mappingsByOMSWarehouse[code], mapping)
+		}
+	}
+	fulfillmentAudits, err := s.platformFulfillment.FulfillmentAuditsByPlatformOrderNos(ctx, platformOrderNos)
+	if err != nil {
+		return preview, fmt.Errorf("query purchased-label fulfillment records: %w", err)
+	}
+	fulfillmentByPlatformOrder := make(map[string][]model.FulfillmentAudit, len(fulfillmentAudits))
+	for _, audit := range fulfillmentAudits {
+		if !audit.Active || !strings.EqualFold(strings.TrimSpace(audit.Platform), "temu") {
+			continue
+		}
+		orderNo := strings.ToUpper(strings.TrimSpace(audit.PlatformOrderNo))
+		if orderNo != "" {
+			fulfillmentByPlatformOrder[orderNo] = append(fulfillmentByPlatformOrder[orderNo], audit)
+		}
 	}
 	orders, err := operator.PendingOrdersByPlatformOrderNos(ctx, platformOrderNos)
 	if err != nil {
@@ -223,46 +245,44 @@ func (s *Server) resolveAutomaticPlatformOrderRoutes(ctx context.Context, platfo
 			preview.Unresolved = append(preview.Unresolved, unresolvedPlatformOrderRoute{PlatformOrderNo: platformOrderNo, Reason: "订单状态已变化"})
 			continue
 		}
-		platformWarehouseIDs := make(map[string]string)
-		for _, detail := range order.PlatformWarehouseDetails {
-			id := strings.TrimSpace(detail.WarehouseID)
-			if id != "" {
-				platformWarehouseIDs[id] = strings.TrimSpace(detail.WarehouseName)
+		purchasedWarehouses := make(map[string]model.FulfillmentAudit)
+		for _, audit := range fulfillmentByPlatformOrder[strings.ToUpper(platformOrderNo)] {
+			warehouseKey := strings.ToUpper(strings.TrimSpace(audit.WarehouseKey))
+			warehouseCode := strings.ToUpper(strings.TrimSpace(audit.WarehouseCode))
+			if warehouseKey == "" || warehouseCode == "" {
+				continue
 			}
+			purchasedWarehouses[warehouseKey+"\x00"+warehouseCode] = audit
 		}
-		if len(platformWarehouseIDs) == 0 {
-			preview.Unresolved = append(preview.Unresolved, unresolvedPlatformOrderRoute{PlatformOrderNo: platformOrderNo, Reason: "订单没有平台面单仓库"})
+		if len(purchasedWarehouses) == 0 {
+			preview.Unresolved = append(preview.Unresolved, unresolvedPlatformOrderRoute{PlatformOrderNo: platformOrderNo, Reason: "未找到可靠购面单记录，禁止自动分仓"})
 			continue
 		}
-		mappedWarehouseCodes := make(map[string]temutracking.WarehouseMapping)
+		if len(purchasedWarehouses) != 1 {
+			preview.Unresolved = append(preview.Unresolved, unresolvedPlatformOrderRoute{PlatformOrderNo: platformOrderNo, Reason: "购面单记录包含多个发货仓库，禁止自动分仓"})
+			continue
+		}
+		var purchased model.FulfillmentAudit
+		for _, audit := range purchasedWarehouses {
+			purchased = audit
+		}
+		warehouseCode := strings.ToUpper(strings.TrimSpace(purchased.WarehouseCode))
+		warehouseKey := strings.ToUpper(strings.TrimSpace(purchased.WarehouseKey))
 		platformWarehouseID := ""
-		platformWarehouseName := ""
-		unmappedID := ""
-		for id, name := range platformWarehouseIDs {
-			mapping, exists := mappingByPlatformWarehouse[id]
-			if !exists {
-				unmappedID = id
-				break
+		platformWarehouseName := warehouseKey
+		for _, mapping := range mappingsByOMSWarehouse[warehouseCode] {
+			if !strings.EqualFold(strings.TrimSpace(mapping.OMSKey), warehouseKey) {
+				continue
 			}
-			code := strings.ToUpper(strings.TrimSpace(mapping.OMSWarehouseCode))
-			mappedWarehouseCodes[code] = mapping
-			platformWarehouseID, platformWarehouseName = id, name
-		}
-		if unmappedID != "" {
-			preview.Unresolved = append(preview.Unresolved, unresolvedPlatformOrderRoute{PlatformOrderNo: platformOrderNo, Reason: "平台仓库 " + unmappedID + " 尚未配置映射"})
-			continue
-		}
-		if len(mappedWarehouseCodes) != 1 {
-			preview.Unresolved = append(preview.Unresolved, unresolvedPlatformOrderRoute{PlatformOrderNo: platformOrderNo, Reason: "同一订单映射到多个实际仓库"})
-			continue
-		}
-		warehouseCode := ""
-		for code := range mappedWarehouseCodes {
-			warehouseCode = code
+			platformWarehouseID = strings.TrimSpace(mapping.TemuWarehouseID)
+			if name := strings.TrimSpace(mapping.TemuName); name != "" {
+				platformWarehouseName = name
+			}
+			break
 		}
 		warehouse, available := activeWarehouses[warehouseCode]
 		if !available {
-			preview.Unresolved = append(preview.Unresolved, unresolvedPlatformOrderRoute{PlatformOrderNo: platformOrderNo, Reason: "当前 OMS 发货账号无权使用映射仓库 " + warehouseCode})
+			preview.Unresolved = append(preview.Unresolved, unresolvedPlatformOrderRoute{PlatformOrderNo: platformOrderNo, Reason: "当前 OMS 发货账号无权使用购面单仓库 " + warehouseCode})
 			continue
 		}
 		channel, checked := channelCache[warehouseCode]
@@ -283,7 +303,7 @@ func (s *Server) resolveAutomaticPlatformOrderRoutes(ctx context.Context, platfo
 			}
 		}
 		if channelMissing[warehouseCode] {
-			preview.Unresolved = append(preview.Unresolved, unresolvedPlatformOrderRoute{PlatformOrderNo: platformOrderNo, Reason: "映射仓库未启用上传物流面单渠道"})
+			preview.Unresolved = append(preview.Unresolved, unresolvedPlatformOrderRoute{PlatformOrderNo: platformOrderNo, Reason: "购面单仓库未启用上传物流面单渠道"})
 			continue
 		}
 		preview.Routes = append(preview.Routes, automaticPlatformOrderRoute{

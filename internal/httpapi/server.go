@@ -21,14 +21,15 @@ import (
 )
 
 type Server struct {
-	store              *store.Postgres
-	syncer             *syncer.Service
-	requestTimeout     time.Duration
-	logger             *slog.Logger
-	fulfillmentAuditor *auditor.Service
-	platformOrders     platformOrderSource
-	platformMappings   platformWarehouseMappingSource
-	platformOrderMu    sync.Mutex
+	store               *store.Postgres
+	syncer              *syncer.Service
+	requestTimeout      time.Duration
+	logger              *slog.Logger
+	fulfillmentAuditor  *auditor.Service
+	platformOrders      platformOrderSource
+	platformMappings    platformWarehouseMappingSource
+	platformFulfillment platformOrderFulfillmentSource
+	platformOrderMu     sync.Mutex
 }
 
 type response struct {
@@ -46,9 +47,14 @@ func NewWithPlatformOrders(destination *store.Postgres, service *syncer.Service,
 }
 
 func NewWithPlatformOrderOperations(destination *store.Postgres, service *syncer.Service, fulfillmentAuditor *auditor.Service, platformOrders platformOrderSource, platformMappings platformWarehouseMappingSource, requestTimeout time.Duration, logger *slog.Logger) http.Handler {
+	return newWithPlatformOrderOperations(destination, service, fulfillmentAuditor, platformOrders, platformMappings, destination, requestTimeout, logger)
+}
+
+func newWithPlatformOrderOperations(destination *store.Postgres, service *syncer.Service, fulfillmentAuditor *auditor.Service, platformOrders platformOrderSource, platformMappings platformWarehouseMappingSource, platformFulfillment platformOrderFulfillmentSource, requestTimeout time.Duration, logger *slog.Logger) http.Handler {
 	server := &Server{
 		store: destination, syncer: service, fulfillmentAuditor: fulfillmentAuditor, platformOrders: platformOrders,
-		platformMappings: platformMappings, requestTimeout: requestTimeout, logger: logger,
+		platformMappings: platformMappings, platformFulfillment: platformFulfillment,
+		requestTimeout: requestTimeout, logger: logger,
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", server.health)
