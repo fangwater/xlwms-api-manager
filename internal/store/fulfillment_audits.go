@@ -319,7 +319,8 @@ func (p *Postgres) RefreshFulfillmentTrackingCategories(ctx context.Context) err
 WITH classified AS (
 SELECT id,CASE
   WHEN tracking_package_count>0 AND picked_up_package_count>=tracking_package_count THEN 'picked_up'
-  WHEN pickup_exception_reason='pickup_failed' THEN 'pickup_exception'
+  WHEN pickup_exception_reason='pickup_failed' AND (coalesce(oms_outbound_at,platform_shipping_at) IS NULL
+    OR coalesce(oms_outbound_at,platform_shipping_at) <= now()-interval '12 hours') THEN 'pickup_exception'
   WHEN coalesce(oms_outbound_at,platform_shipping_at) <= now()-interval '24 hours' THEN 'pickup_exception'
   WHEN tracking_error<>'' THEN 'tracking_error'
   ELSE 'awaiting_pickup' END AS category,

@@ -15,7 +15,10 @@ import (
 	"xlwms-api-manager/internal/temutracking"
 )
 
-const pickupOverdueAfter = 24 * time.Hour
+const (
+	pickupFailureGracePeriod = 12 * time.Hour
+	pickupOverdueAfter       = 24 * time.Hour
+)
 
 type trackingSource interface {
 	OrderTracking(context.Context, string, string) (temutracking.OrderTracking, error)
@@ -173,8 +176,10 @@ func trackingResolution(item model.FulfillmentAudit, tracking temutracking.Order
 				latestEvent = event
 				latestFallback = true
 			}
-			if trackingStatusPickedUp(status) {
+			if trackingStatusConfirmsPickup(status) {
 				packagePickedUp = true
+			}
+			if trackingStatusPickedUp(status) {
 				if eventAt != nil && (latestPickupAt == nil || eventAt.After(*latestPickupAt)) {
 					value := *eventAt
 					latestPickupAt = &value
@@ -198,10 +203,6 @@ func trackingResolution(item model.FulfillmentAudit, tracking temutracking.Order
 	resolution.TrackingStatusText = strings.TrimSpace(latestEvent.StatusText)
 	resolution.TrackingUpdatedAt = latestAt
 	if resolution.TrackingPackageCount > 0 && resolution.PickedUpPackageCount >= resolution.TrackingPackageCount {
-		if latestPickupAt == nil {
-			value := now
-			latestPickupAt = &value
-		}
 		resolution.PickupConfirmedAt = latestPickupAt
 	}
 	classifyTracking(&resolution, item, pickupFailed, now)
@@ -214,7 +215,7 @@ func classifyTracking(resolution *model.FulfillmentTrackingResolution, item mode
 		resolution.PickupExceptionReason = ""
 		return
 	}
-	if pickupFailed {
+	if pickupFailed && pickupFailureGraceElapsed(item, now) {
 		resolution.TrackingCategory = "pickup_exception"
 		resolution.PickupExceptionReason = "pickup_failed"
 		return
@@ -224,7 +225,11 @@ func classifyTracking(resolution *model.FulfillmentTrackingResolution, item mode
 		resolution.PickupExceptionReason = "pickup_overdue"
 		return
 	}
-	resolution.PickupExceptionReason = ""
+	if pickupFailed {
+		resolution.PickupExceptionReason = "pickup_failed"
+	} else {
+		resolution.PickupExceptionReason = ""
+	}
 	if resolution.TrackingError != "" {
 		resolution.TrackingCategory = "tracking_error"
 	} else {
@@ -232,12 +237,21 @@ func classifyTracking(resolution *model.FulfillmentTrackingResolution, item mode
 	}
 }
 
+func pickupFailureGraceElapsed(item model.FulfillmentAudit, now time.Time) bool {
+	started := trackingStartedAt(item)
+	return started == nil || !started.After(now.Add(-pickupFailureGracePeriod))
+}
+
 func trackingOverdue(item model.FulfillmentAudit, now time.Time) bool {
-	started := item.OMSOutboundAt
-	if started == nil {
-		started = item.PlatformShippingAt
-	}
+	started := trackingStartedAt(item)
 	return started != nil && !started.After(now.Add(-pickupOverdueAfter))
+}
+
+func trackingStartedAt(item model.FulfillmentAudit) *time.Time {
+	if item.OMSOutboundAt != nil {
+		return item.OMSOutboundAt
+	}
+	return item.PlatformShippingAt
 }
 
 func normalizeTrackingStatus(value string) string {
@@ -247,6 +261,11 @@ func normalizeTrackingStatus(value string) string {
 
 func trackingStatusPickedUp(status string) bool {
 	return status == "last mile carrier picked up" || status == "picked up"
+}
+
+func trackingStatusConfirmsPickup(status string) bool {
+	return trackingStatusPickedUp(status) || status == "delivered" ||
+		status == "in transit" || strings.HasPrefix(status, "in transit ")
 }
 
 func trackingStatusPickupFailed(status string) bool {

@@ -23,17 +23,52 @@ func TestTrackingResolutionClassifiesManifestOverdue(t *testing.T) {
 	}
 }
 
-func TestTrackingResolutionClassifiesExplicitPickupFailureImmediately(t *testing.T) {
+func TestTrackingResolutionDefersPickupFailureDuringGracePeriod(t *testing.T) {
 	t.Parallel()
 	now := time.Date(2026, 8, 6, 12, 0, 0, 0, time.UTC)
-	outboundAt := now.Add(-2 * time.Hour)
+	outboundAt := now.Add(-4 * time.Hour)
 	item := model.FulfillmentAudit{OMSOutboundAt: &outboundAt}
 	tracking := temuTracking("Last Mile Carrier Pick up failed", "pickup failed")
 
 	resolution := trackingResolution(item, tracking, nil, now)
 
+	if resolution.TrackingCategory != "awaiting_pickup" || resolution.PickupExceptionReason != "pickup_failed" {
+		t.Fatalf("resolution = %+v", resolution)
+	}
+}
+
+func TestTrackingResolutionClassifiesPickupFailureAfterGracePeriod(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 8, 6, 12, 0, 0, 0, time.UTC)
+	outboundAt := now.Add(-12 * time.Hour)
+	tracking := temuTracking("Last Mile Carrier Pick up failed", "pickup failed")
+
+	resolution := trackingResolution(model.FulfillmentAudit{OMSOutboundAt: &outboundAt}, tracking, nil, now)
+
 	if resolution.TrackingCategory != "pickup_exception" || resolution.PickupExceptionReason != "pickup_failed" {
 		t.Fatalf("resolution = %+v", resolution)
+	}
+}
+
+func TestTrackingResolutionTreatsInTransitAsPickupConfirmation(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 8, 8, 12, 0, 0, 0, time.UTC)
+	outboundAt := now.Add(-48 * time.Hour)
+
+	for _, status := range []string{"In transit", "In transit - Irregularity"} {
+		status := status
+		t.Run(status, func(t *testing.T) {
+			t.Parallel()
+			tracking := temuTracking(status, "package is moving through the carrier network")
+			resolution := trackingResolution(model.FulfillmentAudit{OMSOutboundAt: &outboundAt}, tracking, nil, now)
+
+			if resolution.TrackingCategory != "picked_up" || resolution.PickedUpPackageCount != 1 || resolution.PickupExceptionReason != "" {
+				t.Fatalf("resolution = %+v", resolution)
+			}
+			if resolution.PickupConfirmedAt != nil {
+				t.Fatalf("inferred pickup time = %v, want nil", resolution.PickupConfirmedAt)
+			}
+		})
 	}
 }
 
@@ -62,6 +97,41 @@ func TestTrackingResolutionClassifiesPartiallyPickedOrderOverdue(t *testing.T) {
 	outboundAt := now.Add(-24 * time.Hour)
 	tracking := temutracking.OrderTracking{Packages: []temutracking.Package{
 		{PackageSN: "PKG-1", TrackingInfo: []temutracking.Event{{LogisticsStatus: "Last Mile Carrier Picked up"}}},
+		{PackageSN: "PKG-2", TrackingInfo: []temutracking.Event{{LogisticsStatus: "Last-Mile Manifest"}}},
+	}}
+
+	resolution := trackingResolution(model.FulfillmentAudit{OMSOutboundAt: &outboundAt}, tracking, nil, now)
+
+	if resolution.TrackingCategory != "pickup_exception" || resolution.PickedUpPackageCount != 1 {
+		t.Fatalf("resolution = %+v", resolution)
+	}
+}
+
+func TestTrackingResolutionTreatsDeliveredPackageAsPickedUp(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 8, 8, 12, 0, 0, 0, time.UTC)
+	outboundAt := now.Add(-72 * time.Hour)
+	tracking := temuTracking("Delivered", "Delivered, Left with Individual")
+
+	resolution := trackingResolution(model.FulfillmentAudit{OMSOutboundAt: &outboundAt}, tracking, nil, now)
+
+	if resolution.TrackingCategory != "picked_up" || resolution.PickupExceptionReason != "" {
+		t.Fatalf("resolution = %+v", resolution)
+	}
+	if resolution.PickedUpPackageCount != 1 || resolution.TrackingPackageCount != 1 {
+		t.Fatalf("package progress = %d/%d", resolution.PickedUpPackageCount, resolution.TrackingPackageCount)
+	}
+	if resolution.PickupConfirmedAt != nil {
+		t.Fatalf("delivery time must not be reported as pickup time: %v", resolution.PickupConfirmedAt)
+	}
+}
+
+func TestTrackingResolutionStillRequiresEveryPackageWhenOneIsDelivered(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 8, 8, 12, 0, 0, 0, time.UTC)
+	outboundAt := now.Add(-25 * time.Hour)
+	tracking := temutracking.OrderTracking{Packages: []temutracking.Package{
+		{PackageSN: "PKG-1", TrackingInfo: []temutracking.Event{{LogisticsStatus: "Delivered"}}},
 		{PackageSN: "PKG-2", TrackingInfo: []temutracking.Event{{LogisticsStatus: "Last-Mile Manifest"}}},
 	}}
 
