@@ -14,7 +14,6 @@
 - 按仓库、SKU、产品、箱型、条码和关联单号查询
 - Temu 发货前实时 SKU 库存查询、东西区域安全库存判断和 DPS 优先选仓
 - Temu 已出库订单追踪、24 小时揽收超时识别及店铺/仓库维度筛选
-- 独立 Go SHEIN 订单、在线物流下单、面单和物流轨迹工作台
 - 桌面与移动端自适应管理界面
 
 已接入的官方库存端点：
@@ -177,29 +176,6 @@ XLWMS 不保存 Temu 凭据，也不直接签名 Temu OpenAPI 请求。追踪查
 watermark 轮转，互不挤占批次；Temu 查询失败会保存本次查询时间和错误，只有本地结果
 未保存成功时才停止推进 watermark。每个队列的单次追踪量和共享并发数分别由
 `XLWMS_FULFILLMENT_TRACKING_LIMIT`、`XLWMS_FULFILLMENT_TRACKING_CONCURRENCY` 控制。
-
-## SHEIN Go 工作台
-
-生产入口为 `https://pangutech.online/shein/`。该服务是独立 Go 进程，复用现有
-SHEIN PostgreSQL 中的店铺授权凭证，不调用 Python 服务转发开放平台请求。
-
-```text
-POST /shein/api/order/list
-POST /shein/api/order/detail
-POST /shein/api/order/export-address
-POST /shein/api/shipping/warehouses
-POST /shein/api/shipping/channels
-POST /shein/api/shipping/place
-POST /shein/api/shipping/check
-POST /shein/api/shipping/label
-GET  /shein/api/shipping/track
-```
-
-在线下单、地址状态流转和打印面单要求 `X-Confirm-Shein-Action` 与
-`Idempotency-Key`。幂等记录只保存请求哈希、状态和必要响应，不保存客户地址。
-Go 服务验证现有 `shein_pnl_session` 登录 Cookie，因此已登录 SHEIN 管理台的用户
-无需再次登录。详细接口说明见 `docs/shein-go.md`。
-
 
 - 真实凭据只保存在模式为 `600` 的本地 `.env` 中。
 - 仓库凭据使用 Fernet 加密后写入 `xlwms_warehouses`。
