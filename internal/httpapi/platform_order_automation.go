@@ -220,6 +220,20 @@ func (s *Server) resolveAutomaticPlatformOrderRoutes(ctx context.Context, platfo
 			fulfillmentByPlatformOrder[orderNo] = append(fulfillmentByPlatformOrder[orderNo], audit)
 		}
 	}
+	purchasedByPlatformOrder := make(map[string]model.FulfillmentAudit, len(platformOrderNos))
+	purchaseReasonByPlatformOrder := make(map[string]string)
+	accountOrderNosByWarehouse := make(map[string][]string)
+	for _, platformOrderNo := range platformOrderNos {
+		normalizedOrderNo := strings.ToUpper(platformOrderNo)
+		purchased, reason := purchasedLabelWarehouse(fulfillmentByPlatformOrder[normalizedOrderNo])
+		if reason != "" {
+			purchaseReasonByPlatformOrder[normalizedOrderNo] = reason
+			continue
+		}
+		purchasedByPlatformOrder[normalizedOrderNo] = purchased
+		warehouseCode := strings.ToUpper(strings.TrimSpace(purchased.WarehouseCode))
+		accountOrderNosByWarehouse[warehouseCode] = append(accountOrderNosByWarehouse[warehouseCode], platformOrderNo)
+	}
 	orders, err := operator.PendingOrdersByPlatformOrderNos(ctx, platformOrderNos)
 	if err != nil {
 		return preview, fmt.Errorf("query pending OMS platform orders: %w", err)
@@ -234,6 +248,7 @@ func (s *Server) resolveAutomaticPlatformOrderRoutes(ctx context.Context, platfo
 	operatorCache := make(map[string]platformOrderOperator)
 	warehouseCache := make(map[string]oms.WarehouseOption)
 	accountReasons := make(map[string]string)
+	accountOrdersByWarehouse := make(map[string]map[string]oms.PendingOrder)
 	channelCache := make(map[string]oms.LogisticsChannelOption)
 	channelMissing := make(map[string]bool)
 	for index, order := range orders {
@@ -242,27 +257,12 @@ func (s *Server) resolveAutomaticPlatformOrderRoutes(ctx context.Context, platfo
 			preview.Unresolved = append(preview.Unresolved, unresolvedPlatformOrderRoute{PlatformOrderNo: platformOrderNo, Reason: "订单状态已变化"})
 			continue
 		}
-		purchasedWarehouses := make(map[string]model.FulfillmentAudit)
-		for _, audit := range fulfillmentByPlatformOrder[strings.ToUpper(platformOrderNo)] {
-			warehouseKey := strings.ToUpper(strings.TrimSpace(audit.WarehouseKey))
-			warehouseCode := strings.ToUpper(strings.TrimSpace(audit.WarehouseCode))
-			if warehouseKey == "" || warehouseCode == "" {
-				continue
-			}
-			purchasedWarehouses[warehouseKey+"\x00"+warehouseCode] = audit
-		}
-		if len(purchasedWarehouses) == 0 {
-			preview.Unresolved = append(preview.Unresolved, unresolvedPlatformOrderRoute{PlatformOrderNo: platformOrderNo, Reason: "未找到可靠购面单记录，禁止自动分仓"})
+		normalizedOrderNo := strings.ToUpper(platformOrderNo)
+		if reason := purchaseReasonByPlatformOrder[normalizedOrderNo]; reason != "" {
+			preview.Unresolved = append(preview.Unresolved, unresolvedPlatformOrderRoute{PlatformOrderNo: platformOrderNo, Reason: reason})
 			continue
 		}
-		if len(purchasedWarehouses) != 1 {
-			preview.Unresolved = append(preview.Unresolved, unresolvedPlatformOrderRoute{PlatformOrderNo: platformOrderNo, Reason: "购面单记录包含多个发货仓库，禁止自动分仓"})
-			continue
-		}
-		var purchased model.FulfillmentAudit
-		for _, audit := range purchasedWarehouses {
-			purchased = audit
-		}
+		purchased := purchasedByPlatformOrder[normalizedOrderNo]
 		warehouseCode := strings.ToUpper(strings.TrimSpace(purchased.WarehouseCode))
 		warehouseKey := strings.ToUpper(strings.TrimSpace(purchased.WarehouseKey))
 		platformWarehouseID := ""
@@ -299,6 +299,19 @@ func (s *Server) resolveAutomaticPlatformOrderRoutes(ctx context.Context, platfo
 					}
 					if operatorCache[warehouseCode] == nil {
 						accountReasons[warehouseCode] = "配置的 OMS 发货账号无权使用购面单仓库 " + warehouseCode
+					} else {
+						accountOrders, lookupErr := warehouseOperator.PendingOrdersByPlatformOrderNos(ctx, accountOrderNosByWarehouse[warehouseCode])
+						if lookupErr != nil {
+							accountReasons[warehouseCode] = "无法使用购面单仓库的 OMS 发货账号查询待处理订单"
+						} else {
+							accountOrdersByWarehouse[warehouseCode] = make(map[string]oms.PendingOrder, len(accountOrders))
+							for _, accountOrder := range accountOrders {
+								orderNo := strings.ToUpper(strings.TrimSpace(accountOrder.PlatformOrderNo))
+								if orderNo != "" {
+									accountOrdersByWarehouse[warehouseCode][orderNo] = accountOrder
+								}
+							}
+						}
 					}
 				}
 			}
@@ -309,6 +322,14 @@ func (s *Server) resolveAutomaticPlatformOrderRoutes(ctx context.Context, platfo
 		}
 		warehouse := warehouseCache[warehouseCode]
 		warehouseOperator := operatorCache[warehouseCode]
+		accountOrder, found := accountOrdersByWarehouse[warehouseCode][normalizedOrderNo]
+		if !found || accountOrder.Status != 0 || strings.TrimSpace(accountOrder.OrderNo) == "" {
+			preview.Unresolved = append(preview.Unresolved, unresolvedPlatformOrderRoute{
+				PlatformOrderNo: platformOrderNo,
+				Reason:          "配置的 OMS 发货账号无法定位该待处理订单",
+			})
+			continue
+		}
 		channel, checked := channelCache[warehouseCode]
 		if !checked && !channelMissing[warehouseCode] {
 			channels, channelErr := warehouseOperator.LogisticsChannels(ctx, warehouseCode)
@@ -332,11 +353,33 @@ func (s *Server) resolveAutomaticPlatformOrderRoutes(ctx context.Context, platfo
 		}
 		preview.Routes = append(preview.Routes, automaticPlatformOrderRoute{
 			PlatformOrderNo: platformOrderNo, PlatformWarehouseID: platformWarehouseID, PlatformWarehouse: platformWarehouseName,
-			WarehouseCode: warehouse.WarehouseCode, WarehouseName: warehouse.WarehouseName, internalOrderNo: order.OrderNo,
+			WarehouseCode: warehouse.WarehouseCode, WarehouseName: warehouse.WarehouseName, internalOrderNo: accountOrder.OrderNo,
 			logisticsChannelCode: channel.LogisticsChannel, logisticsChannelName: channel.LogisticsChannelName,
 			channelGroupFlag: channel.ChannelGroupFlag, operator: warehouseOperator,
 		})
 	}
 	preview.Ready = len(preview.Routes) == len(platformOrderNos) && len(preview.Unresolved) == 0
 	return preview, nil
+}
+
+func purchasedLabelWarehouse(audits []model.FulfillmentAudit) (model.FulfillmentAudit, string) {
+	purchasedWarehouses := make(map[string]model.FulfillmentAudit)
+	for _, audit := range audits {
+		warehouseKey := strings.ToUpper(strings.TrimSpace(audit.WarehouseKey))
+		warehouseCode := strings.ToUpper(strings.TrimSpace(audit.WarehouseCode))
+		if warehouseKey == "" || warehouseCode == "" {
+			continue
+		}
+		purchasedWarehouses[warehouseKey+"\x00"+warehouseCode] = audit
+	}
+	if len(purchasedWarehouses) == 0 {
+		return model.FulfillmentAudit{}, "未找到可靠购面单记录，禁止自动分仓"
+	}
+	if len(purchasedWarehouses) != 1 {
+		return model.FulfillmentAudit{}, "购面单记录包含多个发货仓库，禁止自动分仓"
+	}
+	for _, audit := range purchasedWarehouses {
+		return audit, ""
+	}
+	return model.FulfillmentAudit{}, "未找到可靠购面单记录，禁止自动分仓"
 }

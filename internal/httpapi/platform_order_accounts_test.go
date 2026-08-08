@@ -24,13 +24,13 @@ func (f *fakeWarehousePlatformAccounts) OperatorForWarehouse(_ context.Context, 
 	return f.operators[warehouseCode], nil
 }
 
-func TestAssignAndApproveUsesPurchasedWarehouseAccountWhileLookupRemainsShared(t *testing.T) {
+func TestAssignAndApproveRefreshesWithARPAndUsesWarehouseAccountOrderNumber(t *testing.T) {
 	shared := readyPlatformOrderOperator()
 	shared.resolved = shared.resolved[:1]
 
 	warehouseAccount := readyPlatformOrderOperator()
 	warehouseAccount.warehouses = []oms.WarehouseOption{{WarehouseCode: "WH-2", WarehouseName: "DPS warehouse"}}
-	warehouseAccount.resolved = nil
+	warehouseAccount.resolved = []oms.PendingOrder{{OrderNo: "DPS-OMS-A", PlatformOrderNo: "PO-A", Status: 0}}
 	warehouseAccount.assignmentResult = oms.AssignmentResult{TotalQuantity: 1, SuccessQuantity: 1}
 
 	accounts := &fakeWarehousePlatformAccounts{operators: map[string]platformOrderOperator{"WH-2": warehouseAccount}}
@@ -51,16 +51,19 @@ func TestAssignAndApproveUsesPurchasedWarehouseAccountWhileLookupRemainsShared(t
 		t.Fatalf("got status %d: %s", recorder.Code, recorder.Body.String())
 	}
 	if len(shared.lookupOrderNos) != 1 || shared.lookupOrderNos[0] != "PO-A" {
-		t.Fatalf("shared lookup did not resolve the order: %#v", shared.lookupOrderNos)
+		t.Fatalf("ARP shared lookup did not resolve the order: %#v", shared.lookupOrderNos)
 	}
 	if shared.assignCalls != 0 || warehouseAccount.assignCalls != 1 {
-		t.Fatalf("assignment calls shared=%d warehouse=%d", shared.assignCalls, warehouseAccount.assignCalls)
+		t.Fatalf("assignment calls ARP=%d warehouse=%d", shared.assignCalls, warehouseAccount.assignCalls)
 	}
 	if warehouseAccount.assignment.WarehouseCode != "WH-2" {
 		t.Fatalf("warehouse account assignment = %#v", warehouseAccount.assignment)
 	}
-	if len(warehouseAccount.lookupOrderNos) != 0 {
-		t.Fatalf("warehouse account unexpectedly performed shared lookup: %#v", warehouseAccount.lookupOrderNos)
+	if len(warehouseAccount.lookupOrderNos) != 1 || warehouseAccount.lookupOrderNos[0] != "PO-A" {
+		t.Fatalf("warehouse account did not resolve its OMS order number: %#v", warehouseAccount.lookupOrderNos)
+	}
+	if len(warehouseAccount.assignment.Orders) != 1 || warehouseAccount.assignment.Orders[0] != "DPS-OMS-A" {
+		t.Fatalf("warehouse account assignment used the wrong OMS order number: %#v", warehouseAccount.assignment.Orders)
 	}
 	if len(accounts.requested) != 1 || accounts.requested[0] != "WH-2" {
 		t.Fatalf("requested warehouse accounts = %#v", accounts.requested)
