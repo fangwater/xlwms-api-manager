@@ -356,6 +356,23 @@ ORDER BY id`, orderNos)
 	return scanFulfillmentAudits(rows)
 }
 
+func (p *Postgres) FulfillmentAuditWarehouseEvidenceByPlatformOrderNos(ctx context.Context, orderNos []string) ([]model.FulfillmentAudit, error) {
+	orderNos = normalizedOrderReferences(orderNos)
+	if len(orderNos) == 0 {
+		return nil, nil
+	}
+	rows, err := p.pool.Query(ctx, fulfillmentAuditSelect+`
+WHERE platform='temu' AND upper(platform_order_no)=ANY($1)
+  AND warehouse_key<>'' AND wh_code<>''
+  AND (active OR oms_status='outbound')
+ORDER BY upper(platform_order_no),active DESC,id`, orderNos)
+	if err != nil {
+		return nil, fmt.Errorf("list purchased-label warehouse evidence by platform order: %w", err)
+	}
+	defer rows.Close()
+	return scanFulfillmentAudits(rows)
+}
+
 func (p *Postgres) FulfillmentAuditCoverageHours(ctx context.Context, before time.Time, limit int) ([]time.Time, error) {
 	if limit < 1 || limit > 5000 {
 		limit = 5000

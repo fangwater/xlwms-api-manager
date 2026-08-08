@@ -28,6 +28,7 @@ type Server struct {
 	fulfillmentAuditor  *auditor.Service
 	platformOrders      platformOrderSource
 	platformMappings    platformWarehouseMappingSource
+	platformShipments   platformOrderShipmentSource
 	platformFulfillment platformOrderFulfillmentSource
 	platformAccounts    platformOrderAccountSource
 	platformOrderMu     sync.Mutex
@@ -65,9 +66,14 @@ func newWithPlatformOrderOperations(destination *store.Postgres, service *syncer
 }
 
 func newWithPlatformOrderAccountOperations(destination *store.Postgres, service *syncer.Service, fulfillmentAuditor *auditor.Service, platformOrders platformOrderSource, platformMappings platformWarehouseMappingSource, platformFulfillment platformOrderFulfillmentSource, platformAccounts platformOrderAccountSource, requestTimeout time.Duration, logger *slog.Logger) http.Handler {
+	var platformShipments platformOrderShipmentSource
+	if source, ok := platformMappings.(platformOrderShipmentSource); ok {
+		platformShipments = source
+	}
 	server := &Server{
 		store: destination, syncer: service, fulfillmentAuditor: fulfillmentAuditor, platformOrders: platformOrders,
-		platformMappings: platformMappings, platformFulfillment: platformFulfillment, platformAccounts: platformAccounts,
+		platformMappings: platformMappings, platformShipments: platformShipments,
+		platformFulfillment: platformFulfillment, platformAccounts: platformAccounts,
 		requestTimeout: requestTimeout, logger: logger,
 	}
 	mux := http.NewServeMux()

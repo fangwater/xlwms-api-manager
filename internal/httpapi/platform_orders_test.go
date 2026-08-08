@@ -141,6 +141,94 @@ func TestPlatformOrderRoutingPreviewUsesPurchasedLabelWarehouse(t *testing.T) {
 	}
 }
 
+func TestPlatformOrderRoutingPreviewUsesAuthoritativeTemuShipment(t *testing.T) {
+	source := readyPlatformOrderOperator()
+	source.resolved = source.resolved[:1]
+	source.warehouses = append(source.warehouses, oms.WarehouseOption{WarehouseCode: "WH-2", WarehouseName: "Temu purchase warehouse"})
+	services := &fakePlatformServices{
+		fakePlatformMappings: &fakePlatformMappings{mappings: []temutracking.WarehouseMapping{
+			{OMSKey: "EAST", OMSWarehouseCode: "WH-1", TemuWarehouseID: "PLATFORM-1"},
+			{OMSKey: "DPS", OMSWarehouseCode: "WH-2", TemuWarehouseID: "PLATFORM-DPS"},
+		}},
+		shipments: map[string]temutracking.PurchasedShipment{"PO-A": {
+			StoreCode: "panda-homes", ParentOrderSN: "PO-A", Status: "shipped",
+			OMSWarehouseKey: "DPS", OMSWarehouseCode: "WH-2", TrackingNumber: "TRACK-A",
+		}},
+	}
+	handler := newWithPlatformOrderOperations(nil, nil, nil, source, services, readyPlatformFulfillment("PO-A"), time.Second, slog.Default())
+	request := httptest.NewRequest(http.MethodPost, "/v1/platform-orders/routing-preview", strings.NewReader(`{"platform_order_nos":["PO-A"]}`))
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("got status %d: %s", recorder.Code, recorder.Body.String())
+	}
+	var payload struct {
+		Success bool                    `json:"success"`
+		Data    automaticRoutingPreview `json:"data"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if !payload.Success || !payload.Data.Ready || len(payload.Data.Routes) != 1 || payload.Data.Routes[0].WarehouseCode != "WH-2" {
+		t.Fatalf("unexpected response: %#v", payload)
+	}
+}
+
+func TestPlatformOrderRoutingPreviewDoesNotUseStaleCacheWhenTemuHasNoShipment(t *testing.T) {
+	source := readyPlatformOrderOperator()
+	source.resolved = source.resolved[:1]
+	services := &fakePlatformServices{fakePlatformMappings: readyPlatformMappings(), shipments: map[string]temutracking.PurchasedShipment{}}
+	handler := newWithPlatformOrderOperations(nil, nil, nil, source, services, readyPlatformFulfillment("PO-A"), time.Second, slog.Default())
+	request := httptest.NewRequest(http.MethodPost, "/v1/platform-orders/routing-preview", strings.NewReader(`{"platform_order_nos":["PO-A"]}`))
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK || !strings.Contains(recorder.Body.String(), "未找到可靠购面单记录") {
+		t.Fatalf("unexpected response %d: %s", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestPlatformOrderRoutingPreviewUsesArchivedOutboundPurchasedLabelWarehouse(t *testing.T) {
+	source := readyPlatformOrderOperator()
+	source.resolved = source.resolved[:1]
+	fulfillment := &fakePlatformFulfillment{audits: []model.FulfillmentAudit{{
+		Platform: "temu", PlatformOrderNo: "PO-A", Active: false, OMSStatus: "outbound",
+		WarehouseKey: "EAST", WarehouseCode: "WH-1",
+	}}}
+	handler := platformOrderOperationHandler(source, readyPlatformMappings(), fulfillment)
+	request := httptest.NewRequest(http.MethodPost, "/v1/platform-orders/routing-preview", strings.NewReader(`{"platform_order_nos":["PO-A"]}`))
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("got status %d: %s", recorder.Code, recorder.Body.String())
+	}
+	var payload struct {
+		Success bool                    `json:"success"`
+		Data    automaticRoutingPreview `json:"data"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if !payload.Success || !payload.Data.Ready || len(payload.Data.Routes) != 1 || payload.Data.Routes[0].WarehouseCode != "WH-1" {
+		t.Fatalf("unexpected response: %#v", payload)
+	}
+}
+
+func TestPlatformOrderRoutingPreviewRejectsInactiveUnconfirmedWarehouseEvidence(t *testing.T) {
+	source := readyPlatformOrderOperator()
+	source.resolved = source.resolved[:1]
+	fulfillment := &fakePlatformFulfillment{audits: []model.FulfillmentAudit{{
+		Platform: "temu", PlatformOrderNo: "PO-A", Active: false, OMSStatus: "not_found",
+		WarehouseKey: "EAST", WarehouseCode: "WH-1",
+	}}}
+	handler := platformOrderOperationHandler(source, readyPlatformMappings(), fulfillment)
+	request := httptest.NewRequest(http.MethodPost, "/v1/platform-orders/routing-preview", strings.NewReader(`{"platform_order_nos":["PO-A"]}`))
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK || !strings.Contains(recorder.Body.String(), "未找到可靠购面单记录") {
+		t.Fatalf("unexpected response %d: %s", recorder.Code, recorder.Body.String())
+	}
+}
+
 func TestPlatformOrderRoutingPreviewPrefersPurchasedLabelOverOMSPlatformWarehouse(t *testing.T) {
 	source := readyPlatformOrderOperator()
 	source.resolved = source.resolved[:1]
@@ -281,11 +369,20 @@ func readyPlatformMappings() *fakePlatformMappings {
 	}}}
 }
 
+type fakePlatformServices struct {
+	*fakePlatformMappings
+	shipments map[string]temutracking.PurchasedShipment
+}
+
+func (f *fakePlatformServices) PurchasedShipmentsByPlatformOrderNos(context.Context, []string) (map[string]temutracking.PurchasedShipment, error) {
+	return f.shipments, nil
+}
+
 type fakePlatformFulfillment struct {
 	audits []model.FulfillmentAudit
 }
 
-func (f *fakePlatformFulfillment) FulfillmentAuditsByPlatformOrderNos(context.Context, []string) ([]model.FulfillmentAudit, error) {
+func (f *fakePlatformFulfillment) FulfillmentAuditWarehouseEvidenceByPlatformOrderNos(context.Context, []string) ([]model.FulfillmentAudit, error) {
 	return append([]model.FulfillmentAudit(nil), f.audits...), nil
 }
 

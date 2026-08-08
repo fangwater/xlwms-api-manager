@@ -19,8 +19,12 @@ type platformWarehouseMappingSource interface {
 	WarehouseMappings(context.Context) ([]temutracking.WarehouseMapping, error)
 }
 
+type platformOrderShipmentSource interface {
+	PurchasedShipmentsByPlatformOrderNos(context.Context, []string) (map[string]temutracking.PurchasedShipment, error)
+}
+
 type platformOrderFulfillmentSource interface {
-	FulfillmentAuditsByPlatformOrderNos(context.Context, []string) ([]model.FulfillmentAudit, error)
+	FulfillmentAuditWarehouseEvidenceByPlatformOrderNos(context.Context, []string) ([]model.FulfillmentAudit, error)
 }
 
 type automaticRoutingRequest struct {
@@ -206,18 +210,32 @@ func (s *Server) resolveAutomaticPlatformOrderRoutes(ctx context.Context, platfo
 			mappingsByOMSWarehouse[code] = append(mappingsByOMSWarehouse[code], mapping)
 		}
 	}
-	fulfillmentAudits, err := s.platformFulfillment.FulfillmentAuditsByPlatformOrderNos(ctx, platformOrderNos)
+	fulfillmentAudits, err := s.platformFulfillment.FulfillmentAuditWarehouseEvidenceByPlatformOrderNos(ctx, platformOrderNos)
 	if err != nil {
 		return preview, fmt.Errorf("query purchased-label fulfillment records: %w", err)
 	}
 	fulfillmentByPlatformOrder := make(map[string][]model.FulfillmentAudit, len(fulfillmentAudits))
 	for _, audit := range fulfillmentAudits {
-		if !audit.Active || !strings.EqualFold(strings.TrimSpace(audit.Platform), "temu") {
+		if (!audit.Active && !strings.EqualFold(strings.TrimSpace(audit.OMSStatus), "outbound")) ||
+			!strings.EqualFold(strings.TrimSpace(audit.Platform), "temu") {
 			continue
 		}
 		orderNo := strings.ToUpper(strings.TrimSpace(audit.PlatformOrderNo))
 		if orderNo != "" {
 			fulfillmentByPlatformOrder[orderNo] = append(fulfillmentByPlatformOrder[orderNo], audit)
+		}
+	}
+	if s.platformShipments != nil {
+		shipments, shipmentErr := s.platformShipments.PurchasedShipmentsByPlatformOrderNos(ctx, platformOrderNos)
+		if shipmentErr != nil {
+			for _, platformOrderNo := range platformOrderNos {
+				if _, reason := purchasedLabelWarehouse(fulfillmentByPlatformOrder[strings.ToUpper(platformOrderNo)]); reason != "" {
+					return preview, fmt.Errorf("query authoritative Temu purchased-label records: %w", shipmentErr)
+				}
+			}
+			s.logger.Warn("Temu purchased-label lookup failed; using local audit cache", "error", shipmentErr)
+		} else {
+			fulfillmentByPlatformOrder = fulfillmentAuditsFromTemuShipments(shipments)
 		}
 	}
 	purchasedByPlatformOrder := make(map[string]model.FulfillmentAudit, len(platformOrderNos))
@@ -360,6 +378,33 @@ func (s *Server) resolveAutomaticPlatformOrderRoutes(ctx context.Context, platfo
 	}
 	preview.Ready = len(preview.Routes) == len(platformOrderNos) && len(preview.Unresolved) == 0
 	return preview, nil
+}
+
+func fulfillmentAuditsFromTemuShipments(shipments map[string]temutracking.PurchasedShipment) map[string][]model.FulfillmentAudit {
+	result := make(map[string][]model.FulfillmentAudit, len(shipments))
+	for orderNo, shipment := range shipments {
+		status := strings.ToLower(strings.TrimSpace(shipment.Status))
+		reliable := shipment.ConfirmedAt != nil || strings.TrimSpace(shipment.TrackingNumber) != ""
+		switch status {
+		case "label_ready", "confirming", "confirm_failed", "shipped":
+			reliable = true
+		}
+		warehouseKey := strings.ToUpper(strings.TrimSpace(shipment.OMSWarehouseKey))
+		warehouseCode := strings.ToUpper(strings.TrimSpace(shipment.OMSWarehouseCode))
+		if !reliable || warehouseKey == "" || warehouseCode == "" {
+			continue
+		}
+		normalizedOrderNo := strings.ToUpper(strings.TrimSpace(orderNo))
+		if normalizedOrderNo == "" {
+			continue
+		}
+		result[normalizedOrderNo] = append(result[normalizedOrderNo], model.FulfillmentAudit{
+			Platform: "temu", ShopCode: strings.TrimSpace(shipment.StoreCode),
+			PlatformOrderNo: normalizedOrderNo, WarehouseKey: warehouseKey,
+			WarehouseCode: warehouseCode, TrackingNumber: strings.TrimSpace(shipment.TrackingNumber), Active: true,
+		})
+	}
+	return result
 }
 
 func purchasedLabelWarehouse(audits []model.FulfillmentAudit) (model.FulfillmentAudit, string) {
