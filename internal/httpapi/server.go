@@ -52,8 +52,15 @@ func NewWithPlatformOrderOperations(destination *store.Postgres, service *syncer
 	return newWithPlatformOrderOperations(destination, service, fulfillmentAuditor, platformOrders, platformMappings, destination, requestTimeout, logger)
 }
 
-func NewWithWarehousePlatformOrderOperations(destination *store.Postgres, service *syncer.Service, fulfillmentAuditor *auditor.Service, platformOrders platformOrderSource, platformMappings platformWarehouseMappingSource, omsBaseURL string, requestTimeout time.Duration, logger *slog.Logger) http.Handler {
-	accounts := &postgresPlatformOrderAccounts{store: destination, baseURL: omsBaseURL, timeout: requestTimeout}
+func NewWithWarehousePlatformOrderOperations(destination *store.Postgres, service *syncer.Service, fulfillmentAuditor *auditor.Service, platformOrders platformOrderSource, platformMappings platformWarehouseMappingSource, omsBaseURL, omsUsername, omsPassword string, requestTimeout time.Duration, logger *slog.Logger) http.Handler {
+	shared, _ := platformOrders.(platformOrderAccount)
+	if !platformOrderAccountAvailable(shared) {
+		shared = nil
+	}
+	accounts := &postgresPlatformOrderAccounts{
+		store: destination, baseURL: omsBaseURL, timeout: requestTimeout, shared: shared,
+		sharedUsername: omsUsername, sharedPassword: omsPassword,
+	}
 	return newWithPlatformOrderAccountOperations(destination, service, fulfillmentAuditor, platformOrders, platformMappings, destination, accounts, requestTimeout, logger)
 }
 
@@ -79,7 +86,10 @@ func newWithPlatformOrderAccountOperations(destination *store.Postgres, service 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", server.health)
 	mux.HandleFunc("GET /v1/dashboard/summary", server.dashboard)
+	mux.HandleFunc("GET /v1/platform-orders/accounts", server.listPlatformOrderAccounts)
 	mux.HandleFunc("GET /v1/platform-orders/pending", server.pendingPlatformOrders)
+	mux.HandleFunc("GET /v1/platform-orders/{platformOrderNo}", server.platformOrder)
+	mux.HandleFunc("GET /v1/temu/platform-orders/{platformOrderNo}", server.temuPlatformOrder)
 	mux.HandleFunc("POST /v1/platform-orders/routing-preview", server.platformOrderRoutingPreview)
 	mux.HandleFunc("POST /v1/platform-orders/assign-and-approve", server.assignAndApprovePlatformOrdersAuto)
 	mux.HandleFunc("GET /v1/warehouses", server.listWarehouses)

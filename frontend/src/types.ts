@@ -297,6 +297,12 @@ export type FulfilledOrderPage = PageData<FulfillmentAudit> & {
   shops: Array<{ code: string; name: string }>;
 };
 
+export type PlatformOrderAccountOption = {
+  key: string;
+  label: string;
+  warehouse_codes: string[];
+};
+
 export type PlatformOrderProduct = {
   sku: string;
   qty: number;

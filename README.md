@@ -99,7 +99,10 @@ make build
 ```text
 GET    /healthz
 GET    /v1/dashboard/summary
+GET    /v1/platform-orders/accounts
 GET    /v1/platform-orders/pending
+GET    /v1/platform-orders/{platformOrderNo}
+GET    /v1/temu/platform-orders/{platformOrderNo}
 POST   /v1/platform-orders/routing-preview
 POST   /v1/platform-orders/assign-and-approve
 GET    /v1/warehouses
@@ -126,6 +129,86 @@ POST   /v1/outbound/{operation}
 GET    /v1/sync/runs
 ```
 `GET /v1/platform-orders/pending` 支持 `q` 参数按平台单号精确查询；仅返回当前仍处于待处理状态的订单。
+
+`GET /v1/platform-orders/{platformOrderNo}` 实时查询所选 OMS 账户的“全部订单”，
+不附加待处理状态筛选，也不在本地同步或保存账户订单。响应中的 `found` 表示该账户
+是否存在这个平台单号，`records` 保留 OMS 返回的匹配订单及 `orderTime`、
+`createTime`、`status` 等字段。
+
+账户选择方式与 Temu 服务的 `X-Temu-Shop` 模式一致，优先使用
+`X-OMS-Account`；也可以使用 `account` 查询参数。两者同时提供时必须一致。
+缺省账户为 `arp`，可选键通过 `GET /v1/platform-orders/accounts` 获取：
+
+```bash
+curl -sS \
+  -H 'X-OMS-Account: warehouse:DPSCA004' \
+  'http://127.0.0.1:18083/v1/platform-orders/PO-DEMO-1001'
+```
+
+```json
+{
+  "success": true,
+  "data": {
+    "account": "warehouse:DPSCA004",
+    "platform_order_no": "PO-DEMO-1001",
+    "found": true,
+    "records": [
+      {
+        "orderNo": "OMS-DEMO-1",
+        "platformOrderNo": "PO-DEMO-1001",
+        "orderTime": "2026-08-10 09:00:00",
+        "createTime": "2026-08-10 09:05:00",
+        "status": 2
+      }
+    ],
+    "queried_at": "2026-08-11T00:00:00Z"
+  }
+}
+```
+
+Temu Go 服务使用 `GET /v1/temu/platform-orders/{platformOrderNo}` 查询领星确认状态。
+该服务间端点必须显式传入 `X-OMS-Account` 或 `account`，不会默认查询 ARP，避免在
+ARP、DPS 数据隔离时误查账户。端点实时查询 OMS“全部订单”，不读取或写入本地订单表，
+并只返回后续核验所需的最小字段：
+
+服务间调用使用稳定的账户归属键 `dps` 或 `arp`。`warehouse:<实际仓库代码>` 仍可作为
+人工查询别名，例如 `warehouse:DPSNY002` 和 `warehouse:DPSCA004` 会选择同一个 DPS
+凭据组，`warehouse:HYTX30` 会选择 ARP 凭据组。
+
+“全部订单”精确查询在每个 OMS 凭据组内最多并发 2 个请求，请求启动间隔至少 500ms。
+等待限频槽位时遵守调用方上下文超时，超时后由上层账本按既有节奏重试。
+
+```bash
+curl -sS \
+  -H 'X-OMS-Account: dps' \
+  'http://127.0.0.1:18083/v1/temu/platform-orders/PO-DEMO-1001'
+```
+
+```json
+{
+  "success": true,
+  "data": {
+    "account": "dps",
+    "platform_order_no": "PO-DEMO-1001",
+    "found": true,
+    "match_count": 1,
+    "orders": [{
+      "oms_order_no": "OMS-DEMO-1",
+      "platform_order_no": "PO-DEMO-1001",
+      "status": 2,
+      "status_key": "processing",
+      "status_text": "处理中",
+      "send_warehouse_code": "DPSNY002",
+      "audit_time": "2026-08-11 14:21:30"
+    }],
+    "queried_at": "2026-08-11T06:22:00Z"
+  }
+}
+```
+
+`status` 保留 OMS 原始数字。根据当前 OMS 官方 Web 客户端，`0` 至 `6` 分别归一化为
+`pending`、`awaiting_platform_label`、`processing`、`shipped`、`canceled`、
+`exception`、`awaiting_invoice`；其他数字返回 `status_key: "unknown"`。
 
 平台订单自动分仓只使用履约核查中由 Temu 购面单账本同步的仓库；没有完整、唯一的购面单仓库记录时禁止自动审核，不使用 OMS 平台仓字段兜底。
 

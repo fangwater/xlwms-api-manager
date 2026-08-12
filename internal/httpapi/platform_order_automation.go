@@ -29,10 +29,12 @@ type platformOrderFulfillmentSource interface {
 
 type automaticRoutingRequest struct {
 	PlatformOrderNos []string `json:"platform_order_nos"`
+	Account          string   `json:"account"`
 }
 
 type automaticAssignmentRequest struct {
 	PlatformOrderNos []string `json:"platform_order_nos"`
+	Account          string   `json:"account"`
 	LogisticsCarrier string   `json:"logistics_carrier"`
 	Confirmation     string   `json:"confirmation"`
 }
@@ -66,7 +68,7 @@ type automaticRoutingPreview struct {
 }
 
 func (s *Server) platformOrderRoutingPreview(writer http.ResponseWriter, request *http.Request) {
-	if _, ok := s.platformOrders.(platformOrderOperator); !ok || s.platformMappings == nil || s.platformFulfillment == nil || s.platformAccounts == nil {
+	if s.platformMappings == nil || s.platformFulfillment == nil || s.platformAccounts == nil {
 		writeJSON(writer, http.StatusServiceUnavailable, response{Success: false, Error: "平台订单自动仓库映射未配置"})
 		return
 	}
@@ -81,7 +83,12 @@ func (s *Server) platformOrderRoutingPreview(writer http.ResponseWriter, request
 	}
 	ctx, cancel := context.WithTimeout(request.Context(), s.requestTimeout)
 	defer cancel()
-	preview, err := s.resolveAutomaticPlatformOrderRoutes(ctx, platformOrderNos)
+	operator, err := s.selectedPlatformOrderAccount(ctx, payload.Account)
+	if err != nil {
+		writePlatformOrderAccountError(writer, err)
+		return
+	}
+	preview, err := s.resolveAutomaticPlatformOrderRoutes(ctx, operator, platformOrderNos)
 	if err != nil {
 		s.logger.Warn("preview automatic OMS platform order routes", "error", err)
 		writeJSON(writer, http.StatusBadGateway, response{Success: false, Error: "无法读取购面单仓库记录，请稍后重试"})
@@ -91,7 +98,7 @@ func (s *Server) platformOrderRoutingPreview(writer http.ResponseWriter, request
 }
 
 func (s *Server) assignAndApprovePlatformOrdersAuto(writer http.ResponseWriter, request *http.Request) {
-	if _, ok := s.platformOrders.(platformOrderOperator); !ok || s.platformMappings == nil || s.platformFulfillment == nil || s.platformAccounts == nil {
+	if s.platformMappings == nil || s.platformFulfillment == nil || s.platformAccounts == nil {
 		writeJSON(writer, http.StatusServiceUnavailable, response{Success: false, Error: "OMS 平台订单自动操作未配置"})
 		return
 	}
@@ -118,7 +125,12 @@ func (s *Server) assignAndApprovePlatformOrdersAuto(writer http.ResponseWriter, 
 	defer s.platformOrderMu.Unlock()
 	ctx, cancel := context.WithTimeout(request.Context(), s.requestTimeout)
 	defer cancel()
-	preview, err := s.resolveAutomaticPlatformOrderRoutes(ctx, platformOrderNos)
+	operator, err := s.selectedPlatformOrderAccount(ctx, payload.Account)
+	if err != nil {
+		writePlatformOrderAccountError(writer, err)
+		return
+	}
+	preview, err := s.resolveAutomaticPlatformOrderRoutes(ctx, operator, platformOrderNos)
 	if err != nil {
 		s.logger.Warn("resolve automatic OMS platform order routes", "error", err)
 		writeJSON(writer, http.StatusBadGateway, response{Success: false, Error: "无法读取购面单仓库记录，订单未审核"})
@@ -191,8 +203,7 @@ func (s *Server) assignAndApprovePlatformOrdersAuto(writer http.ResponseWriter, 
 	}})
 }
 
-func (s *Server) resolveAutomaticPlatformOrderRoutes(ctx context.Context, platformOrderNos []string) (automaticRoutingPreview, error) {
-	operator := s.platformOrders.(platformOrderOperator)
+func (s *Server) resolveAutomaticPlatformOrderRoutes(ctx context.Context, operator platformOrderOperator, platformOrderNos []string) (automaticRoutingPreview, error) {
 	preview := automaticRoutingPreview{
 		Routes: []automaticPlatformOrderRoute{}, Unresolved: []unresolvedPlatformOrderRoute{},
 		ChannelCode: oms.PlatformLabelChannelCode, ChannelName: "上传物流面单",

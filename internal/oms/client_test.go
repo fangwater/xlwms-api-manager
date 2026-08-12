@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -61,6 +62,114 @@ func TestPendingOrdersUsesVerifiedWebContract(t *testing.T) {
 	}
 	if logins.Load() != 1 {
 		t.Fatalf("login count = %d, want 1", logins.Load())
+	}
+}
+
+func TestPlatformOrdersByPlatformOrderNoUsesAllOrdersSearch(t *testing.T) {
+	var logins atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		var body map[string]any
+		if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		switch request.URL.Path {
+		case "/gateway/woms/auth/login":
+			logins.Add(1)
+			writeOMSJSON(writer, apiEnvelope[loginData]{Code: http.StatusOK, Data: loginData{Token: "test-token"}, Msg: "ok"})
+		case "/gateway/woms/platform/order/list":
+			if request.Header.Get("Authorization") != "Bearer test-token" {
+				t.Fatalf("unexpected authorization header")
+			}
+			if body["status"] != "" || body["platformOrderNo"] != "PO-ALL-1" ||
+				body["current"] != float64(1) || body["size"] != float64(100) {
+				t.Fatalf("invalid all-orders lookup payload: %#v", body)
+			}
+			writeOMSJSON(writer, apiEnvelope[listData]{Code: http.StatusOK, Data: listData{
+				Records: []PendingOrder{
+					{OrderNo: "OMS-PENDING", PlatformOrderNo: "PO-ALL-1", Status: 0, OrderTime: "2026-08-01 01:02:03"},
+					{OrderNo: "OMS-PROCESSING", PlatformOrderNo: "po-all-1", Status: 2},
+					{OrderNo: "OMS-RELATED", PlatformOrderNo: "PO-ALL-10", Status: 3},
+				},
+				Total: 3, Size: 100, Current: 1, Pages: 1,
+			}})
+		default:
+			http.NotFound(writer, request)
+		}
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, "demo-user", "demo-password", time.Second)
+	orders, err := client.PlatformOrdersByPlatformOrderNo(context.Background(), " PO-ALL-1 ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(orders) != 2 || orders[0].OrderTime != "2026-08-01 01:02:03" || orders[1].Status != 2 {
+		t.Fatalf("unexpected exact matches: %#v", orders)
+	}
+	if _, err := client.PlatformOrdersByPlatformOrderNo(context.Background(), "PO-ALL-1"); err != nil {
+		t.Fatal(err)
+	}
+	if logins.Load() != 1 {
+		t.Fatalf("login count = %d, want 1", logins.Load())
+	}
+}
+
+func TestPlatformOrdersByPlatformOrderNoLimitsConcurrencyAndStartRate(t *testing.T) {
+	var active atomic.Int32
+	var maxActive atomic.Int32
+	var startsMu sync.Mutex
+	starts := make([]time.Time, 0, 4)
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/gateway/woms/auth/login":
+			writeOMSJSON(writer, apiEnvelope[loginData]{Code: http.StatusOK, Data: loginData{Token: "test-token"}})
+		case "/gateway/woms/platform/order/list":
+			current := active.Add(1)
+			for current > maxActive.Load() && !maxActive.CompareAndSwap(maxActive.Load(), current) {
+			}
+			startsMu.Lock()
+			starts = append(starts, time.Now())
+			startsMu.Unlock()
+			time.Sleep(45 * time.Millisecond)
+			active.Add(-1)
+			writeOMSJSON(writer, apiEnvelope[listData]{Code: http.StatusOK, Data: listData{Records: []PendingOrder{}}})
+		default:
+			http.NotFound(writer, request)
+		}
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, "demo-user", "demo-password", time.Second)
+	client.platformOrderGate = newPlatformOrderQueryGate(2, 25*time.Millisecond)
+	var group sync.WaitGroup
+	errorsCh := make(chan error, 4)
+	for index := 0; index < 4; index++ {
+		group.Add(1)
+		go func() {
+			defer group.Done()
+			_, err := client.PlatformOrdersByPlatformOrderNo(context.Background(), "PO-RATE")
+			errorsCh <- err
+		}()
+	}
+	group.Wait()
+	close(errorsCh)
+	for err := range errorsCh {
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	if maxActive.Load() != 2 {
+		t.Fatalf("maximum active queries = %d, want 2", maxActive.Load())
+	}
+	startsMu.Lock()
+	defer startsMu.Unlock()
+	if len(starts) != 4 {
+		t.Fatalf("query starts = %d, want 4", len(starts))
+	}
+	for index := 1; index < len(starts); index++ {
+		if gap := starts[index].Sub(starts[index-1]); gap < 15*time.Millisecond {
+			t.Fatalf("query start gap = %s, want at least 15ms", gap)
+		}
 	}
 }
 
@@ -164,6 +273,20 @@ func TestFlexibleIntAcceptsEmptyString(t *testing.T) {
 	}
 	if option.ChannelType != 1 || option.GetSheetType != -1 {
 		t.Fatalf("unexpected flexible values: %#v", option)
+	}
+}
+
+func TestPendingOrderPlatformOrderTypeAcceptsStringAndNumber(t *testing.T) {
+	var orders []PendingOrder
+	if err := json.Unmarshal([]byte(`[{"platformOrderType":"normal"},{"platformOrderType":2}]`), &orders); err != nil {
+		t.Fatal(err)
+	}
+	if len(orders) != 2 || string(orders[0].PlatformOrderType) != "normal" || string(orders[1].PlatformOrderType) != "2" {
+		t.Fatalf("unexpected platform order types: %#v", orders)
+	}
+	encoded, err := json.Marshal(orders[1])
+	if err != nil || !strings.Contains(string(encoded), `"platformOrderType":"2"`) {
+		t.Fatalf("encoded order = %s, error = %v", encoded, err)
 	}
 }
 

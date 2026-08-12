@@ -1,4 +1,4 @@
-import type { CostDetail, DashboardData, FulfilledOrderPage, FulfillmentAuditPage, FundsFlow, InventoryAlertPage, InventoryKind, InventoryRecord, InventoryThresholdPage, InventoryThresholds, PageData, PendingPlatformOrderPage, PlatformOrderAssignmentResult, PlatformOrderRoutingPreview, SKUInventoryThreshold, SKUStockLevelPage, SyncRun, Warehouse, WarehouseSKUInventoryAlertThreshold, WarehouseSKUSpec } from "./types";
+import type { CostDetail, DashboardData, FulfilledOrderPage, FulfillmentAuditPage, FundsFlow, InventoryAlertPage, InventoryKind, InventoryRecord, InventoryThresholdPage, InventoryThresholds, PageData, PendingPlatformOrderPage, PlatformOrderAccountOption, PlatformOrderAssignmentResult, PlatformOrderRoutingPreview, SKUInventoryThreshold, SKUStockLevelPage, SyncRun, Warehouse, WarehouseSKUInventoryAlertThreshold, WarehouseSKUSpec } from "./types";
 
 type Envelope<T> = { success: boolean; data?: T; error?: string };
 const apiBase = `${import.meta.env.BASE_URL}api`;
@@ -41,10 +41,11 @@ export const api = {
     if (!response.ok) throw new Error("服务不可用");
   },
   dashboard: (warehouse?: string) => request<DashboardData>(`/dashboard/summary${query({ warehouse })}`),
-  pendingPlatformOrders: (params: { q?: string; page: number; pageSize: number }) =>
-    request<PendingPlatformOrderPage>("/platform-orders/pending" + query({ q: params.q, page: params.page, page_size: params.pageSize })),
-  platformOrderRoutingPreview: (platformOrderNos: string[]) => request<PlatformOrderRoutingPreview>("/platform-orders/routing-preview", { method: "POST", body: JSON.stringify({ platform_order_nos: platformOrderNos }) }),
-  assignAndApprovePlatformOrders: (payload: { platform_order_nos: string[]; logistics_carrier: string; confirmation: "CONFIRM_AND_APPROVE" }) =>
+  platformOrderAccounts: () => request<PlatformOrderAccountOption[]>("/platform-orders/accounts"),
+  pendingPlatformOrders: (params: { account: string; q?: string; page: number; pageSize: number }) =>
+    request<PendingPlatformOrderPage>("/platform-orders/pending" + query({ account: params.account, q: params.q, page: params.page, page_size: params.pageSize })),
+  platformOrderRoutingPreview: (platformOrderNos: string[], account: string) => request<PlatformOrderRoutingPreview>("/platform-orders/routing-preview", { method: "POST", body: JSON.stringify({ platform_order_nos: platformOrderNos, account }) }),
+  assignAndApprovePlatformOrders: (payload: { platform_order_nos: string[]; account: string; logistics_carrier: string; confirmation: "CONFIRM_AND_APPROVE" }) =>
     request<PlatformOrderAssignmentResult>("/platform-orders/assign-and-approve", {
     method: "POST",
     body: JSON.stringify(payload)

@@ -22,6 +22,8 @@ type fakePlatformOrders struct {
 	channels         []oms.LogisticsChannelOption
 	resolved         []oms.PendingOrder
 	lookupOrderNos   []string
+	allStatusRecords []oms.PendingOrder
+	allStatusLookup  string
 	assignment       oms.AssignmentRequest
 	assignmentResult oms.AssignmentResult
 	assignCalls      int
@@ -46,6 +48,11 @@ func (f *fakePlatformOrders) LogisticsChannels(context.Context, string) ([]oms.L
 func (f *fakePlatformOrders) PendingOrdersByPlatformOrderNos(_ context.Context, orderNos []string) ([]oms.PendingOrder, error) {
 	f.lookupOrderNos = append([]string(nil), orderNos...)
 	return f.resolved, nil
+}
+
+func (f *fakePlatformOrders) PlatformOrdersByPlatformOrderNo(_ context.Context, orderNo string) ([]oms.PendingOrder, error) {
+	f.allStatusLookup = orderNo
+	return f.allStatusRecords, nil
 }
 
 func (f *fakePlatformOrders) AssignAndApprove(_ context.Context, request oms.AssignmentRequest) (oms.AssignmentResult, error) {
@@ -116,6 +123,64 @@ func TestPendingPlatformOrdersSearchReturnsEmptyArrayWhenNotFound(t *testing.T) 
 	}
 	if len(source.lookupOrderNos) != 1 || source.lookupOrderNos[0] != "PO-MISSING" {
 		t.Fatalf("unexpected lookup: %#v", source.lookupOrderNos)
+	}
+}
+
+func TestPlatformOrderLookupReturnsAllStatusMatches(t *testing.T) {
+	source := &fakePlatformOrders{allStatusRecords: []oms.PendingOrder{{
+		OrderNo: "OMS-PROCESSING", PlatformOrderNo: "PO-A", Status: 2,
+		OrderTime: "2026-08-01 01:02:03",
+	}}}
+	handler := NewWithPlatformOrders(nil, nil, nil, source, time.Second, slog.Default())
+	request := httptest.NewRequest(http.MethodGet, "/v1/platform-orders/PO-A?account=arp", nil)
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("got status %d: %s", recorder.Code, recorder.Body.String())
+	}
+	if source.allStatusLookup != "PO-A" || len(source.lookupOrderNos) != 0 || source.page != 0 {
+		t.Fatalf("unexpected lookup state: all=%q pending=%#v page=%d", source.allStatusLookup, source.lookupOrderNos, source.page)
+	}
+	var payload struct {
+		Success bool                      `json:"success"`
+		Data    platformOrderLookupResult `json:"data"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if !payload.Success || !payload.Data.Found || payload.Data.Account != "arp" ||
+		len(payload.Data.Records) != 1 || payload.Data.Records[0].Status != 2 ||
+		payload.Data.Records[0].OrderTime != "2026-08-01 01:02:03" || payload.Data.QueriedAt.IsZero() {
+		t.Fatalf("unexpected response: %#v", payload)
+	}
+	if recorder.Header().Get("Cache-Control") != "no-store" {
+		t.Fatalf("cache control = %q", recorder.Header().Get("Cache-Control"))
+	}
+}
+
+func TestPlatformOrderLookupReturnsFoundFalse(t *testing.T) {
+	source := &fakePlatformOrders{}
+	handler := NewWithPlatformOrders(nil, nil, nil, source, time.Second, slog.Default())
+	request := httptest.NewRequest(http.MethodGet, "/v1/platform-orders/PO-MISSING", nil)
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK ||
+		!strings.Contains(recorder.Body.String(), `"found":false`) ||
+		!strings.Contains(recorder.Body.String(), `"records":[]`) {
+		t.Fatalf("unexpected response %d: %s", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestPlatformOrderLookupRejectsConflictingAccountSelectors(t *testing.T) {
+	source := &fakePlatformOrders{}
+	handler := NewWithPlatformOrders(nil, nil, nil, source, time.Second, slog.Default())
+	request := httptest.NewRequest(http.MethodGet, "/v1/platform-orders/PO-A?account=arp", nil)
+	request.Header.Set(platformOrderAccountHeader, "warehouse:DPSCA004")
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusBadRequest || source.allStatusLookup != "" {
+		t.Fatalf("unexpected response %d: %s", recorder.Code, recorder.Body.String())
 	}
 }
 

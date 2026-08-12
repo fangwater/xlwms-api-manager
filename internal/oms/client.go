@@ -28,6 +28,9 @@ const (
 
 	// This public request-signing key and algorithm come from the current OMS web client.
 	trackKeySecret = "inUekb1OG+WeSjLAo+iZ8hwqiPq5a/vss0cwIxQ8aK4="
+
+	platformOrderQueryConcurrency = 2
+	platformOrderQueryMinInterval = 500 * time.Millisecond
 )
 
 var ErrAuthentication = errors.New("OMS authentication failed")
@@ -46,6 +49,50 @@ type Client struct {
 
 	tokenMu sync.Mutex
 	token   string
+
+	platformOrderGate *platformOrderQueryGate
+}
+
+type platformOrderQueryGate struct {
+	slots    chan struct{}
+	mu       sync.Mutex
+	next     time.Time
+	interval time.Duration
+}
+
+func newPlatformOrderQueryGate(concurrency int, interval time.Duration) *platformOrderQueryGate {
+	return &platformOrderQueryGate{slots: make(chan struct{}, concurrency), interval: interval}
+}
+
+func (g *platformOrderQueryGate) acquire(ctx context.Context) (func(), error) {
+	select {
+	case g.slots <- struct{}{}:
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+	release := func() { <-g.slots }
+
+	g.mu.Lock()
+	readyAt := time.Now()
+	if g.next.After(readyAt) {
+		readyAt = g.next
+	}
+	g.next = readyAt.Add(g.interval)
+	g.mu.Unlock()
+
+	delay := time.Until(readyAt)
+	if delay <= 0 {
+		return release, nil
+	}
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-timer.C:
+		return release, nil
+	case <-ctx.Done():
+		release()
+		return nil, ctx.Err()
+	}
 }
 
 type OrderProduct struct {
@@ -99,7 +146,7 @@ type PendingOrder struct {
 	MarkShipmentTime               string                    `json:"markShipmentTime"`
 	MarkShipmentFailReason         string                    `json:"markShipmentFailReason"`
 	DeliveryOptionType             int                       `json:"deliveryOptionType"`
-	PlatformOrderType              string                    `json:"platformOrderType"`
+	PlatformOrderType              FlexibleString            `json:"platformOrderType"`
 	PlatformSplitRequired          string                    `json:"platformSplitRequired"`
 	PlatformSplitReason            string                    `json:"platformSplitReason"`
 	SplitStatus                    int                       `json:"splitStatus"`
@@ -137,6 +184,28 @@ func (value *FlexibleInt) UnmarshalJSON(data []byte) error {
 		return fmt.Errorf("decode flexible integer %q: %w", raw, err)
 	}
 	*value = FlexibleInt(parsed)
+	return nil
+}
+
+type FlexibleString string
+
+func (value *FlexibleString) UnmarshalJSON(data []byte) error {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.UseNumber()
+	var decoded any
+	if err := decoder.Decode(&decoded); err != nil {
+		return fmt.Errorf("decode flexible string: %w", err)
+	}
+	switch parsed := decoded.(type) {
+	case nil:
+		*value = ""
+	case string:
+		*value = FlexibleString(parsed)
+	case json.Number:
+		*value = FlexibleString(parsed.String())
+	default:
+		return fmt.Errorf("decode flexible string from %T", decoded)
+	}
 	return nil
 }
 
@@ -248,10 +317,11 @@ func NewClient(baseURL, username, password string, timeout time.Duration) *Clien
 		timeout = 30 * time.Second
 	}
 	return &Client{
-		baseURL:    strings.TrimRight(baseURL, "/"),
-		username:   strings.TrimSpace(username),
-		password:   password,
-		httpClient: &http.Client{Timeout: timeout},
+		baseURL:           strings.TrimRight(baseURL, "/"),
+		username:          strings.TrimSpace(username),
+		password:          password,
+		httpClient:        &http.Client{Timeout: timeout},
+		platformOrderGate: newPlatformOrderQueryGate(platformOrderQueryConcurrency, platformOrderQueryMinInterval),
 	}
 }
 
@@ -279,6 +349,44 @@ func (c *Client) PendingOrders(ctx context.Context, page, pageSize int) (Pending
 		return PendingOrderPage{}, err
 	}
 	return c.pendingOrders(ctx, token, page, pageSize)
+}
+
+// PlatformOrdersByPlatformOrderNo searches the OMS "all orders" view without
+// applying a workflow-status filter. The platform order number remains an
+// exact-match guard because the upstream search may return related records.
+func (c *Client) PlatformOrdersByPlatformOrderNo(ctx context.Context, platformOrderNo string) ([]PendingOrder, error) {
+	platformOrderNo = strings.TrimSpace(platformOrderNo)
+	if platformOrderNo == "" {
+		return nil, nil
+	}
+	release, err := c.platformOrderGate.acquire(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("wait for OMS platform order query slot: %w", err)
+	}
+	defer release()
+	return authenticatedRequest(c, ctx, func(token string) ([]PendingOrder, error) {
+		payload := listPayload{
+			CountKind: "orderCount", Current: 1, Size: 100,
+			Status: "", PlatformOrderNo: platformOrderNo,
+		}
+		envelope, status, err := postJSON[listData](ctx, c, "/gateway/woms/platform/order/list", payload, map[string]string{"Authorization": "Bearer " + token})
+		if err != nil {
+			return nil, fmt.Errorf("query OMS platform order: %w", err)
+		}
+		if status == http.StatusUnauthorized || envelope.Code == http.StatusUnauthorized {
+			return nil, ErrAuthentication
+		}
+		if status < 200 || status >= 300 || envelope.Code != http.StatusOK {
+			return nil, remoteError("OMS platform order lookup", status, envelope.Code, envelope.Msg)
+		}
+		matches := make([]PendingOrder, 0, len(envelope.Data.Records))
+		for _, order := range envelope.Data.Records {
+			if strings.EqualFold(strings.TrimSpace(order.PlatformOrderNo), platformOrderNo) {
+				matches = append(matches, order)
+			}
+		}
+		return matches, nil
+	})
 }
 
 func (c *Client) WarehouseOptions(ctx context.Context) ([]WarehouseOption, error) {

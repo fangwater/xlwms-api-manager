@@ -122,8 +122,13 @@ async function mockAPI(page: Page, options: { indexedParcelMatch?: boolean } = {
       channel_code: "Upload_Shipping_Label", logistics_carrier: route.request().postDataJSON()?.logistics_carrier || "_AUTO_MATCH_",
       completed_at: "2026-08-06T05:25:00Z"
     };
+    else if (path.endsWith("/platform-orders/accounts")) data = [
+      { key: "arp", label: "ARP 账户", warehouse_codes: ["ARPCA01", "ARPGA", "HYTX30"] },
+      { key: "warehouse:DPSCA004", label: "DPS 账户", warehouse_codes: ["DPSCA004", "DPSNY002"] }
+    ];
     else if (path.endsWith("/platform-orders/pending")) {
       const searched = Boolean(url.searchParams.get("q"));
+      const dps = url.searchParams.get("account") === "warehouse:DPSCA004";
       data = {
         records: [{
         orderNo: "OMS-DEMO-2201", platformOrderNo: "PO-DEMO-2201", platformCode: "temu",
@@ -138,7 +143,7 @@ async function mockAPI(page: Page, options: { indexedParcelMatch?: boolean } = {
         status: 0, subStatus: 0, markShipmentStatus: 5, directMailOrder: false,
         remark: "", exceptionCause: "", auditCause: "", requestDeliveryTimeFailReason: "", markShipmentFailReason: "", platformSplitReason: ""
         }],
-        total: searched ? 1 : 2222, page: searched ? 1 : Number(url.searchParams.get("page") || 1), page_size: 30, pages: searched ? 1 : 75, queried_at: "2026-08-06T05:20:00Z"
+        total: searched ? 1 : (dps ? 45944 : 2222), page: searched ? 1 : Number(url.searchParams.get("page") || 1), page_size: 30, pages: searched ? 1 : (dps ? 1532 : 75), queried_at: "2026-08-06T05:20:00Z"
       };
     }
     else if (path.endsWith("/outbound-orders")) {
@@ -239,9 +244,18 @@ test("pending platform orders show live details without a warehouse filter", asy
   await expect(page.getByText("PO-DEMO-2201")).toBeVisible();
   await expect(page.getByText("WAREHOUSE-SKU-1")).toBeVisible();
   await expect(page.locator(".warehouse-select")).toHaveCount(0);
+  const accountSelect = page.getByLabel("OMS 账户");
+  await expect(accountSelect).toHaveValue("arp");
+  await expect(accountSelect.locator("option")).toHaveCount(2);
+  const dpsRequest = page.waitForRequest((request) => new URL(request.url()).searchParams.get("account") === "warehouse:DPSCA004");
+  await accountSelect.selectOption("warehouse:DPSCA004");
+  expect((await dpsRequest).method()).toBe("GET");
+  await expect(page.getByText("45,944", { exact: true })).toBeVisible();
+  await page.screenshot({ path: "/tmp/xlwms-platform-account-switch-mobile.png", fullPage: true });
   const searchRequest = page.waitForRequest((request) => {
     const url = new URL(request.url());
-    return url.pathname.endsWith("/platform-orders/pending") && url.searchParams.get("q") === "PO-DEMO-2201";
+    return url.pathname.endsWith("/platform-orders/pending") && url.searchParams.get("q") === "PO-DEMO-2201" &&
+      url.searchParams.get("account") === "warehouse:DPSCA004";
   });
   await page.getByLabel("平台单号搜索").fill("PO-DEMO-2201");
   await page.getByRole("button", { name: "查询", exact: true }).click();
@@ -262,7 +276,9 @@ test("selected platform orders use automatic warehouse routing and the configure
   await mockAPI(page);
   await page.goto("./platform-orders");
   await page.getByLabel("选择平台订单 PO-DEMO-2201").check();
+  const previewRequest = page.waitForRequest((request) => request.url().endsWith("/platform-orders/routing-preview"));
   await page.getByRole("button", { name: "分配仓库和物流" }).click();
+  expect((await previewRequest).postDataJSON()).toEqual({ platform_order_nos: ["PO-DEMO-2201"], account: "arp" });
 
   const dialog = page.getByRole("dialog", { name: "分配仓库和物流" });
   await expect(dialog).toBeVisible();
@@ -293,6 +309,7 @@ test("selected platform orders use automatic warehouse routing and the configure
   expect(request.headers().authorization).toBeUndefined();
   expect(request.postDataJSON()).toEqual({
     platform_order_nos: ["PO-DEMO-2201"],
+    account: "arp",
     logistics_carrier: "other",
     confirmation: "CONFIRM_AND_APPROVE"
   });

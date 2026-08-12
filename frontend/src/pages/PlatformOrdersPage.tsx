@@ -1,13 +1,20 @@
 import { AlertTriangle, CheckCircle2, Clock3, Eye, ListTodo, PackageSearch, RefreshCw, Search, ShieldCheck, Store, Truck, X } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import { api } from "../api";
 import { EmptyState, ErrorState, LoadingState, PageHeader, Pagination, dateTime, number } from "../components/Common";
 import type { PendingPlatformOrder, PlatformOrderAssignmentResult, PlatformOrderProduct, PendingPlatformOrderPage, PlatformOrderRoutingPreview } from "../types";
 import "./PlatformOrdersPage.css";
 
+const defaultPlatformOrderAccounts = [{
+  key: "arp", label: "ARP 账户", warehouse_codes: [] as string[]
+}];
+
 export default function PlatformOrdersPage() {
   const [page, setPage] = useState(1);
+  const [account, setAccount] = useState("arp");
+  const [accounts, setAccounts] = useState(defaultPlatformOrderAccounts);
+  const [accountError, setAccountError] = useState("");
   const [searchInput, setSearchInput] = useState("");
   const [query, setQuery] = useState("");
   const [data, setData] = useState<PendingPlatformOrderPage | null>(null);
@@ -17,25 +24,54 @@ export default function PlatformOrdersPage() {
   const [selectedOrderNos, setSelectedOrderNos] = useState<string[]>([]);
   const [routingOpen, setRoutingOpen] = useState(false);
   const [assignmentResult, setAssignmentResult] = useState<PlatformOrderAssignmentResult | null>(null);
+  const loadSequence = useRef(0);
 
   const load = useCallback(async () => {
+    const sequence = ++loadSequence.current;
     setLoading(true);
     setError("");
     try {
-      const next = await api.pendingPlatformOrders({ q: query || undefined, page, pageSize: 30 });
+      const next = await api.pendingPlatformOrders({ account, q: query || undefined, page, pageSize: 30 });
+      if (sequence !== loadSequence.current) return;
       setData(next);
       setSelectedOrderNos([]);
     } catch (reason) {
+      if (sequence !== loadSequence.current) return;
       setError(reason instanceof Error ? reason.message : "无法加载平台订单");
     } finally {
-      setLoading(false);
+      if (sequence === loadSequence.current) setLoading(false);
     }
-  }, [page, query]);
+  }, [account, page, query]);
 
   useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    let active = true;
+    void api.platformOrderAccounts().then((next) => {
+      if (!active || next.length === 0) return;
+      setAccounts(next);
+      setAccount((current) => next.some((item) => item.key === current) ? current : next[0].key);
+    }).catch((reason) => {
+      if (active) setAccountError(reason instanceof Error ? reason.message : "无法读取 OMS 账户列表");
+    });
+    return () => { active = false; };
+  }, []);
 
   const pageOrderNos = data?.records.map((order) => order.platformOrderNo).filter(Boolean) ?? [];
   const allPageSelected = pageOrderNos.length > 0 && pageOrderNos.every((orderNo) => selectedOrderNos.includes(orderNo));
+  const selectedAccount = accounts.find((item) => item.key === account) ?? accounts[0];
+  const selectedAccountLabel = selectedAccount?.label || "OMS 账户";
+
+  function switchAccount(next: string) {
+    if (next === account) return;
+    loadSequence.current++;
+    setAccount(next);
+    setPage(1);
+    setData(null);
+    setError("");
+    setSelectedOrderNos([]);
+    setAssignmentResult(null);
+    setDetail(null);
+  }
 
   function toggleOrder(orderNo: string) {
     setSelectedOrderNos((selected) => selected.includes(orderNo) ? selected.filter((value) => value !== orderNo) : [...selected, orderNo]);
@@ -65,7 +101,7 @@ export default function PlatformOrdersPage() {
   return <>
     <PageHeader
       title="平台订单待处理"
-      subtitle={"实时读取领星 OMS" + (data?.queried_at ? " · 最近查询 " + dateTime(data.queried_at) : "")}
+      subtitle={"实时读取领星 OMS · " + selectedAccountLabel + (data?.queried_at ? " · 最近查询 " + dateTime(data.queried_at) : "")}
       actions={<>
         <button className="primary-button platform-order-action" disabled={selectedOrderNos.length === 0} onClick={() => setRoutingOpen(true)} title="分配仓库和物流"><Truck size={16} /><span>分配仓库和物流</span></button>
         <button className="icon-button bordered" onClick={() => void load()} title="刷新"><RefreshCw size={18} className={loading ? "spin" : ""} /></button>
@@ -76,7 +112,7 @@ export default function PlatformOrdersPage() {
       <div><span>{query ? "查询结果" : "待处理总数"}</span><strong>{number(data.total)}</strong></div>
       <div><span>当前页</span><strong>{data.page} / {Math.max(data.pages, 1)}</strong></div>
       <div><span>已选择</span><strong>{selectedOrderNos.length}</strong></div>
-      <small>{query ? "平台单号精确查询" : "OMS 实时数据"}</small>
+      <small>{selectedAccountLabel} · {query ? "平台单号精确查询" : "OMS 实时数据"}</small>
     </section>}
     {assignmentResult && <section className={`platform-assignment-result ${assignmentResult.failed ? "partial" : "success"}`} role="status">
       {assignmentResult.failed ? <AlertTriangle size={19} /> : <CheckCircle2 size={19} />}
@@ -86,6 +122,13 @@ export default function PlatformOrdersPage() {
       <button className="icon-button" onClick={() => setAssignmentResult(null)} title="关闭结果"><X size={16} /></button>
     </section>}
     <form className="filter-bar platform-order-filters" onSubmit={submitSearch}>
+      <label className="select-field platform-order-account-select" title={selectedAccount?.warehouse_codes.join("、") || selectedAccountLabel}>
+        <Store size={16} />
+        <select aria-label="OMS 账户" value={account} onChange={(event) => switchAccount(event.target.value)}>
+          {accounts.map((item) => <option key={item.key} value={item.key}>{item.label}</option>)}
+        </select>
+      </label>
+      {accountError && <span className="platform-order-account-error" role="status" title={accountError}><AlertTriangle size={15} />账户列表不可用</span>}
       <label className="search-field"><Search size={17} /><input aria-label="平台单号搜索" value={searchInput} onChange={(event) => setSearchInput(event.target.value)} placeholder="输入平台单号精确查询" /></label>
       <button className="secondary-button" type="submit" disabled={loading}>查询</button>
       {query && <button className="icon-button bordered" type="button" onClick={clearSearch} title="清除搜索" aria-label="清除搜索"><X size={16} /></button>}
@@ -112,6 +155,7 @@ export default function PlatformOrdersPage() {
     {data && data.total > 0 && <Pagination page={data.page} pages={data.pages} total={data.total} onChange={setPage} />}
     {routingOpen && <PlatformOrderRoutingDialog
       platformOrderNos={selectedOrderNos}
+      account={account}
       onClose={() => setRoutingOpen(false)}
       onComplete={(result) => {
         setAssignmentResult(result);
@@ -125,8 +169,9 @@ export default function PlatformOrdersPage() {
   </>;
 }
 
-function PlatformOrderRoutingDialog({ platformOrderNos, onClose, onComplete }: {
+function PlatformOrderRoutingDialog({ platformOrderNos, account, onClose, onComplete }: {
   platformOrderNos: string[];
+  account: string;
   onClose: () => void;
   onComplete: (result: PlatformOrderAssignmentResult) => void;
 }) {
@@ -142,7 +187,7 @@ function PlatformOrderRoutingDialog({ platformOrderNos, onClose, onComplete }: {
     setOptionsLoading(true);
     setOptionsError("");
     try {
-      const next = await api.platformOrderRoutingPreview(platformOrderNos);
+      const next = await api.platformOrderRoutingPreview(platformOrderNos, account);
       setPreview(next);
       setCarrier(next.carriers.find((item) => item.value === "_AUTO_MATCH_")?.value || next.carriers[0]?.value || "");
     } catch (reason) {
@@ -150,7 +195,7 @@ function PlatformOrderRoutingDialog({ platformOrderNos, onClose, onComplete }: {
     } finally {
       setOptionsLoading(false);
     }
-  }, [platformOrderNos]);
+  }, [account, platformOrderNos]);
 
   useEffect(() => { void loadOptions(); }, [loadOptions]);
 
@@ -164,6 +209,7 @@ function PlatformOrderRoutingDialog({ platformOrderNos, onClose, onComplete }: {
     try {
       const result = await api.assignAndApprovePlatformOrders({
         platform_order_nos: platformOrderNos,
+        account,
         logistics_carrier: carrier,
         confirmation: "CONFIRM_AND_APPROVE"
       });
