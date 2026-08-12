@@ -13,6 +13,10 @@ export default defineConfig({
         target: "http://127.0.0.1:18083",
         rewrite: () => "/healthz"
       },
+      "/warehouse-console/evaluation-api": {
+        target: "http://127.0.0.1:18087",
+        rewrite: (path) => path.replace(/^\/warehouse-console\/evaluation-api/, "/v1")
+      },
       "/warehouse-console/api": {
         target: "http://127.0.0.1:18083",
         rewrite: (path) => path.replace(/^\/warehouse-console\/api/, "/v1")

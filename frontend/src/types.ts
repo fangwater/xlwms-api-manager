@@ -179,6 +179,76 @@ export type WarehouseSKUSpec = {
   updated_at: string;
 };
 
+export type PackingCartonSpec = {
+  length_cm: number;
+  width_cm: number;
+  height_cm: number;
+  max_weight_kg: number;
+  count: number;
+};
+
+export type PackingPlanRequest = {
+  items: Array<{ warehouse_sku: string; quantity: number }>;
+  carton: PackingCartonSpec;
+};
+
+export type PackingDimensions = {
+  length_cm: number;
+  width_cm: number;
+  height_cm: number;
+};
+
+export type PackingPosition = { x: number; y: number; z: number };
+
+export type PackingPlacement = {
+  step: number;
+  unit_id: string;
+  warehouse_sku: string;
+  product_name?: string;
+  position: PackingPosition;
+  dimensions: PackingDimensions;
+  original_dimensions: PackingDimensions;
+  weight_kg: number;
+  rotation: string;
+};
+
+export type PackingCartonPlan = {
+  index: number;
+  placements: PackingPlacement[];
+  packed_units: number;
+  used_weight_kg: number;
+  used_volume_cm3: number;
+  volume_utilization_percent: number;
+};
+
+export type PackingUnfitItem = {
+  unit_id: string;
+  warehouse_sku: string;
+  product_name?: string;
+  dimensions: PackingDimensions;
+  weight_kg: number;
+  reason_code: string;
+  reason: string;
+};
+
+export type PackingPlan = {
+  algorithm: string;
+  heuristic: boolean;
+  carton: PackingCartonSpec;
+  cartons: PackingCartonPlan[];
+  unfit_items: PackingUnfitItem[];
+  summary: {
+    requested_units: number;
+    packed_units: number;
+    unfit_units: number;
+    cartons_used: number;
+    cartons_available: number;
+    total_weight_kg: number;
+    packed_weight_kg: number;
+    packed_volume_cm3: number;
+  };
+};
+
 export type InventoryThresholds = {
   east_threshold: number;
   west_threshold: number;

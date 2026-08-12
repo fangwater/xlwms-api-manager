@@ -224,6 +224,7 @@ type WarehouseSKUQuantity struct {
 
 type WarehouseSKUSpecResolutionItem struct {
 	WarehouseSKU        string   `json:"warehouse_sku"`
+	ProductName         string   `json:"product_name,omitempty"`
 	Quantity            int      `json:"quantity"`
 	MatchedWarehouseSKU string   `json:"matched_warehouse_sku,omitempty"`
 	MatchType           string   `json:"match_type,omitempty"`

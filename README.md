@@ -60,6 +60,10 @@ migrations              嵌入式数据库迁移
 frontend                 React 19 + TypeScript + Vite + ECharts
 ```
 
+履约快递评价使用独立 Python 服务 `/home/ubuntu/xlwms-fulfillment-evaluator`，
+前端仍由本项目承载。页面路由为 `/delivery-evaluation`，开发环境通过
+`/warehouse-console/evaluation-api/` 代理到 `127.0.0.1:18087`。
+
 ## 本地运行
 
 需要 Go 1.26、Node.js 26、npm 12 和 PostgreSQL。

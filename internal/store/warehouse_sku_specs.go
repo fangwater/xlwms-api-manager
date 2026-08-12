@@ -299,7 +299,7 @@ func (p *Postgres) ResolveWarehouseSKUSpecs(ctx context.Context, requested []mod
 		}
 		missingFields := warehouseSKUSpecMissingFields(spec, matched)
 		item := model.WarehouseSKUSpecResolutionItem{
-			WarehouseSKU: sku, MatchedWarehouseSKU: matchedSKU, MatchType: matchType,
+			WarehouseSKU: sku, ProductName: spec.ProductName, MatchedWarehouseSKU: matchedSKU, MatchType: matchType,
 			MatchCandidates: candidates, Quantity: quantities[sku], Matched: matched,
 			Enabled: spec.Enabled, Complete: matched && len(missingFields) == 0,
 			LengthCM: spec.LengthCM, WidthCM: spec.WidthCM, HeightCM: spec.HeightCM,

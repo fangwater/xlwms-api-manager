@@ -5,6 +5,7 @@ go 1.26
 require (
 	github.com/fernet/fernet-go v0.0.0-20240119011108-303da6aec611
 	github.com/jackc/pgx/v5 v5.10.0
+	github.com/tvanriper/bp3d v1.0.7
 )
 
 require (

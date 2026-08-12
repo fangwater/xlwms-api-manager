@@ -111,6 +111,7 @@ func newWithPlatformOrderAccountOperations(destination *store.Postgres, service 
 	mux.HandleFunc("PATCH /v1/warehouse-sku-specs/{warehouseSKU}", server.updateWarehouseSKUSpec)
 	mux.HandleFunc("PATCH /v1/warehouse-sku-specs/{warehouseSKU}/package", server.updateWarehouseSKUPackageSpec)
 	mux.HandleFunc("POST /v1/warehouse-sku-specs/resolve", server.resolveWarehouseSKUSpecs)
+	mux.HandleFunc("POST /v1/packing/plans", server.createPackingPlan)
 	mux.HandleFunc("GET /v1/inventory-thresholds", server.listInventoryThresholds)
 	mux.HandleFunc("GET /v1/inventory-thresholds/defaults", server.inventoryThresholdDefaults)
 	mux.HandleFunc("PATCH /v1/inventory-thresholds/defaults", server.updateInventoryThresholdDefaults)

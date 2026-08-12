@@ -1,0 +1,180 @@
+.evaluation-source-strip {
+  min-height: 42px;
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  margin-bottom: 14px;
+  padding: 0 13px;
+  border: 1px solid #e0e4e6;
+  border-left: 3px solid #3f7d67;
+  border-radius: 6px;
+  background: #fff;
+  color: #667078;
+}
+.evaluation-source-strip > div { min-width: 0; display: flex; align-items: center; gap: 7px; }
+.evaluation-source-strip strong { color: #30363a; font-size: 11px; }
+.evaluation-source-strip small { color: #8d9499; font-size: 10px; }
+.evaluation-source-strip > svg { margin-left: auto; color: #34765f; }
+.source-state-dot { width: 7px; height: 7px; flex: none; border-radius: 50%; background: #329174; }
+.source-state-dot.unconfigured { background: #c08b32; }
+.source-state-dot.error { background: #c4525a; }
+.evaluation-chart-grid { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: 16px; margin-bottom: 18px; }
+.evaluation-view-tabs {
+  min-height: 44px;
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  border-bottom: 1px solid #dfe3e5;
+}
+.evaluation-view-tabs button {
+  height: 40px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 13px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: #697178;
+  font-size: 11px;
+  font-weight: 650;
+  cursor: pointer;
+}
+.evaluation-view-tabs button:hover { color: #2f715b; }
+.evaluation-view-tabs button.active { border-bottom-color: #2f7b63; color: #246b55; }
+.evaluation-model { min-width: 0; padding-top: 14px; }
+.evaluation-model-toolbar {
+  min-height: 54px;
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  margin-bottom: 12px;
+}
+.evaluation-model-toolbar label { min-width: 280px; display: flex; align-items: center; gap: 9px; color: #697178; font-size: 10px; font-weight: 650; }
+.evaluation-model-toolbar select {
+  min-width: 0;
+  height: 34px;
+  flex: 1;
+  padding: 0 30px 0 9px;
+  border: 1px solid #d8dddf;
+  border-radius: 6px;
+  background: #fff;
+  color: #353b3f;
+  font: inherit;
+}
+.model-count { display: flex; align-items: baseline; gap: 5px; }
+.model-count strong { color: #30363a; font-size: 17px; }
+.model-count span { color: #8c9398; font-size: 10px; }
+.evaluation-entity-summary, .canonical-summary {
+  display: grid;
+  grid-template-columns: minmax(220px,.75fr) minmax(0,1.25fr);
+  gap: 28px;
+  padding: 16px 18px;
+  border: 1px solid #e1e4e6;
+  border-bottom: 0;
+  border-radius: 8px 8px 0 0;
+  background: #fff;
+}
+.evaluation-entity-summary > div > span, .canonical-summary > div > span { color: #2d745d; font-size: 9px; font-weight: 700; text-transform: uppercase; }
+.evaluation-entity-summary h2, .canonical-summary h2 { margin: 5px 0 4px; font-size: 15px; }
+.evaluation-entity-summary p, .canonical-summary p { margin: 0; color: #7d858b; font-size: 10px; line-height: 16px; }
+.evaluation-entity-summary dl, .canonical-summary dl { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 18px; margin: 0; }
+.evaluation-entity-summary dl > div, .canonical-summary dl > div { min-width: 0; }
+.evaluation-entity-summary dt, .canonical-summary dt { margin-bottom: 3px; color: #969ca1; font-size: 9px; }
+.evaluation-entity-summary dd, .canonical-summary dd { margin: 0; overflow-wrap: anywhere; color: #4b5358; font-size: 10px; line-height: 15px; }
+.evaluation-table-panel { border-radius: 0 0 8px 8px; }
+.evaluation-field-table { white-space: normal; }
+.evaluation-field-table th:nth-child(1) { width: 18%; }
+.evaluation-field-table th:nth-child(2) { width: 23%; }
+.evaluation-field-table th:nth-child(3) { width: 9%; }
+.evaluation-field-table th:nth-child(4) { width: 10%; }
+.evaluation-field-table th:nth-child(5) { width: 10%; }
+.evaluation-field-table td { height: auto; min-height: 48px; padding-top: 9px; padding-bottom: 9px; vertical-align: top; }
+.evaluation-field-table code, .evaluation-relation-table code {
+  padding: 2px 4px;
+  border-radius: 3px;
+  background: #f1f3f4;
+  color: #4b5961;
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: 9px;
+  letter-spacing: 0;
+}
+.field-name, .field-description { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.field-name strong { overflow-wrap: anywhere; color: #30363a; font-family: "SFMono-Regular", Consolas, monospace; font-size: 10px; letter-spacing: 0; }
+.field-name small { width: fit-content; color: #a3444d; font-size: 8px; font-weight: 650; }
+.field-description strong { color: #3e454a; font-size: 10px; }
+.field-description small { color: #899096; font-size: 9px; line-height: 14px; }
+.source-path { display: inline-block; max-width: 260px; overflow-wrap: anywhere; }
+.availability-pill, .relation-coverage {
+  min-height: 21px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 6px;
+  border-radius: 4px;
+  background: #eef0f1;
+  color: #60696f;
+  font-size: 9px;
+  font-weight: 680;
+  white-space: nowrap;
+}
+.availability-persisted, .availability-derived, .relation-coverage.stable { background: #e7f2ed; color: #246e57; }
+.availability-realtime { background: #e8f0f6; color: #376f96; }
+.availability-raw_payload, .availability-partial, .relation-coverage.partial { background: #f7efde; color: #916620; }
+.availability-missing { background: #f8e8ea; color: #a43843; }
+.canonical-summary { margin-bottom: 0; border-bottom: 1px solid #e1e4e6; border-radius: 8px; }
+.model-group-tabs { display: flex; gap: 5px; margin: 12px 0 9px; overflow-x: auto; }
+.model-group-tabs button {
+  min-height: 30px;
+  flex: none;
+  padding: 0 10px;
+  border: 1px solid #dce0e2;
+  border-radius: 5px;
+  background: #fff;
+  color: #687077;
+  font-size: 10px;
+  cursor: pointer;
+}
+.model-group-tabs button.active { border-color: #75a08f; background: #edf5f1; color: #276d57; font-weight: 650; }
+.canonical-field-table th:nth-child(1) { width: 17%; }
+.canonical-field-table th:nth-child(2) { width: 26%; }
+.canonical-field-table th:nth-child(3) { width: 10%; }
+.canonical-field-table th:nth-child(4) { width: 11%; }
+.source-field-list { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
+.source-field-list code { max-width: 100%; overflow-wrap: anywhere; }
+.relation-map {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 18px;
+  margin-bottom: 12px;
+  padding: 15px 17px;
+  border: 1px solid #e1e4e6;
+  border-radius: 8px;
+  background: #fff;
+}
+.relation-map > div { min-width: 0; }
+.relation-map > div > strong { display: block; margin-bottom: 9px; color: #737b81; font-size: 10px; }
+.relation-flow { display: flex; align-items: center; gap: 5px; overflow-x: auto; }
+.relation-flow span { min-height: 28px; display: inline-flex; align-items: center; flex: none; padding: 0 9px; border: 1px solid #dce2e0; border-radius: 5px; background: #f7faf8; color: #3f6255; font-size: 10px; font-weight: 650; }
+.relation-flow svg { width: 14px; flex: none; color: #9aa19e; }
+.evaluation-relation-table { white-space: normal; }
+.evaluation-relation-table td { height: auto; min-height: 48px; padding-top: 10px; padding-bottom: 10px; vertical-align: top; line-height: 16px; }
+.evaluation-relation-table td:nth-child(2) { min-width: 210px; }
+.evaluation-relation-table td:nth-child(2) svg { margin: 0 4px; vertical-align: middle; }
+.evaluation-relation-table td:last-child { min-width: 190px; color: #727a80; }
+@media (max-width: 1050px) {
+  .evaluation-chart-grid { grid-template-columns: 1fr; }
+  .evaluation-entity-summary, .canonical-summary { grid-template-columns: 1fr; gap: 14px; }
+}
+@media (max-width: 680px) {
+  .evaluation-source-strip { align-items: flex-start; flex-direction: column; gap: 7px; padding-top: 10px; padding-bottom: 10px; }
+  .evaluation-source-strip > svg { display: none; }
+  .evaluation-source-strip > div { width: 100%; }
+  .evaluation-model-toolbar { align-items: stretch; flex-wrap: wrap; gap: 10px 18px; }
+  .evaluation-model-toolbar label { width: 100%; min-width: 0; align-items: flex-start; flex-direction: column; }
+  .evaluation-model-toolbar select { width: 100%; flex: none; }
+  .evaluation-view-tabs { overflow-x: auto; }
+  .evaluation-view-tabs button { flex: none; padding: 0 10px; }
+  .evaluation-entity-summary, .canonical-summary { padding: 14px; }
+  .evaluation-entity-summary dl, .canonical-summary dl { grid-template-columns: 1fr; }
+  .relation-map { grid-template-columns: 1fr; }
+}
