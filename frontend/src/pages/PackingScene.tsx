@@ -1,15 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { AlertTriangle } from "lucide-react";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
-import type { PackingCartonSpec, PackingPlacement } from "../types";
-
-export type PackingRendererMode = "auto" | "2d";
+import type { PackingDimensions, PackingPlacement } from "../types";
 
 type PackingSceneProps = {
-  carton: PackingCartonSpec;
+  packageDimensions: PackingDimensions;
   placements: PackingPlacement[];
   visibleCount: number;
-  rendererMode: PackingRendererMode;
   resetToken: number;
 };
 
@@ -24,7 +22,7 @@ export function packingColorForSKU(sku: string): string {
 let cachedWebGL2Support: boolean | undefined;
 
 function supportsWebGL2(): boolean {
-	if (cachedWebGL2Support !== undefined) return cachedWebGL2Support;
+  if (cachedWebGL2Support !== undefined) return cachedWebGL2Support;
   try {
     const canvas = document.createElement("canvas");
     const context = canvas.getContext("webgl2", { failIfMajorPerformanceCaveat: false });
@@ -38,7 +36,7 @@ function supportsWebGL2(): boolean {
   }
 }
 
-function WebGLScene({ carton, placements, visibleCount, resetToken, onFailure }: PackingSceneProps & { onFailure: () => void }) {
+function WebGLScene({ packageDimensions, placements, visibleCount, resetToken, onFailure }: PackingSceneProps & { onFailure: () => void }) {
   const hostRef = useRef<HTMLDivElement>(null);
   const groupsRef = useRef<THREE.Group[]>([]);
   const renderRef = useRef<(() => void) | null>(null);
@@ -59,7 +57,7 @@ function WebGLScene({ carton, placements, visibleCount, resetToken, onFailure }:
       return;
     }
     renderer.domElement.dataset.renderer = "webgl2";
-    renderer.domElement.setAttribute("aria-label", "装箱方案三维视图");
+    renderer.domElement.setAttribute("aria-label", "包装方案三维视图");
     renderer.domElement.setAttribute("role", "img");
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
@@ -77,8 +75,8 @@ function WebGLScene({ carton, placements, visibleCount, resetToken, onFailure }:
     controls.minPolarAngle = 0.12;
     controls.maxPolarAngle = Math.PI / 2.03;
 
-    const maxDimension = Math.max(carton.length_cm, carton.width_cm, carton.height_cm, 1);
-    const center = new THREE.Vector3(carton.length_cm / 2, carton.height_cm / 2, carton.width_cm / 2);
+    const maxDimension = Math.max(packageDimensions.length_cm, packageDimensions.width_cm, packageDimensions.height_cm, 1);
+    const center = new THREE.Vector3(packageDimensions.length_cm / 2, packageDimensions.height_cm / 2, packageDimensions.width_cm / 2);
     const resetCamera = () => {
       camera.position.set(
         center.x + maxDimension * 1.55,
@@ -103,22 +101,21 @@ function WebGLScene({ carton, placements, visibleCount, resetToken, onFailure }:
     fillLight.position.set(-maxDimension, maxDimension, -maxDimension);
     scene.add(fillLight);
 
-    const floorGeometry = new THREE.PlaneGeometry(carton.length_cm, carton.width_cm);
-    const floorMaterial = new THREE.MeshStandardMaterial({ color: 0xe8edef, roughness: 1, side: THREE.DoubleSide });
+    const floorGeometry = new THREE.BoxGeometry(packageDimensions.length_cm, 0.06, packageDimensions.width_cm);
+    const floorMaterial = new THREE.MeshStandardMaterial({ color: 0xe8edef, roughness: 1 });
     const floor = new THREE.Mesh(floorGeometry, floorMaterial);
-    floor.rotation.x = -Math.PI / 2;
-    floor.position.set(carton.length_cm / 2, -0.03, carton.width_cm / 2);
+    floor.position.set(packageDimensions.length_cm / 2, -0.03, packageDimensions.width_cm / 2);
     scene.add(floor);
 
-    const cartonGeometry = new THREE.BoxGeometry(carton.length_cm, carton.height_cm, carton.width_cm);
-    const cartonEdgesGeometry = new THREE.EdgesGeometry(cartonGeometry);
-    const cartonEdgesMaterial = new THREE.LineBasicMaterial({ color: 0x59666d, transparent: true, opacity: 0.72 });
-    const cartonEdges = new THREE.LineSegments(cartonEdgesGeometry, cartonEdgesMaterial);
-    cartonEdges.position.copy(center);
-    scene.add(cartonEdges);
+    const packageGeometry = new THREE.BoxGeometry(packageDimensions.length_cm, packageDimensions.height_cm, packageDimensions.width_cm);
+    const packageEdgesGeometry = new THREE.EdgesGeometry(packageGeometry);
+    const packageEdgesMaterial = new THREE.LineBasicMaterial({ color: 0x59666d, transparent: true, opacity: 0.72 });
+    const packageEdges = new THREE.LineSegments(packageEdgesGeometry, packageEdgesMaterial);
+    packageEdges.position.copy(center);
+    scene.add(packageEdges);
 
-    const grid = new THREE.GridHelper(Math.max(carton.length_cm, carton.width_cm), 10, 0xc5cdd1, 0xdde2e4);
-    grid.position.set(carton.length_cm / 2, 0, carton.width_cm / 2);
+    const grid = new THREE.GridHelper(Math.max(packageDimensions.length_cm, packageDimensions.width_cm), 10, 0xc5cdd1, 0xdde2e4);
+    grid.position.set(packageDimensions.length_cm / 2, 0, packageDimensions.width_cm / 2);
     scene.add(grid);
 
     const groups = placements.map((placement, index) => {
@@ -183,7 +180,7 @@ function WebGLScene({ carton, placements, visibleCount, resetToken, onFailure }:
       cameraRef.current = null;
       controlsRef.current = null;
     };
-  }, [carton, placements, onFailure]);
+  }, [packageDimensions, placements, onFailure]);
 
   useEffect(() => {
     const groups = groupsRef.current;
@@ -206,7 +203,7 @@ function WebGLScene({ carton, placements, visibleCount, resetToken, onFailure }:
       return;
     }
     const targetY = placement.position.y + placement.dimensions.height_cm / 2;
-    const startY = Math.max(carton.height_cm + placement.dimensions.height_cm, targetY + carton.height_cm * 0.45);
+    const startY = Math.max(packageDimensions.height_cm + placement.dimensions.height_cm, targetY + packageDimensions.height_cm * 0.45);
     const started = performance.now();
     const animate = (now: number) => {
       const progress = Math.min((now - started) / 420, 1);
@@ -217,141 +214,35 @@ function WebGLScene({ carton, placements, visibleCount, resetToken, onFailure }:
       else frameRef.current = null;
     };
     frameRef.current = requestAnimationFrame(animate);
-  }, [carton.height_cm, placements, visibleCount]);
+  }, [packageDimensions.height_cm, placements, visibleCount]);
 
   useEffect(() => {
     const camera = cameraRef.current;
     const controls = controlsRef.current;
     if (!camera || !controls) return;
-    const maxDimension = Math.max(carton.length_cm, carton.width_cm, carton.height_cm, 1);
-    const center = new THREE.Vector3(carton.length_cm / 2, carton.height_cm / 2, carton.width_cm / 2);
+    const maxDimension = Math.max(packageDimensions.length_cm, packageDimensions.width_cm, packageDimensions.height_cm, 1);
+    const center = new THREE.Vector3(packageDimensions.length_cm / 2, packageDimensions.height_cm / 2, packageDimensions.width_cm / 2);
     camera.position.set(center.x + maxDimension * 1.55, center.y + maxDimension * 1.18, center.z + maxDimension * 1.65);
     controls.target.copy(center);
     controls.update();
     renderRef.current?.();
-  }, [carton, resetToken]);
+  }, [packageDimensions, resetToken]);
 
   return <div className="packing-canvas-host" ref={hostRef} />;
 }
 
-type Point = { x: number; y: number };
-
-function CanvasScene({ carton, placements, visibleCount }: Pick<PackingSceneProps, "carton" | "placements" | "visibleCount">) {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const draw = () => {
-      const width = Math.max(canvas.clientWidth, 1);
-      const height = Math.max(canvas.clientHeight, 1);
-      const ratio = Math.min(window.devicePixelRatio || 1, 2);
-      canvas.width = Math.round(width * ratio);
-      canvas.height = Math.round(height * ratio);
-      const context = canvas.getContext("2d");
-      if (!context) return;
-      context.setTransform(ratio, 0, 0, ratio, 0, 0);
-      context.clearRect(0, 0, width, height);
-      context.fillStyle = "#f7f9fa";
-      context.fillRect(0, 0, width, height);
-
-      const cosine = Math.cos(Math.PI / 6);
-      const sine = Math.sin(Math.PI / 6);
-      const availableWidth = Math.max(width - 58, 1);
-      const availableHeight = Math.max(height - 52, 1);
-      const scale = Math.max(Math.min(
-        availableWidth / ((carton.length_cm + carton.width_cm) * cosine),
-        availableHeight / (carton.height_cm + (carton.length_cm + carton.width_cm) * sine),
-      ), 0.01);
-      const totalWidth = (carton.length_cm + carton.width_cm) * cosine * scale;
-      const totalHeight = (carton.height_cm + (carton.length_cm + carton.width_cm) * sine) * scale;
-      const originX = (width - totalWidth) / 2 + carton.width_cm * cosine * scale;
-      const originY = (height - totalHeight) / 2 + carton.height_cm * scale;
-      const project = (x: number, y: number, z: number): Point => ({
-        x: originX + (x - z) * cosine * scale,
-        y: originY - y * scale + (x + z) * sine * scale,
-      });
-      const polygon = (points: Point[], fill: string, stroke: string) => {
-        context.beginPath();
-        points.forEach((point, index) => index === 0 ? context.moveTo(point.x, point.y) : context.lineTo(point.x, point.y));
-        context.closePath();
-        context.fillStyle = fill;
-        context.fill();
-        context.strokeStyle = stroke;
-        context.lineWidth = 1;
-        context.stroke();
-      };
-      const tint = (color: string, factor: number) => {
-        const value = Number.parseInt(color.slice(1), 16);
-        const channels = [value >> 16, (value >> 8) & 255, value & 255].map((channel) => Math.round(channel + (255 - channel) * factor));
-        return `rgb(${channels[0]}, ${channels[1]}, ${channels[2]})`;
-      };
-
-      const visible = placements.slice(0, visibleCount).sort((left, right) => {
-        const leftDepth = left.position.x + left.position.z + left.position.y * 0.01;
-        const rightDepth = right.position.x + right.position.z + right.position.y * 0.01;
-        return leftDepth - rightDepth;
-      });
-      visible.forEach((placement) => {
-        const { x, y, z } = placement.position;
-        const length = placement.dimensions.length_cm;
-        const itemWidth = placement.dimensions.width_cm;
-        const itemHeight = placement.dimensions.height_cm;
-        const p000 = project(x, y, z);
-        const p100 = project(x + length, y, z);
-        const p001 = project(x, y, z + itemWidth);
-        const p101 = project(x + length, y, z + itemWidth);
-        const p010 = project(x, y + itemHeight, z);
-        const p110 = project(x + length, y + itemHeight, z);
-        const p011 = project(x, y + itemHeight, z + itemWidth);
-        const p111 = project(x + length, y + itemHeight, z + itemWidth);
-        const color = packingColorForSKU(placement.warehouse_sku);
-        const stroke = tint(color, -0.25);
-        polygon([p000, p100, p110, p010], tint(color, 0.1), stroke);
-        polygon([p000, p001, p011, p010], tint(color, 0.24), stroke);
-        polygon([p010, p110, p111, p011], tint(color, 0.4), stroke);
-        polygon([p100, p101, p111, p110], color, stroke);
-        polygon([p001, p101, p111, p011], tint(color, 0.18), stroke);
-      });
-
-      const corners = [
-        project(0, 0, 0), project(carton.length_cm, 0, 0), project(carton.length_cm, 0, carton.width_cm), project(0, 0, carton.width_cm),
-        project(0, carton.height_cm, 0), project(carton.length_cm, carton.height_cm, 0), project(carton.length_cm, carton.height_cm, carton.width_cm), project(0, carton.height_cm, carton.width_cm),
-      ];
-      const edges = [[0, 1], [1, 2], [2, 3], [3, 0], [4, 5], [5, 6], [6, 7], [7, 4], [0, 4], [1, 5], [2, 6], [3, 7]];
-      context.strokeStyle = "#56636a";
-      context.lineWidth = 1.2;
-      context.setLineDash([5, 4]);
-      edges.forEach(([start, end]) => {
-        context.beginPath();
-        context.moveTo(corners[start].x, corners[start].y);
-        context.lineTo(corners[end].x, corners[end].y);
-        context.stroke();
-      });
-      context.setLineDash([]);
-    };
-    const resizeObserver = new ResizeObserver(draw);
-    resizeObserver.observe(canvas);
-    draw();
-    return () => resizeObserver.disconnect();
-  }, [carton, placements, visibleCount]);
-
-  return <canvas ref={canvasRef} className="packing-canvas-2d" data-renderer="canvas2d" role="img" aria-label="装箱方案二维兼容视图" />;
-}
-
 export default function PackingScene(props: PackingSceneProps) {
-  const [webGLFailed, setWebGLFailed] = useState(false);
-  const useWebGL = props.rendererMode === "auto" && !webGLFailed && supportsWebGL2();
+  const [webGLFailed, setWebGLFailed] = useState(() => !supportsWebGL2());
   const handleFailure = useCallback(() => setWebGLFailed(true), []);
 
-  useEffect(() => {
-    if (props.rendererMode === "auto") setWebGLFailed(false);
-  }, [props.rendererMode]);
+  if (webGLFailed) return <div className="packing-scene packing-scene-unavailable" data-testid="packing-scene" data-active-renderer="unavailable" role="status">
+    <AlertTriangle size={24} />
+    <strong>三维视图不可用</strong>
+    <span>当前浏览器或设备未启用 WebGL2</span>
+  </div>;
 
-  return <div className="packing-scene" data-testid="packing-scene" data-active-renderer={useWebGL ? "webgl2" : "canvas2d"}>
-    {useWebGL
-      ? <WebGLScene {...props} onFailure={handleFailure} />
-      : <CanvasScene carton={props.carton} placements={props.placements} visibleCount={props.visibleCount} />}
-    <span className="packing-renderer-status">{useWebGL ? "3D · WebGL2" : "2D · 兼容模式"}</span>
+  return <div className="packing-scene" data-testid="packing-scene" data-active-renderer="webgl2">
+    <WebGLScene {...props} onFailure={handleFailure} />
+    <span className="packing-renderer-status">3D · WebGL2</span>
   </div>;
 }

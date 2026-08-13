@@ -179,17 +179,8 @@ export type WarehouseSKUSpec = {
   updated_at: string;
 };
 
-export type PackingCartonSpec = {
-  length_cm: number;
-  width_cm: number;
-  height_cm: number;
-  max_weight_kg: number;
-  count: number;
-};
-
 export type PackingPlanRequest = {
   items: Array<{ warehouse_sku: string; quantity: number }>;
-  carton: PackingCartonSpec;
 };
 
 export type PackingDimensions = {
@@ -209,11 +200,11 @@ export type PackingPlacement = {
   dimensions: PackingDimensions;
   original_dimensions: PackingDimensions;
   weight_kg: number;
-  rotation: string;
 };
 
-export type PackingCartonPlan = {
+export type PackingPackagePlan = {
   index: number;
+  dimensions: PackingDimensions;
   placements: PackingPlacement[];
   packed_units: number;
   used_weight_kg: number;
@@ -234,15 +225,13 @@ export type PackingUnfitItem = {
 export type PackingPlan = {
   algorithm: string;
   heuristic: boolean;
-  carton: PackingCartonSpec;
-  cartons: PackingCartonPlan[];
+  packages: PackingPackagePlan[];
   unfit_items: PackingUnfitItem[];
   summary: {
     requested_units: number;
     packed_units: number;
     unfit_units: number;
-    cartons_used: number;
-    cartons_available: number;
+    packages_used: number;
     total_weight_kg: number;
     packed_weight_kg: number;
     packed_volume_cm3: number;
@@ -457,10 +446,12 @@ export type PlatformOrderRoutingPreview = {
 };
 
 export type PlatformOrderAssignmentResult = {
+  account: string;
   total: number;
   success: number;
   failed: number;
   failures: Array<{ platform_order_no: string; error: string }>;
+  routes: PlatformOrderAutomaticRoute[];
   warehouse_code: string;
   warehouse_codes: string[];
   channel_code: string;

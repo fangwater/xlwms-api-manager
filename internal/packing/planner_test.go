@@ -2,20 +2,16 @@ package packing
 
 import (
 	"encoding/json"
-	"math"
 	"reflect"
 	"testing"
 
 	"xlwms-api-manager/internal/model"
 )
 
-func TestBuildRotatesItemsAndHonorsWeightPerCarton(t *testing.T) {
-	request := Request{
-		Items:  []model.WarehouseSKUQuantity{{WarehouseSKU: "ROTATED", Quantity: 1}, {WarehouseSKU: "SMALL", Quantity: 1}},
-		Carton: CartonSpec{LengthCM: 10, WidthCM: 8, HeightCM: 5, MaxWeightKG: 3, Count: 2},
-	}
+func TestBuildAutomaticallyCalculatesPackageDimensionsWithoutRotation(t *testing.T) {
+	request := Request{Items: []model.WarehouseSKUQuantity{{WarehouseSKU: "FIXED", Quantity: 1}, {WarehouseSKU: "SMALL", Quantity: 1}}}
 	resolved := []model.WarehouseSKUSpecResolutionItem{
-		completeSpec("ROTATED", "Rotated item", 8, 5, 10, 2),
+		completeSpec("FIXED", "Fixed item", 8, 5, 5, 2),
 		completeSpec("SMALL", "Small item", 5, 4, 5, 2),
 	}
 
@@ -23,59 +19,55 @@ func TestBuildRotatesItemsAndHonorsWeightPerCarton(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Build() error = %v", err)
 	}
-	if plan.Summary.PackedUnits != 2 || plan.Summary.CartonsUsed != 2 || plan.Summary.UnfitUnits != 0 {
+	if plan.Summary.PackedUnits != 2 || plan.Summary.PackagesUsed != 1 || plan.Summary.UnfitUnits != 0 {
 		t.Fatalf("unexpected summary: %+v", plan.Summary)
 	}
-	for _, carton := range plan.Cartons {
-		if carton.UsedWeightKG > request.Carton.MaxWeightKG {
-			t.Fatalf("carton %d exceeds max weight: %v", carton.Index, carton.UsedWeightKG)
+	if len(plan.Packages) != 1 || plan.Packages[0].Dimensions != (Dimensions{LengthCM: 13, WidthCM: 5, HeightCM: 5}) {
+		t.Fatalf("unexpected package: %+v", plan.Packages)
+	}
+	for _, placement := range plan.Packages[0].Placements {
+		if placement.Dimensions != placement.OriginalDimensions {
+			t.Fatalf("placement changed orientation: %+v", placement)
 		}
 	}
-	rotated := findPlacement(t, plan, "ROTATED")
-	if rotated.Rotation == "WHD" {
-		t.Fatalf("expected ROTATED item to rotate, got %+v", rotated)
-	}
-	assertPlacementWithinCarton(t, rotated, request.Carton)
 }
 
-func TestBuildReportsUnfitReasons(t *testing.T) {
-	request := Request{
-		Items: []model.WarehouseSKUQuantity{
-			{WarehouseSKU: "FULL", Quantity: 2},
-			{WarehouseSKU: "OVERSIZE", Quantity: 1},
-			{WarehouseSKU: "HEAVY", Quantity: 1},
-		},
-		Carton: CartonSpec{LengthCM: 10, WidthCM: 10, HeightCM: 10, MaxWeightKG: 3, Count: 1},
-	}
-	resolved := []model.WarehouseSKUSpecResolutionItem{
-		completeSpec("FULL", "Full carton", 10, 10, 10, 1),
-		completeSpec("OVERSIZE", "Too large", 11, 11, 11, 1),
-		completeSpec("HEAVY", "Too heavy", 1, 1, 1, 4),
-	}
+func TestBuildSplitsPackagesAtInternalWeightLimit(t *testing.T) {
+	request := Request{Items: []model.WarehouseSKUQuantity{{WarehouseSKU: "HEAVY", Quantity: 2}}}
+	resolved := []model.WarehouseSKUSpecResolutionItem{completeSpec("HEAVY", "Heavy item", 10, 10, 10, 600)}
 
 	plan, err := Build(request, resolved)
 	if err != nil {
 		t.Fatalf("Build() error = %v", err)
 	}
-	if plan.Summary.PackedUnits != 1 || plan.Summary.UnfitUnits != 3 {
+	if plan.Summary.PackedUnits != 2 || plan.Summary.PackagesUsed != 2 || plan.Summary.UnfitUnits != 0 {
 		t.Fatalf("unexpected summary: %+v", plan.Summary)
 	}
-	reasons := make(map[string]int)
-	for _, item := range plan.UnfitItems {
-		reasons[item.ReasonCode]++
-	}
-	for _, expected := range []string{"exceeds_carton_dimensions", "exceeds_carton_weight", "packing_capacity_exhausted"} {
-		if reasons[expected] != 1 {
-			t.Fatalf("expected one %s reason, got %v", expected, reasons)
+	for _, packaged := range plan.Packages {
+		if packaged.PackedUnits != 1 || packaged.UsedWeightKG != 600 {
+			t.Fatalf("unexpected package: %+v", packaged)
 		}
 	}
 }
 
-func TestBuildPlacementsAreBoundedNonOverlappingAndDeterministic(t *testing.T) {
-	request := Request{
-		Items:  []model.WarehouseSKUQuantity{{WarehouseSKU: "CUBE", Quantity: 2}},
-		Carton: CartonSpec{LengthCM: 20, WidthCM: 10, HeightCM: 10, MaxWeightKG: 10, Count: 1},
+func TestBuildReportsSingleItemOutsideAutomaticLimits(t *testing.T) {
+	request := Request{Items: []model.WarehouseSKUQuantity{{WarehouseSKU: "OVERSIZE", Quantity: 1}}}
+	resolved := []model.WarehouseSKUSpecResolutionItem{completeSpec("OVERSIZE", "Oversize", maxPackageDimensionCM+1, 10, 10, 1)}
+
+	plan, err := Build(request, resolved)
+	if err != nil {
+		t.Fatalf("Build() error = %v", err)
 	}
+	if plan.Summary.PackedUnits != 0 || plan.Summary.PackagesUsed != 0 || plan.Summary.UnfitUnits != 1 {
+		t.Fatalf("unexpected summary: %+v", plan.Summary)
+	}
+	if plan.UnfitItems[0].ReasonCode != "exceeds_auto_package_limits" {
+		t.Fatalf("unexpected unfit reason: %+v", plan.UnfitItems[0])
+	}
+}
+
+func TestBuildPlacementsAreBoundedNonOverlappingAndDeterministic(t *testing.T) {
+	request := Request{Items: []model.WarehouseSKUQuantity{{WarehouseSKU: "CUBE", Quantity: 4}}}
 	resolved := []model.WarehouseSKUSpecResolutionItem{completeSpec("CUBE", "Cube", 10, 10, 10, 1)}
 
 	first, err := Build(request, resolved)
@@ -91,32 +83,31 @@ func TestBuildPlacementsAreBoundedNonOverlappingAndDeterministic(t *testing.T) {
 		secondJSON, _ := json.Marshal(second)
 		t.Fatalf("Build() is not deterministic:\n%s\n%s", firstJSON, secondJSON)
 	}
-	if len(first.Cartons) != 1 || len(first.Cartons[0].Placements) != 2 {
-		t.Fatalf("unexpected cartons: %+v", first.Cartons)
+	if len(first.Packages) != 1 || len(first.Packages[0].Placements) != 4 {
+		t.Fatalf("unexpected packages: %+v", first.Packages)
 	}
-	placements := first.Cartons[0].Placements
-	for _, placement := range placements {
-		assertPlacementWithinCarton(t, placement, request.Carton)
+	packaged := first.Packages[0]
+	for _, placement := range packaged.Placements {
+		assertPlacementWithinPackage(t, placement, packaged.Dimensions)
 	}
-	if intersects(placements[0], placements[1]) {
-		t.Fatalf("placements overlap: %+v %+v", placements[0], placements[1])
+	for left := 0; left < len(packaged.Placements); left++ {
+		for right := left + 1; right < len(packaged.Placements); right++ {
+			if intersects(packaged.Placements[left], packaged.Placements[right]) {
+				t.Fatalf("placements overlap: %+v %+v", packaged.Placements[left], packaged.Placements[right])
+			}
+		}
 	}
 }
 
 func TestValidateRequestRejectsUnsafeLimits(t *testing.T) {
-	base := Request{
-		Items:  []model.WarehouseSKUQuantity{{WarehouseSKU: "SKU", Quantity: 1}},
-		Carton: CartonSpec{LengthCM: 10, WidthCM: 10, HeightCM: 10, MaxWeightKG: 10, Count: 1},
-	}
+	base := Request{Items: []model.WarehouseSKUQuantity{{WarehouseSKU: "SKU", Quantity: 1}}}
 	cases := []struct {
 		name   string
 		mutate func(*Request)
 	}{
 		{name: "empty items", mutate: func(request *Request) { request.Items = nil }},
 		{name: "too many units", mutate: func(request *Request) { request.Items[0].Quantity = maxUnits + 1 }},
-		{name: "too many cartons", mutate: func(request *Request) { request.Carton.Count = maxCartons + 1 }},
-		{name: "nan dimension", mutate: func(request *Request) { request.Carton.LengthCM = math.NaN() }},
-		{name: "infinite weight", mutate: func(request *Request) { request.Carton.MaxWeightKG = math.Inf(1) }},
+		{name: "empty SKU", mutate: func(request *Request) { request.Items[0].WarehouseSKU = "" }},
 	}
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {
@@ -151,26 +142,13 @@ func floatPointer(value float64) *float64 {
 	return &value
 }
 
-func findPlacement(t *testing.T, plan Plan, sku string) Placement {
-	t.Helper()
-	for _, carton := range plan.Cartons {
-		for _, placement := range carton.Placements {
-			if placement.WarehouseSKU == sku {
-				return placement
-			}
-		}
-	}
-	t.Fatalf("placement for %s not found", sku)
-	return Placement{}
-}
-
-func assertPlacementWithinCarton(t *testing.T, placement Placement, carton CartonSpec) {
+func assertPlacementWithinPackage(t *testing.T, placement Placement, dimensions Dimensions) {
 	t.Helper()
 	if placement.Position.X < 0 || placement.Position.Y < 0 || placement.Position.Z < 0 ||
-		placement.Position.X+placement.Dimensions.LengthCM > carton.LengthCM+0.001 ||
-		placement.Position.Y+placement.Dimensions.HeightCM > carton.HeightCM+0.001 ||
-		placement.Position.Z+placement.Dimensions.WidthCM > carton.WidthCM+0.001 {
-		t.Fatalf("placement outside carton: %+v in %+v", placement, carton)
+		placement.Position.X+placement.Dimensions.LengthCM > dimensions.LengthCM+0.001 ||
+		placement.Position.Y+placement.Dimensions.HeightCM > dimensions.HeightCM+0.001 ||
+		placement.Position.Z+placement.Dimensions.WidthCM > dimensions.WidthCM+0.001 {
+		t.Fatalf("placement outside package: %+v in %+v", placement, dimensions)
 	}
 }
 

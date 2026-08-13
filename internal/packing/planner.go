@@ -7,30 +7,19 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/tvanriper/bp3d"
-
 	"xlwms-api-manager/internal/model"
 )
 
 const (
-	maxDistinctSKUs = 40
-	maxUnits        = 300
-	maxCartons      = 20
-	maxDimensionCM  = 500
-	maxWeightKG     = 1000
+	maxDistinctSKUs       = 40
+	maxUnits              = 300
+	maxPackageDimensionCM = 500
+	maxPackageWeightKG    = 1000
+	packingEpsilon        = 0.000001
 )
 
-type CartonSpec struct {
-	LengthCM    float64 `json:"length_cm"`
-	WidthCM     float64 `json:"width_cm"`
-	HeightCM    float64 `json:"height_cm"`
-	MaxWeightKG float64 `json:"max_weight_kg"`
-	Count       int     `json:"count"`
-}
-
 type Request struct {
-	Items  []model.WarehouseSKUQuantity `json:"items"`
-	Carton CartonSpec                   `json:"carton"`
+	Items []model.WarehouseSKUQuantity `json:"items"`
 }
 
 type Dimensions struct {
@@ -54,11 +43,11 @@ type Placement struct {
 	Dimensions         Dimensions `json:"dimensions"`
 	OriginalDimensions Dimensions `json:"original_dimensions"`
 	WeightKG           float64    `json:"weight_kg"`
-	Rotation           string     `json:"rotation"`
 }
 
-type CartonPlan struct {
+type PackagePlan struct {
 	Index                    int         `json:"index"`
+	Dimensions               Dimensions  `json:"dimensions"`
 	Placements               []Placement `json:"placements"`
 	PackedUnits              int         `json:"packed_units"`
 	UsedWeightKG             float64     `json:"used_weight_kg"`
@@ -77,23 +66,21 @@ type UnfitItem struct {
 }
 
 type Summary struct {
-	RequestedUnits   int     `json:"requested_units"`
-	PackedUnits      int     `json:"packed_units"`
-	UnfitUnits       int     `json:"unfit_units"`
-	CartonsUsed      int     `json:"cartons_used"`
-	CartonsAvailable int     `json:"cartons_available"`
-	TotalWeightKG    float64 `json:"total_weight_kg"`
-	PackedWeightKG   float64 `json:"packed_weight_kg"`
-	PackedVolumeCM3  float64 `json:"packed_volume_cm3"`
+	RequestedUnits  int     `json:"requested_units"`
+	PackedUnits     int     `json:"packed_units"`
+	UnfitUnits      int     `json:"unfit_units"`
+	PackagesUsed    int     `json:"packages_used"`
+	TotalWeightKG   float64 `json:"total_weight_kg"`
+	PackedWeightKG  float64 `json:"packed_weight_kg"`
+	PackedVolumeCM3 float64 `json:"packed_volume_cm3"`
 }
 
 type Plan struct {
-	Algorithm  string       `json:"algorithm"`
-	Heuristic  bool         `json:"heuristic"`
-	Carton     CartonSpec   `json:"carton"`
-	Cartons    []CartonPlan `json:"cartons"`
-	UnfitItems []UnfitItem  `json:"unfit_items"`
-	Summary    Summary      `json:"summary"`
+	Algorithm  string        `json:"algorithm"`
+	Heuristic  bool          `json:"heuristic"`
+	Packages   []PackagePlan `json:"packages"`
+	UnfitItems []UnfitItem   `json:"unfit_items"`
+	Summary    Summary       `json:"summary"`
 }
 
 type unit struct {
@@ -103,6 +90,21 @@ type unit struct {
 	productName string
 	dimensions  Dimensions
 	weightKG    float64
+}
+
+type packageState struct {
+	index      int
+	bounds     Dimensions
+	placements []Placement
+	usedWeight float64
+	usedVolume float64
+}
+
+type placementCandidate struct {
+	position    Position
+	bounds      Dimensions
+	addedVolume float64
+	totalVolume float64
 }
 
 func ValidateRequest(request Request) error {
@@ -131,36 +133,63 @@ func ValidateRequest(request Request) error {
 	if len(seen) > maxDistinctSKUs {
 		return fmt.Errorf("items cannot contain more than %d distinct SKUs", maxDistinctSKUs)
 	}
-	if request.Carton.Count < 1 || request.Carton.Count > maxCartons {
-		return fmt.Errorf("carton count must be between 1 and %d", maxCartons)
-	}
-	for name, value := range map[string]float64{
-		"carton length_cm": request.Carton.LengthCM,
-		"carton width_cm":  request.Carton.WidthCM,
-		"carton height_cm": request.Carton.HeightCM,
-	} {
-		if !positiveFinite(value) || value > maxDimensionCM {
-			return fmt.Errorf("%s must be positive and no greater than %.0f", name, float64(maxDimensionCM))
-		}
-	}
-	if !positiveFinite(request.Carton.MaxWeightKG) || request.Carton.MaxWeightKG > maxWeightKG {
-		return fmt.Errorf("carton max_weight_kg must be positive and no greater than %.0f", float64(maxWeightKG))
-	}
 	return nil
 }
 
 func Build(request Request, resolved []model.WarehouseSKUSpecResolutionItem) (Plan, error) {
 	plan := Plan{
-		Algorithm:  "bp3d-pivot-v1",
+		Algorithm:  "fixed-orientation-envelope-v1",
 		Heuristic:  true,
-		Carton:     request.Carton,
-		Cartons:    make([]CartonPlan, 0, request.Carton.Count),
+		Packages:   make([]PackagePlan, 0),
 		UnfitItems: make([]UnfitItem, 0),
 	}
 	if err := ValidateRequest(request); err != nil {
 		return plan, err
 	}
 
+	units, err := resolveUnits(request, resolved)
+	if err != nil {
+		return plan, err
+	}
+	sortUnits(units)
+	plan.Summary.RequestedUnits = len(units)
+	for _, item := range units {
+		plan.Summary.TotalWeightKG += item.weightKG
+	}
+
+	packages := make([]packageState, 0)
+	for _, item := range units {
+		if exceedsAutomaticPackageLimits(item) {
+			plan.UnfitItems = append(plan.UnfitItems, toUnfit(item, "exceeds_auto_package_limits", "单件规格超出自动包裹规划上限"))
+			continue
+		}
+
+		packageIndex, candidate, found := bestExistingPackage(packages, item)
+		if !found {
+			packages = append(packages, packageState{index: len(packages) + 1, placements: make([]Placement, 0)})
+			packageIndex = len(packages) - 1
+			candidate = placementCandidate{position: Position{}, bounds: item.dimensions, totalVolume: volume(item.dimensions)}
+		}
+		addPlacement(&packages[packageIndex], item, candidate)
+	}
+
+	plan.Packages = make([]PackagePlan, 0, len(packages))
+	for _, state := range packages {
+		packaged := finalizePackage(state)
+		plan.Packages = append(plan.Packages, packaged)
+		plan.Summary.PackedUnits += packaged.PackedUnits
+		plan.Summary.PackedWeightKG += packaged.UsedWeightKG
+		plan.Summary.PackedVolumeCM3 += packaged.UsedVolumeCM3
+	}
+	plan.Summary.UnfitUnits = len(plan.UnfitItems)
+	plan.Summary.PackagesUsed = len(plan.Packages)
+	plan.Summary.TotalWeightKG = round(plan.Summary.TotalWeightKG)
+	plan.Summary.PackedWeightKG = round(plan.Summary.PackedWeightKG)
+	plan.Summary.PackedVolumeCM3 = round(plan.Summary.PackedVolumeCM3)
+	return plan, nil
+}
+
+func resolveUnits(request Request, resolved []model.WarehouseSKUSpecResolutionItem) ([]unit, error) {
 	requestOrder := make([]string, 0, len(request.Items))
 	quantities := make(map[string]int, len(request.Items))
 	for _, item := range request.Items {
@@ -179,12 +208,12 @@ func Build(request Request, resolved []model.WarehouseSKUSpecResolutionItem) (Pl
 	for _, sku := range requestOrder {
 		item, ok := resolvedBySKU[sku]
 		if !ok || !item.Complete || item.LengthCM == nil || item.WidthCM == nil || item.HeightCM == nil || item.WeightKG == nil {
-			return plan, fmt.Errorf("warehouse SKU %s has no complete enabled package specification", sku)
+			return nil, fmt.Errorf("warehouse SKU %s has no complete enabled package specification", sku)
 		}
 		values := []float64{*item.LengthCM, *item.WidthCM, *item.HeightCM, *item.WeightKG}
 		for _, value := range values {
 			if !positiveFinite(value) {
-				return plan, fmt.Errorf("warehouse SKU %s has an invalid package specification", sku)
+				return nil, fmt.Errorf("warehouse SKU %s has an invalid package specification", sku)
 			}
 		}
 		for index := 1; index <= quantities[sku]; index++ {
@@ -198,140 +227,164 @@ func Build(request Request, resolved []model.WarehouseSKUSpecResolutionItem) (Pl
 			})
 		}
 	}
-	sortUnits(units)
-	plan.Summary.RequestedUnits = len(units)
-	plan.Summary.CartonsAvailable = request.Carton.Count
-	for _, item := range units {
-		plan.Summary.TotalWeightKG += item.weightKG
-	}
-
-	remaining := make([]unit, 0, len(units))
-	for _, item := range units {
-		switch {
-		case !fitsCarton(item.dimensions, request.Carton):
-			plan.UnfitItems = append(plan.UnfitItems, toUnfit(item, "exceeds_carton_dimensions", "SKU 任意旋转后仍超出箱体尺寸"))
-		case item.weightKG > request.Carton.MaxWeightKG:
-			plan.UnfitItems = append(plan.UnfitItems, toUnfit(item, "exceeds_carton_weight", "单件重量超过箱体承重"))
-		default:
-			remaining = append(remaining, item)
-		}
-	}
-
-	for cartonIndex := 1; cartonIndex <= request.Carton.Count && len(remaining) > 0; cartonIndex++ {
-		candidates := selectCartonCandidates(remaining, request.Carton)
-		if len(candidates) == 0 {
-			break
-		}
-		packed, err := packCarton(cartonIndex, candidates, request.Carton)
-		if err != nil {
-			return plan, err
-		}
-		if len(packed.Placements) == 0 {
-			break
-		}
-		plan.Cartons = append(plan.Cartons, packed)
-		packedIDs := make(map[string]struct{}, len(packed.Placements))
-		for _, placement := range packed.Placements {
-			packedIDs[placement.UnitID] = struct{}{}
-		}
-		next := remaining[:0]
-		for _, item := range remaining {
-			if _, packed := packedIDs[item.id]; !packed {
-				next = append(next, item)
-			}
-		}
-		remaining = next
-	}
-
-	for _, item := range remaining {
-		plan.UnfitItems = append(plan.UnfitItems, toUnfit(item, "packing_capacity_exhausted", "现有箱数或启发式布局无法继续容纳该件"))
-	}
-	for _, carton := range plan.Cartons {
-		plan.Summary.PackedUnits += carton.PackedUnits
-		plan.Summary.PackedWeightKG += carton.UsedWeightKG
-		plan.Summary.PackedVolumeCM3 += carton.UsedVolumeCM3
-	}
-	plan.Summary.UnfitUnits = len(plan.UnfitItems)
-	plan.Summary.CartonsUsed = len(plan.Cartons)
-	plan.Summary.TotalWeightKG = round(plan.Summary.TotalWeightKG)
-	plan.Summary.PackedWeightKG = round(plan.Summary.PackedWeightKG)
-	plan.Summary.PackedVolumeCM3 = round(plan.Summary.PackedVolumeCM3)
-	return plan, nil
+	return units, nil
 }
 
-func selectCartonCandidates(items []unit, carton CartonSpec) []unit {
-	capacityVolume := carton.LengthCM * carton.WidthCM * carton.HeightCM
-	usedVolume, usedWeight := 0.0, 0.0
-	result := make([]unit, 0, len(items))
-	for _, item := range items {
-		volume := item.dimensions.LengthCM * item.dimensions.WidthCM * item.dimensions.HeightCM
-		if usedVolume+volume > capacityVolume+0.000001 || usedWeight+item.weightKG > carton.MaxWeightKG+0.000001 {
+func bestExistingPackage(packages []packageState, item unit) (int, placementCandidate, bool) {
+	bestIndex := -1
+	best := placementCandidate{}
+	found := false
+	for index := range packages {
+		candidate, fits := bestPlacement(packages[index], item)
+		if !fits || found && !betterCandidate(candidate, best) {
 			continue
 		}
-		result = append(result, item)
-		usedVolume += volume
-		usedWeight += item.weightKG
+		bestIndex, best, found = index, candidate, true
 	}
-	return result
+	return bestIndex, best, found
 }
 
-func packCarton(index int, candidates []unit, carton CartonSpec) (CartonPlan, error) {
-	result := CartonPlan{Index: index, Placements: make([]Placement, 0, len(candidates))}
-	packer := bp3d.NewPacker()
-	bin := bp3d.NewBin(fmt.Sprintf("carton-%d", index), carton.LengthCM, carton.HeightCM, carton.WidthCM, carton.MaxWeightKG)
-	packer.AddBin(bin)
-	byID := make(map[string]unit, len(candidates))
-	for _, item := range candidates {
-		byID[item.id] = item
-		packer.AddItem(bp3d.NewItem(item.id, item.dimensions.LengthCM, item.dimensions.HeightCM, item.dimensions.WidthCM, item.weightKG))
+func bestPlacement(packaged packageState, item unit) (placementCandidate, bool) {
+	if packaged.usedWeight+item.weightKG > maxPackageWeightKG+packingEpsilon {
+		return placementCandidate{}, false
 	}
-	err := packer.Pack()
-	if err != nil && !errors.Is(err, bp3d.ErrUnfitItemsExist) {
-		return result, fmt.Errorf("calculate carton %d: %w", index, err)
-	}
-	for step, packed := range bin.Items {
-		item, ok := byID[packed.Name]
-		if !ok {
-			return result, fmt.Errorf("calculate carton %d: unknown packed item %s", index, packed.Name)
+
+	positions := make([]Position, 0, len(packaged.placements)*3)
+	seen := make(map[Position]struct{}, len(packaged.placements)*3)
+	addPosition := func(position Position) {
+		if _, exists := seen[position]; exists {
+			return
 		}
-		dimension := packed.GetDimension()
-		result.Placements = append(result.Placements, Placement{
-			Step:               step + 1,
-			UnitID:             item.id,
-			WarehouseSKU:       item.sku,
-			ProductName:        item.productName,
-			Position:           Position{X: round(packed.Position[0]), Y: round(packed.Position[1]), Z: round(packed.Position[2])},
-			Dimensions:         Dimensions{LengthCM: round(dimension[0]), WidthCM: round(dimension[2]), HeightCM: round(dimension[1])},
-			OriginalDimensions: item.dimensions,
-			WeightKG:           round(item.weightKG),
-			Rotation:           rotationName(packed.RotationType),
-		})
-		result.UsedWeightKG += item.weightKG
-		result.UsedVolumeCM3 += item.dimensions.LengthCM * item.dimensions.WidthCM * item.dimensions.HeightCM
+		seen[position] = struct{}{}
+		positions = append(positions, position)
 	}
-	result.PackedUnits = len(result.Placements)
-	result.UsedWeightKG = round(result.UsedWeightKG)
-	result.UsedVolumeCM3 = round(result.UsedVolumeCM3)
-	result.VolumeUtilizationPercent = round(result.UsedVolumeCM3 * 100 / (carton.LengthCM * carton.WidthCM * carton.HeightCM))
-	return result, nil
+	for _, placed := range packaged.placements {
+		addPosition(Position{X: placed.Position.X + placed.Dimensions.LengthCM, Y: placed.Position.Y, Z: placed.Position.Z})
+		addPosition(Position{X: placed.Position.X, Y: placed.Position.Y + placed.Dimensions.HeightCM, Z: placed.Position.Z})
+		addPosition(Position{X: placed.Position.X, Y: placed.Position.Y, Z: placed.Position.Z + placed.Dimensions.WidthCM})
+	}
+
+	currentVolume := volume(packaged.bounds)
+	best := placementCandidate{}
+	found := false
+	for _, position := range positions {
+		if intersectsAny(packaged.placements, position, item.dimensions) {
+			continue
+		}
+		bounds := expandedBounds(packaged.bounds, position, item.dimensions)
+		if bounds.LengthCM > maxPackageDimensionCM+packingEpsilon ||
+			bounds.WidthCM > maxPackageDimensionCM+packingEpsilon ||
+			bounds.HeightCM > maxPackageDimensionCM+packingEpsilon {
+			continue
+		}
+		candidate := placementCandidate{
+			position:    position,
+			bounds:      bounds,
+			addedVolume: volume(bounds) - currentVolume,
+			totalVolume: volume(bounds),
+		}
+		if !found || betterCandidate(candidate, best) {
+			best, found = candidate, true
+		}
+	}
+	return best, found
 }
 
-func fitsCarton(item Dimensions, carton CartonSpec) bool {
-	dimensions := [3]float64{item.LengthCM, item.WidthCM, item.HeightCM}
-	container := [3]float64{carton.LengthCM, carton.WidthCM, carton.HeightCM}
-	permutations := [][3]int{{0, 1, 2}, {0, 2, 1}, {1, 0, 2}, {1, 2, 0}, {2, 0, 1}, {2, 1, 0}}
-	for _, permutation := range permutations {
-		if dimensions[permutation[0]] <= container[0]+0.000001 && dimensions[permutation[1]] <= container[1]+0.000001 && dimensions[permutation[2]] <= container[2]+0.000001 {
+func betterCandidate(left, right placementCandidate) bool {
+	if !nearlyEqual(left.addedVolume, right.addedVolume) {
+		return left.addedVolume < right.addedVolume
+	}
+	if !nearlyEqual(left.totalVolume, right.totalVolume) {
+		return left.totalVolume < right.totalVolume
+	}
+	leftSpan := left.bounds.LengthCM + left.bounds.WidthCM + left.bounds.HeightCM
+	rightSpan := right.bounds.LengthCM + right.bounds.WidthCM + right.bounds.HeightCM
+	if !nearlyEqual(leftSpan, rightSpan) {
+		return leftSpan < rightSpan
+	}
+	if !nearlyEqual(left.position.Y, right.position.Y) {
+		return left.position.Y < right.position.Y
+	}
+	if !nearlyEqual(left.position.X, right.position.X) {
+		return left.position.X < right.position.X
+	}
+	return left.position.Z < right.position.Z-packingEpsilon
+}
+
+func addPlacement(packaged *packageState, item unit, candidate placementCandidate) {
+	packaged.placements = append(packaged.placements, Placement{
+		Step:               len(packaged.placements) + 1,
+		UnitID:             item.id,
+		WarehouseSKU:       item.sku,
+		ProductName:        item.productName,
+		Position:           candidate.position,
+		Dimensions:         item.dimensions,
+		OriginalDimensions: item.dimensions,
+		WeightKG:           item.weightKG,
+	})
+	packaged.bounds = candidate.bounds
+	packaged.usedWeight += item.weightKG
+	packaged.usedVolume += volume(item.dimensions)
+}
+
+func finalizePackage(state packageState) PackagePlan {
+	placements := make([]Placement, len(state.placements))
+	copy(placements, state.placements)
+	for index := range placements {
+		placements[index].Position = Position{X: round(placements[index].Position.X), Y: round(placements[index].Position.Y), Z: round(placements[index].Position.Z)}
+		placements[index].Dimensions = roundDimensions(placements[index].Dimensions)
+		placements[index].OriginalDimensions = roundDimensions(placements[index].OriginalDimensions)
+		placements[index].WeightKG = round(placements[index].WeightKG)
+	}
+	packageVolume := volume(state.bounds)
+	utilization := 0.0
+	if packageVolume > 0 {
+		utilization = state.usedVolume * 100 / packageVolume
+	}
+	return PackagePlan{
+		Index:                    state.index,
+		Dimensions:               roundDimensions(state.bounds),
+		Placements:               placements,
+		PackedUnits:              len(placements),
+		UsedWeightKG:             round(state.usedWeight),
+		UsedVolumeCM3:            round(state.usedVolume),
+		VolumeUtilizationPercent: round(utilization),
+	}
+}
+
+func intersectsAny(placements []Placement, position Position, dimensions Dimensions) bool {
+	for _, placed := range placements {
+		if position.X < placed.Position.X+placed.Dimensions.LengthCM-packingEpsilon &&
+			placed.Position.X < position.X+dimensions.LengthCM-packingEpsilon &&
+			position.Y < placed.Position.Y+placed.Dimensions.HeightCM-packingEpsilon &&
+			placed.Position.Y < position.Y+dimensions.HeightCM-packingEpsilon &&
+			position.Z < placed.Position.Z+placed.Dimensions.WidthCM-packingEpsilon &&
+			placed.Position.Z < position.Z+dimensions.WidthCM-packingEpsilon {
 			return true
 		}
 	}
 	return false
 }
 
+func expandedBounds(current Dimensions, position Position, dimensions Dimensions) Dimensions {
+	return Dimensions{
+		LengthCM: math.Max(current.LengthCM, position.X+dimensions.LengthCM),
+		WidthCM:  math.Max(current.WidthCM, position.Z+dimensions.WidthCM),
+		HeightCM: math.Max(current.HeightCM, position.Y+dimensions.HeightCM),
+	}
+}
+
+func exceedsAutomaticPackageLimits(item unit) bool {
+	return item.dimensions.LengthCM > maxPackageDimensionCM ||
+		item.dimensions.WidthCM > maxPackageDimensionCM ||
+		item.dimensions.HeightCM > maxPackageDimensionCM ||
+		item.weightKG > maxPackageWeightKG
+}
+
 func sortUnits(items []unit) {
 	sort.SliceStable(items, func(i, j int) bool {
-		leftVolume := items[i].dimensions.LengthCM * items[i].dimensions.WidthCM * items[i].dimensions.HeightCM
-		rightVolume := items[j].dimensions.LengthCM * items[j].dimensions.WidthCM * items[j].dimensions.HeightCM
+		leftVolume := volume(items[i].dimensions)
+		rightVolume := volume(items[j].dimensions)
 		if leftVolume != rightVolume {
 			return leftVolume > rightVolume
 		}
@@ -350,19 +403,23 @@ func toUnfit(item unit, code, reason string) UnfitItem {
 		UnitID:       item.id,
 		WarehouseSKU: item.sku,
 		ProductName:  item.productName,
-		Dimensions:   item.dimensions,
+		Dimensions:   roundDimensions(item.dimensions),
 		WeightKG:     round(item.weightKG),
 		ReasonCode:   code,
 		Reason:       reason,
 	}
 }
 
-func rotationName(rotation bp3d.RotationType) string {
-	names := [...]string{"WHD", "HWD", "HDW", "DHW", "DWH", "WDH"}
-	if int(rotation) < 0 || int(rotation) >= len(names) {
-		return "UNKNOWN"
-	}
-	return names[rotation]
+func volume(dimensions Dimensions) float64 {
+	return dimensions.LengthCM * dimensions.WidthCM * dimensions.HeightCM
+}
+
+func roundDimensions(dimensions Dimensions) Dimensions {
+	return Dimensions{LengthCM: round(dimensions.LengthCM), WidthCM: round(dimensions.WidthCM), HeightCM: round(dimensions.HeightCM)}
+}
+
+func nearlyEqual(left, right float64) bool {
+	return math.Abs(left-right) <= packingEpsilon
 }
 
 func positiveFinite(value float64) bool {
