@@ -81,9 +81,14 @@ func (s *Server) platformOrderRoutingPreview(writer http.ResponseWriter, request
 		writeJSON(writer, http.StatusBadRequest, response{Success: false, Error: err.Error()})
 		return
 	}
+	accountKey, err := requestedPlatformOrderAccountWithBody(request, payload.Account)
+	if err != nil {
+		writeJSON(writer, http.StatusBadRequest, response{Success: false, Error: "OMS 账户参数冲突"})
+		return
+	}
 	ctx, cancel := context.WithTimeout(request.Context(), s.requestTimeout)
 	defer cancel()
-	operator, err := s.selectedPlatformOrderAccount(ctx, payload.Account)
+	operator, err := s.selectedPlatformOrderAccount(ctx, accountKey)
 	if err != nil {
 		writePlatformOrderAccountError(writer, err)
 		return
@@ -120,12 +125,17 @@ func (s *Server) assignAndApprovePlatformOrdersAuto(writer http.ResponseWriter, 
 		writeJSON(writer, http.StatusBadRequest, response{Success: false, Error: "请确认分配后立即审核"})
 		return
 	}
+	accountKey, err := requestedPlatformOrderAccountWithBody(request, payload.Account)
+	if err != nil {
+		writeJSON(writer, http.StatusBadRequest, response{Success: false, Error: "OMS 账户参数冲突"})
+		return
+	}
 
 	s.platformOrderMu.Lock()
 	defer s.platformOrderMu.Unlock()
 	ctx, cancel := context.WithTimeout(request.Context(), s.requestTimeout)
 	defer cancel()
-	operator, err := s.selectedPlatformOrderAccount(ctx, payload.Account)
+	operator, err := s.selectedPlatformOrderAccount(ctx, accountKey)
 	if err != nil {
 		writePlatformOrderAccountError(writer, err)
 		return
@@ -198,6 +208,7 @@ func (s *Server) assignAndApprovePlatformOrdersAuto(writer http.ResponseWriter, 
 	}
 	writeJSON(writer, http.StatusOK, response{Success: true, Data: assignAndApproveResult{
 		Total: len(preview.Routes), Success: successCount, Failed: len(preview.Routes) - successCount, Failures: failures,
+		Account: accountKey, Routes: preview.Routes,
 		WarehouseCode: warehouseCode, WarehouseCodes: warehouseCodes, ChannelCode: oms.PlatformLabelChannelCode,
 		LogisticsCarrier: payload.LogisticsCarrier, CompletedAt: time.Now().UTC(),
 	}})

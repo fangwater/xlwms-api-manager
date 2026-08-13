@@ -297,6 +297,71 @@ func TestAssignAndApproveRefreshesWithARPAndUsesWarehouseAccountOrderNumber(t *t
 	}
 }
 
+func TestWarehouseAssignmentsUsesHeaderSelectedAccount(t *testing.T) {
+	arp := readyPlatformOrderOperator()
+	dps := readyPlatformOrderOperator()
+	dps.resolved = dps.resolved[:1]
+	accounts := &fakeSelectablePlatformAccounts{
+		accountOperators: map[string]platformOrderAccount{
+			defaultPlatformOrderAccountKey: arp,
+			dpsPlatformOrderAccountKey:     dps,
+		},
+		warehouseOperators: map[string]platformOrderOperator{"WH-1": dps},
+	}
+	handler := newWithPlatformOrderAccountOperations(
+		nil, nil, nil, arp, readyPlatformMappings(), readyPlatformFulfillment("PO-A"), accounts, time.Second, slog.Default(),
+	)
+	request := httptest.NewRequest(http.MethodPost, "/v1/platform-orders/warehouse-assignments", strings.NewReader(
+		`{"platform_order_nos":["PO-A"],"logistics_carrier":"other","confirmation":"CONFIRM_AND_APPROVE"}`,
+	))
+	request.Header.Set(platformOrderAccountHeader, dpsPlatformOrderAccountKey)
+	recorder := httptest.NewRecorder()
+
+	handler.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("got status %d: %s", recorder.Code, recorder.Body.String())
+	}
+	if arp.assignCalls != 0 || dps.assignCalls != 1 {
+		t.Fatalf("assignment calls ARP=%d DPS=%d", arp.assignCalls, dps.assignCalls)
+	}
+	if len(accounts.selectedAccounts) != 1 || accounts.selectedAccounts[0] != dpsPlatformOrderAccountKey {
+		t.Fatalf("selected accounts = %#v", accounts.selectedAccounts)
+	}
+	if !strings.Contains(recorder.Body.String(), `"account":"dps"`) {
+		t.Fatalf("response does not identify selected account: %s", recorder.Body.String())
+	}
+}
+
+func TestWarehouseAssignmentsRejectsConflictingAccountSelectors(t *testing.T) {
+	arp := readyPlatformOrderOperator()
+	dps := readyPlatformOrderOperator()
+	accounts := &fakeSelectablePlatformAccounts{
+		accountOperators: map[string]platformOrderAccount{
+			defaultPlatformOrderAccountKey: arp,
+			dpsPlatformOrderAccountKey:     dps,
+		},
+		warehouseOperators: map[string]platformOrderOperator{"WH-1": dps},
+	}
+	handler := newWithPlatformOrderAccountOperations(
+		nil, nil, nil, arp, readyPlatformMappings(), readyPlatformFulfillment("PO-A"), accounts, time.Second, slog.Default(),
+	)
+	request := httptest.NewRequest(http.MethodPost, "/v1/platform-orders/warehouse-assignments", strings.NewReader(
+		`{"platform_order_nos":["PO-A"],"account":"arp","logistics_carrier":"other","confirmation":"CONFIRM_AND_APPROVE"}`,
+	))
+	request.Header.Set(platformOrderAccountHeader, dpsPlatformOrderAccountKey)
+	recorder := httptest.NewRecorder()
+
+	handler.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusBadRequest || arp.assignCalls != 0 || dps.assignCalls != 0 {
+		t.Fatalf("unexpected response %d: %s", recorder.Code, recorder.Body.String())
+	}
+	if len(accounts.selectedAccounts) != 0 {
+		t.Fatalf("account lookup occurred before conflict rejection: %#v", accounts.selectedAccounts)
+	}
+}
+
 func TestRoutingPreviewChecksPendingStateWithSelectedAccount(t *testing.T) {
 	arp := readyPlatformOrderOperator()
 	arp.resolved = nil

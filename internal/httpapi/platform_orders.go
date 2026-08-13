@@ -136,15 +136,17 @@ type assignAndApproveFailure struct {
 }
 
 type assignAndApproveResult struct {
-	Total            int                       `json:"total"`
-	Success          int                       `json:"success"`
-	Failed           int                       `json:"failed"`
-	Failures         []assignAndApproveFailure `json:"failures"`
-	WarehouseCode    string                    `json:"warehouse_code"`
-	WarehouseCodes   []string                  `json:"warehouse_codes,omitempty"`
-	ChannelCode      string                    `json:"channel_code"`
-	LogisticsCarrier string                    `json:"logistics_carrier"`
-	CompletedAt      time.Time                 `json:"completed_at"`
+	Account          string                        `json:"account"`
+	Total            int                           `json:"total"`
+	Success          int                           `json:"success"`
+	Failed           int                           `json:"failed"`
+	Failures         []assignAndApproveFailure     `json:"failures"`
+	Routes           []automaticPlatformOrderRoute `json:"routes"`
+	WarehouseCode    string                        `json:"warehouse_code"`
+	WarehouseCodes   []string                      `json:"warehouse_codes,omitempty"`
+	ChannelCode      string                        `json:"channel_code"`
+	LogisticsCarrier string                        `json:"logistics_carrier"`
+	CompletedAt      time.Time                     `json:"completed_at"`
 }
 
 func normalizePlatformOrderNos(values []string) ([]string, error) {

@@ -46,7 +46,7 @@ export const api = {
     request<PendingPlatformOrderPage>("/platform-orders/pending" + query({ account: params.account, q: params.q, page: params.page, page_size: params.pageSize })),
   platformOrderRoutingPreview: (platformOrderNos: string[], account: string) => request<PlatformOrderRoutingPreview>("/platform-orders/routing-preview", { method: "POST", body: JSON.stringify({ platform_order_nos: platformOrderNos, account }) }),
   assignAndApprovePlatformOrders: (payload: { platform_order_nos: string[]; account: string; logistics_carrier: string; confirmation: "CONFIRM_AND_APPROVE" }) =>
-    request<PlatformOrderAssignmentResult>("/platform-orders/assign-and-approve", {
+    request<PlatformOrderAssignmentResult>("/platform-orders/warehouse-assignments", {
     method: "POST",
     body: JSON.stringify(payload)
   }),

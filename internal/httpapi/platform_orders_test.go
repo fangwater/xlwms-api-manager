@@ -371,6 +371,48 @@ func TestAssignAndApprovePlatformOrders(t *testing.T) {
 	}
 }
 
+func TestWarehouseAssignmentsAPI(t *testing.T) {
+	source := readyPlatformOrderOperator()
+	handler := platformOrderOperationHandler(source, readyPlatformMappings(), readyPlatformFulfillment("PO-A", "PO-B"))
+	request := httptest.NewRequest(http.MethodPost, "/v1/platform-orders/warehouse-assignments", strings.NewReader(operationRequestBody))
+	recorder := httptest.NewRecorder()
+
+	handler.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("got status %d: %s", recorder.Code, recorder.Body.String())
+	}
+	if source.assignCalls != 1 {
+		t.Fatalf("assignment called %d times", source.assignCalls)
+	}
+	var payload struct {
+		Success bool                   `json:"success"`
+		Data    assignAndApproveResult `json:"data"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if !payload.Success || payload.Data.Account != defaultPlatformOrderAccountKey ||
+		payload.Data.Total != 2 || payload.Data.Success != 2 || payload.Data.Failed != 0 ||
+		len(payload.Data.Routes) != 2 || payload.Data.Routes[0].PlatformOrderNo != "PO-A" ||
+		payload.Data.Routes[0].WarehouseCode != "WH-1" {
+		t.Fatalf("unexpected response: %#v", payload)
+	}
+}
+
+func TestWarehouseAssignmentsRejectsClientSelectedWarehouse(t *testing.T) {
+	source := readyPlatformOrderOperator()
+	handler := platformOrderOperationHandler(source, readyPlatformMappings(), readyPlatformFulfillment("PO-A"))
+	request := httptest.NewRequest(http.MethodPost, "/v1/platform-orders/warehouse-assignments", strings.NewReader(
+		`{"platform_order_nos":["PO-A"],"warehouse_code":"WH-2","logistics_carrier":"other","confirmation":"CONFIRM_AND_APPROVE"}`,
+	))
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusBadRequest || source.assignCalls != 0 {
+		t.Fatalf("unexpected response %d: %s", recorder.Code, recorder.Body.String())
+	}
+}
+
 func TestAssignAndApproveRejectsOrdersNoLongerPending(t *testing.T) {
 	source := readyPlatformOrderOperator()
 	source.resolved = nil

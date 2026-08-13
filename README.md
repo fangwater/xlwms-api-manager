@@ -108,6 +108,7 @@ GET    /v1/platform-orders/pending
 GET    /v1/platform-orders/{platformOrderNo}
 GET    /v1/temu/platform-orders/{platformOrderNo}
 POST   /v1/platform-orders/routing-preview
+POST   /v1/platform-orders/warehouse-assignments
 POST   /v1/platform-orders/assign-and-approve
 GET    /v1/warehouses
 POST   /v1/warehouses
@@ -215,6 +216,72 @@ curl -sS \
 `exception`、`awaiting_invoice`；其他数字返回 `status_key: "unknown"`。
 
 平台订单自动分仓只使用履约核查中由 Temu 购面单账本同步的仓库；没有完整、唯一的购面单仓库记录时禁止自动审核，不使用 OMS 平台仓字段兜底。
+
+### 平台订单仓库分配 API
+
+待处理页面的“分配仓库和物流”操作通过以下接口开放给其他程序调用：
+
+```text
+POST /v1/platform-orders/warehouse-assignments
+```
+
+该操作会实时读取待处理订单及可靠的 Temu 购面单仓库记录，按实际仓库分组调用 OMS
+`batchAllotWarehouse`，使用“上传物流面单”渠道分配仓库并立即审核。它不是仅保存仓库
+选择的草稿操作。
+
+调用方传平台订单号，不传 OMS 内部订单号。单次最多 50 单：
+
+```bash
+curl -sS \
+  -X POST \
+  -H 'Content-Type: application/json' \
+  -H 'X-OMS-Account: dps' \
+  'http://127.0.0.1:18083/v1/platform-orders/warehouse-assignments' \
+  --data '{
+    "platform_order_nos": ["PO-DEMO-1001", "PO-DEMO-1002"],
+    "logistics_carrier": "_AUTO_MATCH_",
+    "confirmation": "CONFIRM_AND_APPROVE"
+  }'
+```
+
+`logistics_carrier` 只能为 `_AUTO_MATCH_` 或 `other`。OMS 账户可以通过
+`X-OMS-Account`、`account` 查询参数或请求体的 `account` 选择；多个位置同时提供时
+必须一致。可选账户键通过 `GET /v1/platform-orders/accounts` 获取。
+
+成功响应会返回每个订单最终分配的仓库：
+
+```json
+{
+  "success": true,
+  "data": {
+    "account": "dps",
+    "total": 2,
+    "success": 2,
+    "failed": 0,
+    "failures": [],
+    "routes": [
+      {
+        "platform_order_no": "PO-DEMO-1001",
+        "platform_warehouse_id": "TEMU-WH-1",
+        "platform_warehouse_name": "Temu East",
+        "warehouse_code": "DPSNY002",
+        "warehouse_name": "DPS达派思-纽约"
+      }
+    ],
+    "warehouse_codes": ["DPSNY002"],
+    "channel_code": "Upload_Shipping_Label",
+    "logistics_carrier": "_AUTO_MATCH_",
+    "completed_at": "2026-08-13T06:00:00Z"
+  }
+}
+```
+
+调用方不能传 `warehouse_code` 覆盖仓库。没有唯一购面单仓库、订单已不在待处理状态、
+所选 OMS 账户无权使用目标仓库或上传面单渠道未启用时，接口不会审核该订单并返回冲突。
+成功后重复提交同一订单时，该订单已不是待处理状态，也会被拒绝。
+
+`POST /v1/platform-orders/assign-and-approve` 作为原页面接口继续兼容；新调用应使用
+`/warehouse-assignments`。
 
 库存警告按启用仓的正品可用库存计算。未单独配置的“仓库 + SKU”使用默认告警线 `100`，可用库存低于或等于告警线时进入告警列表；单项配置通过仓库码和仓库 SKU 精确覆盖。
 

@@ -92,6 +92,7 @@ func newWithPlatformOrderAccountOperations(destination *store.Postgres, service 
 	mux.HandleFunc("GET /v1/platform-orders/{platformOrderNo}", server.platformOrder)
 	mux.HandleFunc("GET /v1/temu/platform-orders/{platformOrderNo}", server.temuPlatformOrder)
 	mux.HandleFunc("POST /v1/platform-orders/routing-preview", server.platformOrderRoutingPreview)
+	mux.HandleFunc("POST /v1/platform-orders/warehouse-assignments", server.assignAndApprovePlatformOrdersAuto)
 	mux.HandleFunc("POST /v1/platform-orders/assign-and-approve", server.assignAndApprovePlatformOrdersAuto)
 	mux.HandleFunc("GET /v1/warehouses", server.listWarehouses)
 	mux.HandleFunc("POST /v1/warehouses", server.upsertWarehouse)

@@ -117,8 +117,13 @@ async function mockAPI(page: Page, options: { indexedParcelMatch?: boolean } = {
       carriers: [{ value: "_AUTO_MATCH_", label: "自动匹配" }, { value: "other", label: "Other" }],
       queried_at: "2026-08-06T05:20:00Z"
     };
-    else if (path.endsWith("/platform-orders/assign-and-approve")) data = {
+    else if (path.endsWith("/platform-orders/warehouse-assignments")) data = {
+      account: "arp",
       total: 1, success: 1, failed: 0, failures: [], warehouse_code: "HYTX30", warehouse_codes: ["HYTX30"],
+      routes: [{
+        platform_order_no: "PO-DEMO-2201", platform_warehouse_id: "WH-DEMO",
+        platform_warehouse_name: "平台美东仓", warehouse_code: "HYTX30", warehouse_name: "美东演示仓"
+      }],
       channel_code: "Upload_Shipping_Label", logistics_carrier: route.request().postDataJSON()?.logistics_carrier || "_AUTO_MATCH_",
       completed_at: "2026-08-06T05:25:00Z"
     };
@@ -303,7 +308,7 @@ test("selected platform orders use automatic warehouse routing and the configure
   });
   await page.screenshot({ path: "/tmp/xlwms-platform-routing-desktop.png", fullPage: true });
 
-  const operationRequest = page.waitForRequest((request) => request.url().endsWith("/platform-orders/assign-and-approve") && request.method() === "POST");
+  const operationRequest = page.waitForRequest((request) => request.url().endsWith("/platform-orders/warehouse-assignments") && request.method() === "POST");
   await dialog.getByRole("button", { name: "确定并审核" }).click();
   const request = await operationRequest;
   expect(request.headers().authorization).toBeUndefined();

@@ -50,16 +50,25 @@ const dpsPlatformOrderAccountKey = "dps"
 const platformOrderAccountHeader = "X-OMS-Account"
 
 func requestedPlatformOrderAccount(request *http.Request) (string, error) {
+	return requestedPlatformOrderAccountWithBody(request, "")
+}
+
+func requestedPlatformOrderAccountWithBody(request *http.Request, bodyKey string) (string, error) {
 	headerKey := strings.TrimSpace(request.Header.Get(platformOrderAccountHeader))
 	queryKey := strings.TrimSpace(request.URL.Query().Get("account"))
-	if headerKey != "" && queryKey != "" && !strings.EqualFold(headerKey, queryKey) {
-		return "", errors.New("conflicting OMS account selectors")
+	bodyKey = strings.TrimSpace(bodyKey)
+	selected := ""
+	for _, key := range []string{headerKey, queryKey, bodyKey} {
+		if key == "" {
+			continue
+		}
+		if selected != "" && !strings.EqualFold(selected, key) {
+			return "", errors.New("conflicting OMS account selectors")
+		}
+		selected = key
 	}
-	if headerKey != "" {
-		return headerKey, nil
-	}
-	if queryKey != "" {
-		return queryKey, nil
+	if selected != "" {
+		return selected, nil
 	}
 	return defaultPlatformOrderAccountKey, nil
 }
