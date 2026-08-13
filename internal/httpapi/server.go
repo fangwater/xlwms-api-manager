@@ -21,17 +21,18 @@ import (
 )
 
 type Server struct {
-	store               *store.Postgres
-	syncer              *syncer.Service
-	requestTimeout      time.Duration
-	logger              *slog.Logger
-	fulfillmentAuditor  *auditor.Service
-	platformOrders      platformOrderSource
-	platformMappings    platformWarehouseMappingSource
-	platformShipments   platformOrderShipmentSource
-	platformFulfillment platformOrderFulfillmentSource
-	platformAccounts    platformOrderAccountSource
-	platformOrderMu     sync.Mutex
+	store                *store.Postgres
+	warehouseCredentials warehouseCredentialSource
+	syncer               *syncer.Service
+	requestTimeout       time.Duration
+	logger               *slog.Logger
+	fulfillmentAuditor   *auditor.Service
+	platformOrders       platformOrderSource
+	platformMappings     platformWarehouseMappingSource
+	platformShipments    platformOrderShipmentSource
+	platformFulfillment  platformOrderFulfillmentSource
+	platformAccounts     platformOrderAccountSource
+	platformOrderMu      sync.Mutex
 }
 
 type response struct {
@@ -78,7 +79,7 @@ func newWithPlatformOrderAccountOperations(destination *store.Postgres, service 
 		platformShipments = source
 	}
 	server := &Server{
-		store: destination, syncer: service, fulfillmentAuditor: fulfillmentAuditor, platformOrders: platformOrders,
+		store: destination, warehouseCredentials: destination, syncer: service, fulfillmentAuditor: fulfillmentAuditor, platformOrders: platformOrders,
 		platformMappings: platformMappings, platformShipments: platformShipments,
 		platformFulfillment: platformFulfillment, platformAccounts: platformAccounts,
 		requestTimeout: requestTimeout, logger: logger,

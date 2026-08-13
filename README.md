@@ -220,6 +220,44 @@ curl -sS \
 
 出库操作统一使用 `POST /v1/outbound/{operation}`，`operation` 可选：`parcel-create`、`parcel-list`、`parcel-detail`、`parcel-cancel`、`cancel-status`、`bulk-product-create`、`bulk-list`、`bulk-detail`、`bulk-cancel`、`tracking-label-update`、`bulk-box-create`、`message-detail`、`message-reply`。请求体为 `{"warehouse":"WH_CODE","data":...}`。出库列表和详情实时查询领星，不在本地复制收件信息。
 
+### 小包裹建单
+
+领星小包裹建单的上游端点为 `POST /v1/outboundOrder/create`，Go Server 封装为
+`POST /v1/outbound/parcel-create`。先通过 `GET /v1/warehouses?active_only=true` 获取可选仓库，
+请求体的 `warehouse` 会选择该仓在 `xlwms_warehouses` 中加密保存的 API 凭据和
+`api_base_url`。禁用仓库会被拒绝，且每条订单的 `whCode` 必须与所选仓库一致。
+
+```json
+{
+  "warehouse": "WH_CODE",
+  "data": [
+    {
+      "whCode": "WH_CODE",
+      "thirdOrderNo": "ORDER-10001",
+      "subOrderType": 1,
+      "logisticsChannel": "CHANNEL_CODE",
+      "receiver": "Test Receiver",
+      "countryRegionCode": "US",
+      "provinceCode": "CA",
+      "provinceName": "California",
+      "cityName": "Los Angeles",
+      "postCode": "90001",
+      "addressOne": "Test address",
+      "productList": [
+        {
+          "sku": "SKU-1",
+          "quantity": 1
+        }
+      ]
+    }
+  ]
+}
+```
+
+单次最多传 100 个小包订单。Go Server 仅使用选中仓库的凭据签名并原样转发
+`data`，调用方不得传入 App Key 或 Secret。领星会校验具体业务字段；可选字段可以
+继续放入每个订单对象中。
+
 `kind` 使用 `integrated`、`stock_age`、`stock_flow`、`box_stock`、`box_stock_age`、`box_segment_age` 或 `box_stock_flow`。
 
 ### Temu 发货仓库查询

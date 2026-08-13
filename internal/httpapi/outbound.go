@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strings"
 
+	"xlwms-api-manager/internal/model"
 	"xlwms-api-manager/internal/xlwms"
 )
 
@@ -16,6 +17,10 @@ const outboundRequestLimit = 145 << 20
 type outboundRequest struct {
 	Warehouse string `json:"warehouse"`
 	Data      any    `json:"data"`
+}
+
+type warehouseCredentialSource interface {
+	WarehouseCredentials(context.Context, string, bool) (model.WarehouseCredentials, error)
 }
 
 func (s *Server) outbound(writer http.ResponseWriter, request *http.Request) {
@@ -34,7 +39,7 @@ func (s *Server) outbound(writer http.ResponseWriter, request *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(request.Context(), s.requestTimeout)
 	defer cancel()
-	warehouse, err := s.store.WarehouseCredentials(ctx, payload.Warehouse, true)
+	warehouse, err := s.warehouseCredentials.WarehouseCredentials(ctx, payload.Warehouse, true)
 	if err != nil {
 		writeJSON(writer, http.StatusBadRequest, response{Success: false, Error: err.Error()})
 		return
