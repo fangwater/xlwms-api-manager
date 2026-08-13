@@ -409,9 +409,11 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .packing-unfit > header > div { display: block; }
 .packing-unfit > header h2 { margin-bottom: 3px; }
 .packing-unfit > div { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
-.packing-unfit article { min-width: 0; min-height: 39px; display: grid; grid-template-columns: 9px minmax(70px, auto) minmax(0, 1fr); align-items: center; gap: 8px; padding: 6px 8px; border: 1px solid #eee2cb; border-radius: 5px; background: #fff; }
-.packing-unfit article strong, .packing-unfit article small { overflow: hidden; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
-.packing-unfit article small { color: #8b7556; }
+.packing-unfit article { min-width: 0; min-height: 47px; display: grid; grid-template-columns: 9px minmax(120px, .85fr) minmax(0, 1.15fr); align-items: center; gap: 8px; padding: 7px 8px; border: 1px solid #eee2cb; border-radius: 5px; background: #fff; }
+.packing-unfit-name { min-width: 0; display: flex; align-items: center; gap: 6px; }
+.packing-unfit-name strong { min-width: 0; overflow: hidden; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+.packing-unfit-name b { flex: none; padding: 2px 4px; border-radius: 4px; background: #f4ead8; color: #855d20; font-size: 8px; }
+.packing-unfit article small { color: #8b7556; font-size: 8px; line-height: 13px; overflow-wrap: anywhere; }
 
 @media (max-width: 1180px) {
   .packing-layout { grid-template-columns: minmax(260px, 300px) minmax(0, 1fr); }
