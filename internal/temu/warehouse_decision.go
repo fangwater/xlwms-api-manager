@@ -9,7 +9,7 @@ import (
 )
 
 const (
-	RuleVersion    = "2026-08-04-configurable-sku-thresholds"
+	RuleVersion    = "2026-08-16-per-shop-sku-thresholds"
 	RegionEast     = "east"
 	RegionWest     = "west"
 	QuerySucceeded = "succeeded"

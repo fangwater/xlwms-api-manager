@@ -175,6 +175,20 @@ type InventoryThresholds struct {
 	TotalThreshold float64 `json:"total_threshold"`
 }
 
+type FulfillmentShop struct {
+	Platform string `json:"platform"`
+	ShopCode string `json:"shop_code"`
+	ShopName string `json:"shop_name"`
+	Enabled  bool   `json:"enabled"`
+}
+
+type ShopInventoryThresholds struct {
+	FulfillmentShop
+	InventoryThresholds
+	Customized bool      `json:"customized"`
+	UpdatedAt  time.Time `json:"updated_at"`
+}
+
 type SKUInventoryThreshold struct {
 	WarehouseSKU   string  `json:"warehouse_sku"`
 	ProductName    string  `json:"product_name"`
@@ -183,6 +197,7 @@ type SKUInventoryThreshold struct {
 	TotalAvailable float64 `json:"total_available"`
 	InventoryThresholds
 	Customized  bool       `json:"customized"`
+	Source      string     `json:"source,omitempty"`
 	InventoryAt *time.Time `json:"inventory_at,omitempty"`
 	UpdatedAt   time.Time  `json:"updated_at"`
 }

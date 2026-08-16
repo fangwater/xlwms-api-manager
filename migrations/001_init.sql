@@ -233,6 +233,57 @@ CREATE TABLE IF NOT EXISTS xlwms_sku_inventory_thresholds (
     updated_at timestamptz NOT NULL DEFAULT now()
 );
 
+CREATE TABLE IF NOT EXISTS xlwms_fulfillment_shops (
+    platform text NOT NULL CHECK (platform IN ('temu', 'shein')),
+    shop_code text NOT NULL CHECK (shop_code ~ '^[a-z0-9]+(?:-[a-z0-9]+)*$'),
+    shop_name text NOT NULL,
+    enabled boolean NOT NULL DEFAULT true,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (platform, shop_code)
+);
+
+INSERT INTO xlwms_fulfillment_shops (platform, shop_code, shop_name)
+VALUES
+    ('temu', 'panda-homes', 'PANDA HOMES'),
+    ('temu', 'panda-buy', 'PANDA BUY'),
+    ('shein', 'beauty-hangers-home', 'Beauty Hangers home')
+ON CONFLICT (platform, shop_code) DO UPDATE SET
+    shop_name = EXCLUDED.shop_name,
+    enabled = true,
+    updated_at = now();
+
+CREATE TABLE IF NOT EXISTS xlwms_shop_inventory_thresholds (
+    platform text NOT NULL,
+    shop_code text NOT NULL,
+    east_threshold numeric NOT NULL CHECK (east_threshold >= 0),
+    west_threshold numeric NOT NULL CHECK (west_threshold >= 0),
+    total_threshold numeric NOT NULL CHECK (total_threshold >= 0),
+    updated_at timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (platform, shop_code),
+    FOREIGN KEY (platform, shop_code) REFERENCES xlwms_fulfillment_shops(platform, shop_code) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS xlwms_shop_sku_inventory_thresholds (
+    platform text NOT NULL,
+    shop_code text NOT NULL,
+    warehouse_sku text NOT NULL REFERENCES xlwms_warehouse_sku_specs(warehouse_sku) ON DELETE CASCADE,
+    east_threshold numeric NOT NULL CHECK (east_threshold >= 0),
+    west_threshold numeric NOT NULL CHECK (west_threshold >= 0),
+    total_threshold numeric NOT NULL CHECK (total_threshold >= 0),
+    updated_at timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (platform, shop_code, warehouse_sku),
+    FOREIGN KEY (platform, shop_code) REFERENCES xlwms_fulfillment_shops(platform, shop_code) ON DELETE CASCADE
+);
+
+INSERT INTO xlwms_shop_sku_inventory_thresholds (
+    platform, shop_code, warehouse_sku, east_threshold, west_threshold, total_threshold, updated_at
+)
+SELECT s.platform, s.shop_code, t.warehouse_sku, t.east_threshold, t.west_threshold, t.total_threshold, t.updated_at
+FROM xlwms_sku_inventory_thresholds t
+CROSS JOIN xlwms_fulfillment_shops s
+ON CONFLICT (platform, shop_code, warehouse_sku) DO NOTHING;
+
 CREATE TABLE IF NOT EXISTS xlwms_inventory_alert_defaults (
     id smallint PRIMARY KEY DEFAULT 1 CHECK (id = 1),
     threshold numeric NOT NULL DEFAULT 100 CHECK (threshold >= 0),

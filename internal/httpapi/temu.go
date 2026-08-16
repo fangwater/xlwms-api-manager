@@ -8,15 +8,18 @@ import (
 	"time"
 
 	"xlwms-api-manager/internal/model"
+	"xlwms-api-manager/internal/store"
 	"xlwms-api-manager/internal/temu"
 )
 
 const maxTemuQuerySKUs = 100
 
 type temuWarehouseQueryRequest struct {
-	SKU   string                       `json:"sku"`
-	SKUs  []string                     `json:"skus"`
-	Items []model.WarehouseSKUQuantity `json:"items"`
+	SKU      string                       `json:"sku"`
+	SKUs     []string                     `json:"skus"`
+	Items    []model.WarehouseSKUQuantity `json:"items"`
+	Platform string                       `json:"platform"`
+	ShopCode string                       `json:"shop_code"`
 }
 
 type temuWarehouseQueryResponse struct {
@@ -39,6 +42,11 @@ func (s *Server) temuWarehouseAvailability(writer http.ResponseWriter, request *
 		return
 	}
 	skus, items, err := normalizeTemuRequest(payload)
+	if err != nil {
+		writeJSON(writer, http.StatusBadRequest, response{Success: false, Error: err.Error()})
+		return
+	}
+	platform, shopCode, err := requestedDecisionShop(request, payload.Platform, payload.ShopCode)
 	if err != nil {
 		writeJSON(writer, http.StatusBadRequest, response{Success: false, Error: err.Error()})
 		return
@@ -76,8 +84,12 @@ func (s *Server) temuWarehouseAvailability(writer http.ResponseWriter, request *
 	}
 	queriedAt := time.Now()
 	inventory := temu.QueryLiveInventory(ctx, warehouses, inventorySKUs, s.requestTimeout, queriedAt)
-	thresholdsBySKU, defaultThresholds, err := s.store.InventoryThresholdsForSKUs(ctx, inventorySKUs)
+	thresholdsBySKU, defaultThresholds, err := s.store.InventoryThresholdsForShopSKUs(ctx, platform, shopCode, inventorySKUs)
 	if err != nil {
+		if isShopIdentityError(err) {
+			writeJSON(writer, http.StatusBadRequest, response{Success: false, Error: err.Error()})
+			return
+		}
 		s.internalError(writer, "resolve SKU inventory thresholds", err)
 		return
 	}
@@ -166,4 +178,31 @@ func normalizeTemuSKUs(single string, values []string) ([]string, error) {
 		return nil, errors.New("no more than 100 SKUs can be queried at once")
 	}
 	return result, nil
+}
+
+func requestedDecisionShop(request *http.Request, bodyPlatform, bodyShop string) (string, string, error) {
+	platform, shopCode, err := requestedShopIdentity(request)
+	if err != nil {
+		return "", "", err
+	}
+	bodyPlatform = strings.TrimSpace(bodyPlatform)
+	bodyShop = strings.TrimSpace(bodyShop)
+	if bodyPlatform == "" && bodyShop == "" {
+		return platform, shopCode, nil
+	}
+	if bodyPlatform == "" || bodyShop == "" {
+		return "", "", errors.New("platform and shop_code are required together")
+	}
+	normalizedPlatform, err := store.NormalizeFulfillmentPlatform(bodyPlatform)
+	if err != nil {
+		return "", "", err
+	}
+	normalizedShop, err := store.NormalizeFulfillmentShopCode(bodyShop)
+	if err != nil {
+		return "", "", err
+	}
+	if platform != "" && (platform != normalizedPlatform || shopCode != normalizedShop) {
+		return "", "", errors.New("conflicting shop selectors")
+	}
+	return normalizedPlatform, normalizedShop, nil
 }

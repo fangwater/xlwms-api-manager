@@ -1,4 +1,4 @@
-import type { CostDetail, DashboardData, FulfilledOrderPage, FulfillmentAuditPage, FundsFlow, InventoryAlertPage, InventoryKind, InventoryRecord, InventoryThresholdPage, InventoryThresholds, PackingPlan, PackingPlanRequest, PageData, PendingPlatformOrderPage, PlatformOrderAccountOption, PlatformOrderAssignmentResult, PlatformOrderRoutingPreview, SKUInventoryThreshold, SKUStockLevelPage, SyncRun, Warehouse, WarehouseSKUInventoryAlertThreshold, WarehouseSKUSpec } from "./types";
+import type { CostDetail, DashboardData, FulfilledOrderPage, FulfillmentAuditPage, FundsFlow, InventoryAlertPage, InventoryKind, InventoryRecord, InventoryThresholdPage, InventoryThresholds, PackingPlan, PackingPlanRequest, PageData, PendingPlatformOrderPage, PlatformOrderAccountOption, PlatformOrderAssignmentResult, PlatformOrderRoutingPreview, ShopInventoryThresholds, SKUInventoryThreshold, SKUStockLevelPage, SyncRun, Warehouse, WarehouseSKUInventoryAlertThreshold, WarehouseSKUSpec } from "./types";
 
 type Envelope<T> = { success: boolean; data?: T; error?: string };
 const apiBase = `${import.meta.env.BASE_URL}api`;
@@ -64,11 +64,16 @@ export const api = {
   saveWarehouseSKUSpec: (payload: Record<string, unknown>) => request<WarehouseSKUSpec>("/warehouse-sku-specs", { method: "POST", body: JSON.stringify(payload) }),
   updateWarehouseSKUSpec: (warehouseSKU: string, payload: Record<string, unknown>) => request<WarehouseSKUSpec>(`/warehouse-sku-specs/${encodeURIComponent(warehouseSKU)}`, { method: "PATCH", body: JSON.stringify(payload) }),
   packingPlan: (payload: PackingPlanRequest) => request<PackingPlan>("/packing/plans", { method: "POST", body: JSON.stringify(payload) }),
-  inventoryThresholds: (params: { q?: string; page: number; pageSize: number }) =>
-    request<InventoryThresholdPage>(`/inventory-thresholds${query({ q: params.q, page: params.page, page_size: params.pageSize })}`),
-  updateInventoryThresholdDefaults: (payload: InventoryThresholds) => request<InventoryThresholds>("/inventory-thresholds/defaults", { method: "PATCH", body: JSON.stringify(payload) }),
-  updateSKUInventoryThreshold: (warehouseSKU: string, payload: InventoryThresholds) => request<SKUInventoryThreshold>(`/inventory-thresholds/${encodeURIComponent(warehouseSKU)}`, { method: "PATCH", body: JSON.stringify(payload) }),
-  resetSKUInventoryThreshold: (warehouseSKU: string) => request<{ deleted: boolean }>(`/inventory-thresholds/${encodeURIComponent(warehouseSKU)}/reset`, { method: "POST" }),
+  inventoryThresholds: (params: { q?: string; page: number; pageSize: number; platform?: string; shop?: string }) =>
+    request<InventoryThresholdPage>(`/inventory-thresholds${query({ q: params.q, page: params.page, page_size: params.pageSize, platform: params.platform, shop: params.shop })}`),
+  updateInventoryThresholdDefaults: (payload: InventoryThresholds, params?: { platform?: string; shop?: string }) =>
+    request<InventoryThresholds | ShopInventoryThresholds>(`/inventory-thresholds/defaults${query({ platform: params?.platform, shop: params?.shop })}`, { method: "PATCH", body: JSON.stringify(payload) }),
+  resetShopInventoryThresholds: (params: { platform: string; shop: string }) =>
+    request<ShopInventoryThresholds>(`/inventory-thresholds/defaults/reset${query({ platform: params.platform, shop: params.shop })}`, { method: "POST" }),
+  updateSKUInventoryThreshold: (warehouseSKU: string, payload: InventoryThresholds, params?: { platform?: string; shop?: string }) =>
+    request<SKUInventoryThreshold>(`/inventory-thresholds/${encodeURIComponent(warehouseSKU)}${query({ platform: params?.platform, shop: params?.shop })}`, { method: "PATCH", body: JSON.stringify(payload) }),
+  resetSKUInventoryThreshold: (warehouseSKU: string, params?: { platform?: string; shop?: string }) =>
+    request<{ deleted: boolean }>(`/inventory-thresholds/${encodeURIComponent(warehouseSKU)}/reset${query({ platform: params?.platform, shop: params?.shop })}`, { method: "POST" }),
   fulfillmentAudits: (params: { shop?: string; warehouse?: string; category?: string; omsStatus?: string; q?: string; page: number; pageSize: number }) =>
     request<FulfillmentAuditPage>(`/fulfillment-audits${query({ shop: params.shop, warehouse: params.warehouse, category: params.category, oms_status: params.omsStatus, q: params.q, page: params.page, page_size: params.pageSize })}`),
   fulfilledOrders: (params: { shop?: string; warehouse?: string; trackingCategory?: string; q?: string; page: number; pageSize: number }) =>
