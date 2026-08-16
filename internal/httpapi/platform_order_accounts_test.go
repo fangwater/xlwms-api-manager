@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"context"
+	"encoding/json"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -230,6 +231,62 @@ func TestPlatformOrderLookupUsesSelectedAccountHeader(t *testing.T) {
 	if !strings.Contains(recorder.Body.String(), `"status":2`) ||
 		!strings.Contains(recorder.Body.String(), `"orderTime":"2026-08-01 01:02:03"`) {
 		t.Fatalf("unexpected response: %s", recorder.Body.String())
+	}
+}
+
+func TestPlatformOrderAccountsMarksOfflineLogins(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != "/gateway/woms/auth/login" {
+			http.NotFound(writer, request)
+			return
+		}
+		var payload struct {
+			LoginAccount string `json:"loginAccount"`
+		}
+		if err := json.NewDecoder(request.Body).Decode(&payload); err != nil {
+			t.Fatal(err)
+		}
+		if payload.LoginAccount == "arp-user" {
+			_, _ = writer.Write([]byte(`{"code":4011,"msg":"请更新登录密码","data":{}}`))
+			return
+		}
+		_, _ = writer.Write([]byte(`{"code":4213,"msg":"账号已锁定,请联系超管修改或重置密码","data":{}}`))
+	}))
+	defer server.Close()
+
+	arp := oms.NewClient(server.URL, "arp-user", "arp-password", time.Second)
+	dps := oms.NewClient(server.URL, "dps-user", "dps-password", time.Second)
+	accounts := &fakeSelectablePlatformAccounts{
+		accountOperators: map[string]platformOrderAccount{
+			defaultPlatformOrderAccountKey: arp,
+			"warehouse:DPSCA004":           dps,
+		},
+		options: []platformOrderAccountOption{
+			{Key: defaultPlatformOrderAccountKey, Label: "ARP 账户"},
+			{Key: "warehouse:DPSCA004", Label: "DPS 账户", WarehouseCodes: []string{"DPSCA004", "DPSNY002"}},
+		},
+	}
+	handler := newWithPlatformOrderAccountOperations(nil, nil, nil, arp, nil, nil, accounts, time.Second, slog.Default())
+	request := httptest.NewRequest(http.MethodGet, "/v1/platform-orders/accounts", nil)
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", recorder.Code, recorder.Body.String())
+	}
+	var payload struct {
+		Success bool                          `json:"success"`
+		Data    []platformOrderAccountOption  `json:"data"`
+	}
+	if err := json.NewDecoder(recorder.Body).Decode(&payload); err != nil {
+		t.Fatal(err)
+	}
+	if !payload.Success || len(payload.Data) != 2 {
+		t.Fatalf("payload = %#v", payload)
+	}
+	for _, account := range payload.Data {
+		if account.Available || account.Status != "offline" || account.Error == "" {
+			t.Fatalf("account still looks available: %#v", account)
+		}
 	}
 }
 

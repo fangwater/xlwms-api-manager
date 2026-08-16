@@ -33,6 +33,9 @@ type platformOrderAccountOption struct {
 	Key            string   `json:"key"`
 	Label          string   `json:"label"`
 	WarehouseCodes []string `json:"warehouse_codes"`
+	Available      bool     `json:"available"`
+	Status         string   `json:"status,omitempty"`
+	Error          string   `json:"error,omitempty"`
 }
 
 type platformOrderAccountSelector interface {
@@ -335,15 +338,58 @@ func platformOrderAccountAvailable(account platformOrderAccount) bool {
 }
 
 func (s *Server) availablePlatformOrderAccounts(ctx context.Context) ([]platformOrderAccountOption, error) {
+	var accounts []platformOrderAccountOption
+	var err error
 	if selector, ok := s.platformAccounts.(platformOrderAccountSelector); ok {
-		return selector.PlatformOrderAccounts(ctx)
+		accounts, err = selector.PlatformOrderAccounts(ctx)
+	} else {
+		if _, err = s.selectedPlatformOrderAccount(ctx, defaultPlatformOrderAccountKey); err != nil {
+			return nil, err
+		}
+		accounts = []platformOrderAccountOption{{
+			Key: defaultPlatformOrderAccountKey, Label: "ARP 账户", WarehouseCodes: []string{},
+		}}
 	}
-	if _, err := s.selectedPlatformOrderAccount(ctx, defaultPlatformOrderAccountKey); err != nil {
+	if err != nil {
 		return nil, err
 	}
-	return []platformOrderAccountOption{{
-		Key: defaultPlatformOrderAccountKey, Label: "ARP 账户", WarehouseCodes: []string{},
-	}}, nil
+	s.annotatePlatformOrderAccountHealth(ctx, accounts)
+	return accounts, nil
+}
+
+type platformOrderAccessChecker interface {
+	CheckAccess(context.Context) error
+}
+
+func (s *Server) annotatePlatformOrderAccountHealth(ctx context.Context, accounts []platformOrderAccountOption) {
+	var wait sync.WaitGroup
+	for index := range accounts {
+		accounts[index].Available = true
+		accounts[index].Status = "configured"
+		wait.Add(1)
+		go func(index int) {
+			defer wait.Done()
+			account, err := s.selectedPlatformOrderAccount(ctx, accounts[index].Key)
+			if err != nil {
+				accounts[index].Available = false
+				accounts[index].Status = "offline"
+				accounts[index].Error = "所选 OMS 账户暂不可用"
+				return
+			}
+			checker, ok := account.(platformOrderAccessChecker)
+			if !ok {
+				return
+			}
+			if checkErr := checker.CheckAccess(ctx); checkErr != nil {
+				accounts[index].Available = false
+				accounts[index].Status = "offline"
+				accounts[index].Error = oms.PublicAuthError(checkErr)
+			} else {
+				accounts[index].Status = "ready"
+			}
+		}(index)
+	}
+	wait.Wait()
 }
 
 func (s *Server) listPlatformOrderAccounts(writer http.ResponseWriter, request *http.Request) {

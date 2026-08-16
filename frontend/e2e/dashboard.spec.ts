@@ -128,8 +128,8 @@ async function mockAPI(page: Page, options: { indexedParcelMatch?: boolean } = {
       completed_at: "2026-08-06T05:25:00Z"
     };
     else if (path.endsWith("/platform-orders/accounts")) data = [
-      { key: "arp", label: "ARP 账户", warehouse_codes: ["ARPCA01", "ARPGA", "HYTX30"] },
-      { key: "warehouse:DPSCA004", label: "DPS 账户", warehouse_codes: ["DPSCA004", "DPSNY002"] }
+      { key: "arp", label: "ARP 账户", warehouse_codes: ["ARPCA01", "ARPGA", "HYTX30"], available: true, status: "ready" },
+      { key: "warehouse:DPSCA004", label: "DPS 账户", warehouse_codes: ["DPSCA004", "DPSNY002"], available: true, status: "ready" }
     ];
     else if (path.endsWith("/platform-orders/pending")) {
       const searched = Boolean(url.searchParams.get("q"));

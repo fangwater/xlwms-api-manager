@@ -12,6 +12,25 @@ import (
 	"time"
 )
 
+func TestCheckAccessReportsForcedPasswordUpdate(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != "/gateway/woms/auth/login" {
+			http.NotFound(writer, request)
+			return
+		}
+		writeOMSJSON(writer, apiEnvelope[loginData]{Code: 4011, Msg: "请更新登录密码"})
+	}))
+	defer server.Close()
+	client := NewClient(server.URL, "arp-user", "old-password", time.Second)
+	err := client.CheckAccess(context.Background())
+	if err == nil {
+		t.Fatal("forced password update was treated as available")
+	}
+	if got := PublicAuthError(err); got != "请更新登录密码" {
+		t.Fatalf("PublicAuthError = %q", got)
+	}
+}
+
 func TestPendingOrdersUsesVerifiedWebContract(t *testing.T) {
 	var logins atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {

@@ -557,6 +557,30 @@ func (c *Client) accessToken(ctx context.Context) (string, error) {
 	return token, nil
 }
 
+func (c *Client) CheckAccess(ctx context.Context) error {
+	_, err := c.accessToken(ctx)
+	return err
+}
+
+func PublicAuthError(err error) string {
+	if err == nil {
+		return ""
+	}
+	message := err.Error()
+	switch {
+	case strings.Contains(message, "账号已锁定"):
+		return "账号已锁定，请联系超管修改或重置密码"
+	case strings.Contains(message, "请更新登录密码"):
+		return "请更新登录密码"
+	case strings.Contains(message, "用户名或密码错误"):
+		return "用户名或密码错误"
+	case strings.Contains(message, "password update"), strings.Contains(message, "verification"):
+		return "需要更新登录密码或完成验证"
+	default:
+		return "领星登录失败"
+	}
+}
+
 func (c *Client) invalidateToken(token string) {
 	c.tokenMu.Lock()
 	defer c.tokenMu.Unlock()

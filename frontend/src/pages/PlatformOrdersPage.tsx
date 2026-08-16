@@ -3,11 +3,11 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import { api } from "../api";
 import { EmptyState, ErrorState, LoadingState, PageHeader, Pagination, dateTime, number } from "../components/Common";
-import type { PendingPlatformOrder, PlatformOrderAssignmentResult, PlatformOrderProduct, PendingPlatformOrderPage, PlatformOrderRoutingPreview } from "../types";
+import type { PendingPlatformOrder, PlatformOrderAccountOption, PlatformOrderAssignmentResult, PlatformOrderProduct, PendingPlatformOrderPage, PlatformOrderRoutingPreview } from "../types";
 import "./PlatformOrdersPage.css";
 
-const defaultPlatformOrderAccounts = [{
-  key: "arp", label: "ARP 账户", warehouse_codes: [] as string[]
+const defaultPlatformOrderAccounts: PlatformOrderAccountOption[] = [{
+  key: "arp", label: "ARP 账户", warehouse_codes: []
 }];
 
 export default function PlatformOrdersPage() {
@@ -49,7 +49,14 @@ export default function PlatformOrdersPage() {
     void api.platformOrderAccounts().then((next) => {
       if (!active || next.length === 0) return;
       setAccounts(next);
-      setAccount((current) => next.some((item) => item.key === current) ? current : next[0].key);
+      const ready = next.filter((item) => item.available !== false);
+      setAccount((current) => {
+        const selected = next.find((item) => item.key === current);
+        if (selected && selected.available !== false) return current;
+        return (ready[0] || next[0]).key;
+      });
+      const offline = next.filter((item) => item.available === false);
+      setAccountError(ready.length ? "" : offline.map((item) => item.label + "：" + (item.error || "已掉线")).join("；") || "领星账户已掉线");
     }).catch((reason) => {
       if (active) setAccountError(reason instanceof Error ? reason.message : "无法读取 OMS 账户列表");
     });
@@ -60,6 +67,11 @@ export default function PlatformOrdersPage() {
   const allPageSelected = pageOrderNos.length > 0 && pageOrderNos.every((orderNo) => selectedOrderNos.includes(orderNo));
   const selectedAccount = accounts.find((item) => item.key === account) ?? accounts[0];
   const selectedAccountLabel = selectedAccount?.label || "OMS 账户";
+  const readyAccountCount = accounts.filter((item) => item.available !== false).length;
+  const selectedAccountOffline = selectedAccount?.available === false;
+  const selectedAccountStatus = selectedAccountOffline
+    ? selectedAccount.label + "已掉线" + (selectedAccount.error ? " · " + selectedAccount.error : "")
+    : selectedAccountLabel;
 
   function switchAccount(next: string) {
     if (next === account) return;
@@ -101,7 +113,7 @@ export default function PlatformOrdersPage() {
   return <>
     <PageHeader
       title="平台订单待处理"
-      subtitle={"实时读取领星 OMS · " + selectedAccountLabel + (data?.queried_at ? " · 最近查询 " + dateTime(data.queried_at) : "")}
+      subtitle={(selectedAccountOffline ? "领星 OMS 已掉线 · " : "实时读取领星 OMS · ") + selectedAccountStatus + (data?.queried_at ? " · 最近查询 " + dateTime(data.queried_at) : "")}
       actions={<>
         <button className="primary-button platform-order-action" disabled={selectedOrderNos.length === 0} onClick={() => setRoutingOpen(true)} title="分配仓库和物流"><Truck size={16} /><span>分配仓库和物流</span></button>
         <button className="icon-button bordered" onClick={() => void load()} title="刷新"><RefreshCw size={18} className={loading ? "spin" : ""} /></button>
@@ -125,10 +137,10 @@ export default function PlatformOrdersPage() {
       <label className="select-field platform-order-account-select" title={selectedAccount?.warehouse_codes.join("、") || selectedAccountLabel}>
         <Store size={16} />
         <select aria-label="OMS 账户" value={account} onChange={(event) => switchAccount(event.target.value)}>
-          {accounts.map((item) => <option key={item.key} value={item.key}>{item.label}</option>)}
+          {accounts.map((item) => <option key={item.key} value={item.key}>{item.available === false ? item.label + "（已掉线）" : item.label}</option>)}
         </select>
       </label>
-      {accountError && <span className="platform-order-account-error" role="status" title={accountError}><AlertTriangle size={15} />账户列表不可用</span>}
+      {accountError && <span className="platform-order-account-error" role="status" title={accountError}><AlertTriangle size={15} />{readyAccountCount ? "部分账户已掉线" : "领星账户已掉线"}</span>}
       <label className="search-field"><Search size={17} /><input aria-label="平台单号搜索" value={searchInput} onChange={(event) => setSearchInput(event.target.value)} placeholder="输入平台单号精确查询" /></label>
       <button className="secondary-button" type="submit" disabled={loading}>查询</button>
       {query && <button className="icon-button bordered" type="button" onClick={clearSearch} title="清除搜索" aria-label="清除搜索"><X size={16} /></button>}

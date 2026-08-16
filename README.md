@@ -142,7 +142,9 @@ GET    /v1/sync/runs
 
 账户选择方式与 Temu 服务的 `X-Temu-Shop` 模式一致，优先使用
 `X-OMS-Account`；也可以使用 `account` 查询参数。两者同时提供时必须一致。
-缺省账户为 `arp`，可选键通过 `GET /v1/platform-orders/accounts` 获取：
+缺省账户为 `arp`，可选键通过 `GET /v1/platform-orders/accounts` 获取。
+该接口会探测每个账户的领星登录，并返回 `available`、`status` 和 `error`；
+已配置但无法换票的账户仍会出现在列表里，但 `available=false`：
 
 ```bash
 curl -sS \

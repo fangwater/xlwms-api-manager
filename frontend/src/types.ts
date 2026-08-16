@@ -244,6 +244,18 @@ export type InventoryThresholds = {
   total_threshold: number;
 };
 
+export type FulfillmentShop = {
+  platform: string;
+  shop_code: string;
+  shop_name: string;
+  enabled: boolean;
+};
+
+export type ShopInventoryThresholds = FulfillmentShop & InventoryThresholds & {
+  customized: boolean;
+  updated_at: string;
+};
+
 export type SKUInventoryThreshold = InventoryThresholds & {
   warehouse_sku: string;
   product_name: string;
@@ -251,12 +263,16 @@ export type SKUInventoryThreshold = InventoryThresholds & {
   west_available: number;
   total_available: number;
   customized: boolean;
+  source?: string;
   inventory_at?: string;
   updated_at: string;
 };
 
 export type InventoryThresholdPage = PageData<SKUInventoryThreshold> & {
-  default_thresholds: InventoryThresholds;
+  default_thresholds: InventoryThresholds | ShopInventoryThresholds;
+  shops: ShopInventoryThresholds[];
+  platform?: string;
+  shop_code?: string;
 };
 
 export type InventoryAlert = {
@@ -360,6 +376,9 @@ export type PlatformOrderAccountOption = {
   key: string;
   label: string;
   warehouse_codes: string[];
+  available?: boolean;
+  status?: string;
+  error?: string;
 };
 
 export type PlatformOrderProduct = {
