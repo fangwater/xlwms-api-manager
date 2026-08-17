@@ -11,13 +11,18 @@ import (
 	"sync"
 	"time"
 
+	"xlwms-api-manager/internal/credentials"
 	"xlwms-api-manager/internal/model"
 	"xlwms-api-manager/internal/oms"
+	"xlwms-api-manager/internal/store"
 )
 
 type platformOrderAccountStore interface {
 	ListWarehousesWithOMS(context.Context, bool) ([]model.WarehouseSummary, error)
 	WarehouseOMSAccount(context.Context, string, bool) (model.WarehouseOMSAccount, error)
+	SetWarehouseOMSAccount(context.Context, string, string, string) (model.WarehouseSummary, error)
+	OMSAccount(context.Context, string) (model.OMSLoginAccount, error)
+	SetOMSAccount(context.Context, string, string, string) (model.OMSLoginAccount, error)
 }
 
 type platformOrderAccountSource interface {
@@ -33,6 +38,7 @@ type platformOrderAccountOption struct {
 	Key            string   `json:"key"`
 	Label          string   `json:"label"`
 	WarehouseCodes []string `json:"warehouse_codes"`
+	UsernameHint   string   `json:"username_hint,omitempty"`
 	Available      bool     `json:"available"`
 	Status         string   `json:"status,omitempty"`
 	Error          string   `json:"error,omitempty"`
@@ -118,10 +124,8 @@ func (p *postgresPlatformOrderAccounts) PlatformOrderAccounts(ctx context.Contex
 func (p *postgresPlatformOrderAccounts) OperatorForAccount(ctx context.Context, key string) (platformOrderAccount, error) {
 	key = strings.TrimSpace(key)
 	if key == "" || strings.EqualFold(key, defaultPlatformOrderAccountKey) {
-		if p.shared == nil {
-			return nil, errPlatformOrderAccountUnavailable
-		}
-		return p.shared, nil
+		account, _, _, err := p.resolveShared(ctx)
+		return account, err
 	}
 	accounts, err := p.selectableAccounts(ctx)
 	if err != nil {
@@ -132,10 +136,8 @@ func (p *postgresPlatformOrderAccounts) OperatorForAccount(ctx context.Context, 
 			continue
 		}
 		if strings.EqualFold(selectable.option.Key, defaultPlatformOrderAccountKey) {
-			if p.shared == nil {
-				return nil, errPlatformOrderAccountUnavailable
-			}
-			return p.shared, nil
+			account, _, _, sharedErr := p.resolveShared(ctx)
+			return account, sharedErr
 		}
 		if selectable.warehouseCode == "" {
 			return nil, errPlatformOrderAccountUnavailable
@@ -147,6 +149,20 @@ func (p *postgresPlatformOrderAccounts) OperatorForAccount(ctx context.Context, 
 		return p.clientForCredentials(account.Username, account.Password), nil
 	}
 	return nil, errPlatformOrderAccountNotFound
+}
+
+func (p *postgresPlatformOrderAccounts) resolveShared(ctx context.Context) (platformOrderAccount, string, string, error) {
+	stored, err := p.store.OMSAccount(ctx, defaultPlatformOrderAccountKey)
+	if err == nil {
+		return p.clientForCredentials(stored.Username, stored.Password), stored.Username, stored.Password, nil
+	}
+	if !errors.Is(err, store.ErrOMSAccountNotFound) {
+		return nil, "", "", err
+	}
+	if p.shared == nil {
+		return nil, "", "", errPlatformOrderAccountUnavailable
+	}
+	return p.shared, p.sharedUsername, p.sharedPassword, nil
 }
 
 func platformOrderAccountKeyMatches(option platformOrderAccountOption, key string) bool {
@@ -208,10 +224,11 @@ func (p *postgresPlatformOrderAccounts) selectableAccounts(ctx context.Context) 
 		return nil, err
 	}
 	groups := make(map[[sha256.Size]byte]*warehouseAccountGroup)
+	_, sharedUsername, sharedPassword, sharedErr := p.resolveShared(ctx)
+	sharedConfigured := sharedErr == nil && sharedUsername != "" && sharedPassword != ""
 	var sharedFingerprint [sha256.Size]byte
-	sharedConfigured := p.shared != nil && p.sharedUsername != "" && p.sharedPassword != ""
 	if sharedConfigured {
-		sharedFingerprint = platformOrderCredentialFingerprint(p.sharedUsername, p.sharedPassword)
+		sharedFingerprint = platformOrderCredentialFingerprint(sharedUsername, sharedPassword)
 	}
 	sharedWarehouseCodes := make([]string, 0)
 	for _, warehouse := range warehouses {
@@ -236,20 +253,27 @@ func (p *postgresPlatformOrderAccounts) selectableAccounts(ctx context.Context) 
 	}
 
 	accounts := make([]selectablePlatformOrderAccount, 0, len(groups)+1)
-	if p.shared != nil {
+	if sharedErr == nil || p.shared != nil {
 		sort.Strings(sharedWarehouseCodes)
 		accounts = append(accounts, selectablePlatformOrderAccount{option: platformOrderAccountOption{
 			Key: defaultPlatformOrderAccountKey, Label: "ARP 账户", WarehouseCodes: sharedWarehouseCodes,
+			UsernameHint: credentials.MaskIdentifier(sharedUsername),
 		}})
 	}
 	for _, group := range groups {
 		sort.Strings(group.warehouseCodes)
 		warehouseCode := group.warehouseCodes[0]
+		account, accountErr := p.store.WarehouseOMSAccount(ctx, warehouseCode, true)
+		usernameHint := ""
+		if accountErr == nil {
+			usernameHint = credentials.MaskIdentifier(account.Username)
+		}
 		accounts = append(accounts, selectablePlatformOrderAccount{
 			option: platformOrderAccountOption{
 				Key:            "warehouse:" + warehouseCode,
 				Label:          platformOrderAccountLabel(group.warehouseCodes),
 				WarehouseCodes: group.warehouseCodes,
+				UsernameHint:   usernameHint,
 			},
 			warehouseCode: warehouseCode,
 		})
@@ -404,10 +428,123 @@ func (s *Server) listPlatformOrderAccounts(writer http.ResponseWriter, request *
 	writeJSON(writer, http.StatusOK, response{Success: true, Data: accounts})
 }
 
+type platformOrderAccountCredentialsRequest struct {
+	Username string `json:"username"`
+	Password string `json:"password"`
+}
+
+func (s *Server) updatePlatformOrderAccount(writer http.ResponseWriter, request *http.Request) {
+	var payload platformOrderAccountCredentialsRequest
+	if !decodeJSON(writer, request, &payload) {
+		return
+	}
+	accountKey, err := requestedPlatformOrderAccountWithBody(request, request.PathValue("accountKey"))
+	if err != nil {
+		writeJSON(writer, http.StatusBadRequest, response{Success: false, Error: "OMS 账户参数冲突"})
+		return
+	}
+	ctx, cancel := context.WithTimeout(request.Context(), s.requestTimeout)
+	defer cancel()
+	updater, ok := s.platformAccounts.(platformOrderAccountUpdater)
+	if !ok {
+		writeJSON(writer, http.StatusServiceUnavailable, response{Success: false, Error: "所选 OMS 账户暂不可更新"})
+		return
+	}
+	if err := updater.UpdateAccountCredentials(ctx, accountKey, payload.Username, payload.Password); err != nil {
+		if errors.Is(err, errPlatformOrderAccountNotFound) {
+			writePlatformOrderAccountError(writer, err)
+			return
+		}
+		if message := oms.AuthErrorMessage(err); message != "" {
+			writeJSON(writer, http.StatusBadGateway, response{Success: false, Error: message})
+			return
+		}
+		s.logger.Warn("update OMS platform order account", "account", accountKey, "error", err)
+		writeJSON(writer, http.StatusBadRequest, response{Success: false, Error: "无法更新 OMS 账户"})
+		return
+	}
+	accounts, err := s.availablePlatformOrderAccounts(ctx)
+	if err != nil {
+		s.logger.Warn("reload OMS platform order accounts after update", "error", err)
+		writeJSON(writer, http.StatusOK, response{Success: true, Data: []platformOrderAccountOption{}})
+		return
+	}
+	writeJSON(writer, http.StatusOK, response{Success: true, Data: accounts})
+}
+
+type platformOrderAccountUpdater interface {
+	UpdateAccountCredentials(context.Context, string, string, string) error
+}
+
+func (p *postgresPlatformOrderAccounts) UpdateAccountCredentials(ctx context.Context, key, username, password string) error {
+	username = strings.TrimSpace(username)
+	if username == "" || password == "" {
+		return errors.New("OMS username and password are required")
+	}
+	probe := oms.NewClient(p.baseURL, username, password, p.timeout)
+	if err := probe.CheckAccess(ctx); err != nil {
+		return err
+	}
+	accounts, err := p.selectableAccounts(ctx)
+	if err != nil {
+		return err
+	}
+	key = strings.TrimSpace(key)
+	if key == "" {
+		key = defaultPlatformOrderAccountKey
+	}
+	for _, selectable := range accounts {
+		if !platformOrderAccountKeyMatches(selectable.option, key) {
+			continue
+		}
+		if strings.EqualFold(selectable.option.Key, defaultPlatformOrderAccountKey) {
+			if _, err := p.store.SetOMSAccount(ctx, defaultPlatformOrderAccountKey, username, password); err != nil {
+				return err
+			}
+			p.replaceShared(username, password, probe)
+			return nil
+		}
+		if len(selectable.option.WarehouseCodes) == 0 {
+			return errPlatformOrderAccountUnavailable
+		}
+		for _, warehouseCode := range selectable.option.WarehouseCodes {
+			if _, err := p.store.SetWarehouseOMSAccount(ctx, warehouseCode, username, password); err != nil {
+				return err
+			}
+		}
+		p.forgetClients()
+		return nil
+	}
+	return errPlatformOrderAccountNotFound
+}
+
+func (p *postgresPlatformOrderAccounts) replaceShared(username, password string, client platformOrderAccount) {
+	p.clientMu.Lock()
+	defer p.clientMu.Unlock()
+	p.shared = client
+	p.sharedUsername = username
+	p.sharedPassword = password
+	p.clients = nil
+}
+
+func (p *postgresPlatformOrderAccounts) forgetClients() {
+	p.clientMu.Lock()
+	defer p.clientMu.Unlock()
+	p.clients = nil
+}
+
 func writePlatformOrderAccountError(writer http.ResponseWriter, err error) {
 	if errors.Is(err, errPlatformOrderAccountNotFound) {
 		writeJSON(writer, http.StatusBadRequest, response{Success: false, Error: "OMS 账户无效或已停用"})
 		return
 	}
 	writeJSON(writer, http.StatusServiceUnavailable, response{Success: false, Error: "所选 OMS 账户暂不可用"})
+}
+
+func writePlatformOrderSourceError(writer http.ResponseWriter, err error, fallback string) {
+	if message := oms.AuthErrorMessage(err); message != "" {
+		writeJSON(writer, http.StatusBadGateway, response{Success: false, Error: message})
+		return
+	}
+	writeJSON(writer, http.StatusBadGateway, response{Success: false, Error: fallback})
 }

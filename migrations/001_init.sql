@@ -16,6 +16,14 @@ ALTER TABLE xlwms_warehouses
     ADD COLUMN IF NOT EXISTS oms_password_ciphertext text,
     ADD COLUMN IF NOT EXISTS oms_account_hint text;
 
+CREATE TABLE IF NOT EXISTS xlwms_oms_accounts (
+    account_key text PRIMARY KEY,
+    username_ciphertext text NOT NULL,
+    password_ciphertext text NOT NULL,
+    account_hint text NOT NULL,
+    updated_at timestamptz NOT NULL DEFAULT now()
+);
+
 CREATE INDEX IF NOT EXISTS idx_xlwms_warehouses_active
     ON xlwms_warehouses (wh_code) WHERE is_active;
 

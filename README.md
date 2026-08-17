@@ -104,6 +104,7 @@ make build
 GET    /healthz
 GET    /v1/dashboard/summary
 GET    /v1/platform-orders/accounts
+PATCH  /v1/platform-orders/accounts/{accountKey}
 GET    /v1/platform-orders/pending
 GET    /v1/platform-orders/{platformOrderNo}
 GET    /v1/temu/platform-orders/{platformOrderNo}

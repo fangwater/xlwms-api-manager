@@ -1,4 +1,4 @@
-import { AlertTriangle, CheckCircle2, Clock3, Eye, ListTodo, PackageSearch, RefreshCw, Search, ShieldCheck, Store, Truck, X } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Clock3, Eye, KeyRound, ListTodo, PackageSearch, RefreshCw, Search, ShieldCheck, Store, Truck, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import { api } from "../api";
@@ -24,6 +24,10 @@ export default function PlatformOrdersPage() {
   const [selectedOrderNos, setSelectedOrderNos] = useState<string[]>([]);
   const [routingOpen, setRoutingOpen] = useState(false);
   const [assignmentResult, setAssignmentResult] = useState<PlatformOrderAssignmentResult | null>(null);
+  const [accountEditorOpen, setAccountEditorOpen] = useState(false);
+  const [accountForm, setAccountForm] = useState({ username: "", password: "" });
+  const [accountFormError, setAccountFormError] = useState("");
+  const [savingAccount, setSavingAccount] = useState(false);
   const loadSequence = useRef(0);
 
   const load = useCallback(async () => {
@@ -44,34 +48,39 @@ export default function PlatformOrdersPage() {
   }, [account, page, query]);
 
   useEffect(() => { void load(); }, [load]);
-  useEffect(() => {
-    let active = true;
-    void api.platformOrderAccounts().then((next) => {
-      if (!active || next.length === 0) return;
-      setAccounts(next);
-      const ready = next.filter((item) => item.available !== false);
-      setAccount((current) => {
-        const selected = next.find((item) => item.key === current);
-        if (selected && selected.available !== false) return current;
-        return (ready[0] || next[0]).key;
-      });
-      const offline = next.filter((item) => item.available === false);
-      setAccountError(ready.length ? "" : offline.map((item) => item.label + "：" + (item.error || "已掉线")).join("；") || "领星账户已掉线");
-    }).catch((reason) => {
-      if (active) setAccountError(reason instanceof Error ? reason.message : "无法读取 OMS 账户列表");
+  const applyAccounts = useCallback((next: PlatformOrderAccountOption[]) => {
+    if (next.length === 0) return;
+    setAccounts(next);
+    const ready = next.filter((item) => item.available !== false);
+    setAccount((current) => {
+      const selected = next.find((item) => item.key === current);
+      if (selected && selected.available !== false) return current;
+      return (ready[0] || next[0]).key;
     });
-    return () => { active = false; };
+    const offline = next.filter((item) => item.available === false);
+    setAccountError(offline.length ? offline.map((item) => item.label + "：" + (item.error || "已掉线")).join("；") : "");
   }, []);
+  const loadAccounts = useCallback(async () => {
+    try {
+      applyAccounts(await api.platformOrderAccounts());
+    } catch (reason) {
+      setAccountError(reason instanceof Error ? reason.message : "无法读取 OMS 账户列表");
+    }
+  }, [applyAccounts]);
+  useEffect(() => { void loadAccounts(); }, [loadAccounts]);
 
   const pageOrderNos = data?.records.map((order) => order.platformOrderNo).filter(Boolean) ?? [];
   const allPageSelected = pageOrderNos.length > 0 && pageOrderNos.every((orderNo) => selectedOrderNos.includes(orderNo));
   const selectedAccount = accounts.find((item) => item.key === account) ?? accounts[0];
   const selectedAccountLabel = selectedAccount?.label || "OMS 账户";
-  const readyAccountCount = accounts.filter((item) => item.available !== false).length;
+  const offlineAccounts = accounts.filter((item) => item.available === false);
   const selectedAccountOffline = selectedAccount?.available === false;
   const selectedAccountStatus = selectedAccountOffline
     ? selectedAccount.label + "已掉线" + (selectedAccount.error ? " · " + selectedAccount.error : "")
     : selectedAccountLabel;
+  const accountAlertTitle = offlineAccounts.length === 0
+    ? "无法读取领星账户"
+    : offlineAccounts.length === accounts.length ? "领星账户已全部掉线" : "部分领星账户已掉线";
 
   function switchAccount(next: string) {
     if (next === account) return;
@@ -110,6 +119,30 @@ export default function PlatformOrdersPage() {
     setQuery("");
   }
 
+  function openAccountEditor() {
+    setAccountForm({ username: "", password: "" });
+    setAccountFormError("");
+    setAccountEditorOpen(true);
+  }
+
+  async function saveAccount(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setSavingAccount(true);
+    setAccountFormError("");
+    try {
+      applyAccounts(await api.updatePlatformOrderAccount(account, accountForm));
+      setAccountEditorOpen(false);
+      setAccountForm({ username: "", password: "" });
+      setPage(1);
+      setData(null);
+      void load();
+    } catch (reason) {
+      setAccountFormError(reason instanceof Error ? reason.message : "无法更新 OMS 账户");
+    } finally {
+      setSavingAccount(false);
+    }
+  }
+
   return <>
     <PageHeader
       title="平台订单待处理"
@@ -119,6 +152,13 @@ export default function PlatformOrdersPage() {
         <button className="icon-button bordered" onClick={() => void load()} title="刷新"><RefreshCw size={18} className={loading ? "spin" : ""} /></button>
       </>}
     />
+    {accountError && <section className="error-banner platform-order-account-alert" role="alert">
+      <AlertTriangle size={18} />
+      <div>
+        <strong>{accountAlertTitle}</strong>
+        <span>{accountError}</span>
+      </div>
+    </section>}
     {data && <section className="platform-order-overview" aria-label="待处理订单概况">
       <div className="platform-order-overview-icon"><ListTodo size={22} /></div>
       <div><span>{query ? "查询结果" : "待处理总数"}</span><strong>{number(data.total)}</strong></div>
@@ -140,7 +180,7 @@ export default function PlatformOrdersPage() {
           {accounts.map((item) => <option key={item.key} value={item.key}>{item.available === false ? item.label + "（已掉线）" : item.label}</option>)}
         </select>
       </label>
-      {accountError && <span className="platform-order-account-error" role="status" title={accountError}><AlertTriangle size={15} />{readyAccountCount ? "部分账户已掉线" : "领星账户已掉线"}</span>}
+      <button className="secondary-button platform-order-account-edit" type="button" onClick={openAccountEditor} title="更新当前 OMS 账号和密码"><KeyRound size={15} /><span>更新账号</span></button>
       <label className="search-field"><Search size={17} /><input aria-label="平台单号搜索" value={searchInput} onChange={(event) => setSearchInput(event.target.value)} placeholder="输入平台单号精确查询" /></label>
       <button className="secondary-button" type="submit" disabled={loading}>查询</button>
       {query && <button className="icon-button bordered" type="button" onClick={clearSearch} title="清除搜索" aria-label="清除搜索"><X size={16} /></button>}
@@ -178,6 +218,23 @@ export default function PlatformOrdersPage() {
       }}
     />}
     {detail && <OrderDetail order={detail} onClose={() => setDetail(null)} />}
+    {accountEditorOpen && <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (!savingAccount && event.target === event.currentTarget) setAccountEditorOpen(false); }}>
+      <section className="modal account-modal" role="dialog" aria-modal="true" aria-labelledby="platform-account-modal-title">
+        <header><div><h2 id="platform-account-modal-title">更新 OMS 账号</h2><p>{selectedAccountLabel}{selectedAccount?.username_hint ? " · 当前 " + selectedAccount.username_hint : ""}</p></div><button className="icon-button" type="button" disabled={savingAccount} onClick={() => setAccountEditorOpen(false)} title="关闭"><X size={19} /></button></header>
+        <form onSubmit={(event) => void saveAccount(event)}>
+          {accountFormError && <div className="error-banner"><span>{accountFormError}</span></div>}
+          <div className="form-grid">
+            <label className="full"><span>OMS 账号</span><input required autoComplete="off" value={accountForm.username} onChange={(event) => setAccountForm({ ...accountForm, username: event.target.value })} placeholder="输入新的登录账号" /></label>
+            <label className="full"><span>OMS 密码</span><input required type="password" autoComplete="new-password" value={accountForm.password} onChange={(event) => setAccountForm({ ...accountForm, password: event.target.value })} placeholder="输入新的登录密码" /></label>
+          </div>
+          <div className="security-note"><ShieldCheck size={17} /><span>账号和密码会一起更新，并在保存前验证领星登录</span></div>
+          <footer>
+            <button type="button" className="secondary-button" disabled={savingAccount} onClick={() => setAccountEditorOpen(false)}>取消</button>
+            <button type="submit" className="primary-button" disabled={savingAccount}>{savingAccount ? "正在验证" : "保存账号和密码"}</button>
+          </footer>
+        </form>
+      </section>
+    </div>}
   </>;
 }
 

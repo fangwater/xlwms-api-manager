@@ -3,6 +3,7 @@ package httpapi
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -18,6 +19,7 @@ import (
 type fakePlatformOrders struct {
 	page             int
 	pageSize         int
+	pendingErr       error
 	warehouses       []oms.WarehouseOption
 	channels         []oms.LogisticsChannelOption
 	resolved         []oms.PendingOrder
@@ -31,6 +33,9 @@ type fakePlatformOrders struct {
 
 func (f *fakePlatformOrders) PendingOrders(_ context.Context, page, pageSize int) (oms.PendingOrderPage, error) {
 	f.page, f.pageSize = page, pageSize
+	if f.pendingErr != nil {
+		return oms.PendingOrderPage{}, f.pendingErr
+	}
 	return oms.PendingOrderPage{
 		Records: []oms.PendingOrder{{OrderNo: "OMS-DEMO", PlatformOrderNo: "PO-DEMO", Status: 0}},
 		Total:   2222, Page: page, PageSize: pageSize, Pages: 23,
@@ -59,6 +64,20 @@ func (f *fakePlatformOrders) AssignAndApprove(_ context.Context, request oms.Ass
 	f.assignCalls++
 	f.assignment = request
 	return f.assignmentResult, nil
+}
+
+func TestPendingPlatformOrdersReturnsLoginFailure(t *testing.T) {
+	source := &fakePlatformOrders{pendingErr: errors.New("OMS login failed (HTTP 200, code 4011): 请更新登录密码")}
+	handler := NewWithPlatformOrders(nil, nil, nil, source, time.Second, slog.Default())
+	request := httptest.NewRequest(http.MethodGet, "/v1/platform-orders/pending?page=1&page_size=30", nil)
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusBadGateway {
+		t.Fatalf("got status %d: %s", recorder.Code, recorder.Body.String())
+	}
+	if !strings.Contains(recorder.Body.String(), `"error":"请更新登录密码"`) {
+		t.Fatalf("expected public login error, got %s", recorder.Body.String())
+	}
 }
 
 func TestPendingPlatformOrders(t *testing.T) {

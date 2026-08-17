@@ -129,14 +129,14 @@ export default function WarehousesPage({ warehouses, onChanged }: { warehouses: 
       <form onSubmit={saveAccount}>
         {accountError && <div className="error-banner"><span>{accountError}</span></div>}
         <div className="form-grid">
-          <label className="full"><span>OMS 用户名</span><input required autoComplete="off" value={accountForm.username} onChange={event => setAccountForm({ ...accountForm, username: event.target.value })} /></label>
-          <label className="full"><span>OMS 密码</span><input required type="password" autoComplete="new-password" value={accountForm.password} onChange={event => setAccountForm({ ...accountForm, password: event.target.value })} /></label>
+          <label className="full"><span>OMS 账号</span><input required autoComplete="off" aria-label="OMS 用户名" value={accountForm.username} onChange={event => setAccountForm({ ...accountForm, username: event.target.value })} placeholder={accountWarehouse.oms_account_hint ? "当前 " + accountWarehouse.oms_account_hint : "输入新的登录账号"} /></label>
+          <label className="full"><span>OMS 密码</span><input required type="password" autoComplete="new-password" aria-label="OMS 密码" value={accountForm.password} onChange={event => setAccountForm({ ...accountForm, password: event.target.value })} placeholder="输入新的登录密码" /></label>
         </div>
-        <div className="security-note"><ShieldCheck size={17} /><span>该账号仅用于此仓库的权限校验与发货操作，并加密存储</span></div>
+        <div className="security-note"><ShieldCheck size={17} /><span>账号和密码会一起更新并加密存储，仅用于此仓库的发货操作</span></div>
         <footer>
           {accountWarehouse.oms_account_configured && <button type="button" className="secondary-button danger-button account-clear-button" onClick={() => void clearAccount()} disabled={savingAccount}><Trash2 size={15} />清除账号</button>}
           <button type="button" className="secondary-button" onClick={closeAccount}>取消</button>
-          <button type="submit" className="primary-button" disabled={savingAccount}>{savingAccount ? "保存中" : "保存账号"}</button>
+          <button type="submit" className="primary-button" disabled={savingAccount}>{savingAccount ? "保存中" : "保存账号和密码"}</button>
         </footer>
       </form>
     </section></div>}

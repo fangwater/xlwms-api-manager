@@ -3,6 +3,7 @@ package oms
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -28,6 +29,9 @@ func TestCheckAccessReportsForcedPasswordUpdate(t *testing.T) {
 	}
 	if got := PublicAuthError(err); got != "请更新登录密码" {
 		t.Fatalf("PublicAuthError = %q", got)
+	}
+	if got := AuthErrorMessage(errors.New("query OMS pending platform orders: timeout")); got != "" {
+		t.Fatalf("non-auth error should stay empty, got %q", got)
 	}
 }
 

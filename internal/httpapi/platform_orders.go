@@ -52,7 +52,7 @@ func (s *Server) platformOrder(writer http.ResponseWriter, request *http.Request
 	records, err := lookup.PlatformOrdersByPlatformOrderNo(ctx, platformOrderNos[0])
 	if err != nil {
 		s.logger.Warn("query OMS platform order across all statuses", "account", accountKey, "error", err)
-		writeJSON(writer, http.StatusBadGateway, response{Success: false, Error: "无法查询 OMS 平台订单"})
+		writePlatformOrderSourceError(writer, err, "无法查询 OMS 平台订单")
 		return
 	}
 	if records == nil {
@@ -92,7 +92,7 @@ func (s *Server) pendingPlatformOrders(writer http.ResponseWriter, request *http
 		orders, err := account.PendingOrdersByPlatformOrderNos(ctx, []string{query})
 		if err != nil {
 			s.logger.Warn("search pending OMS platform order", "account", accountKey, "error", err)
-			writeJSON(writer, http.StatusBadGateway, response{Success: false, Error: "unable to search OMS platform orders"})
+			writePlatformOrderSourceError(writer, err, "无法查询 OMS 平台订单")
 			return
 		}
 		records := make([]oms.PendingOrder, 0, len(orders))
@@ -109,7 +109,7 @@ func (s *Server) pendingPlatformOrders(writer http.ResponseWriter, request *http
 	result, err := account.PendingOrders(ctx, page, pageSize)
 	if err != nil {
 		s.logger.Warn("load pending OMS platform orders", "account", accountKey, "error", err)
-		writeJSON(writer, http.StatusBadGateway, response{Success: false, Error: "unable to load OMS platform orders"})
+		writePlatformOrderSourceError(writer, err, "无法加载 OMS 平台订单")
 		return
 	}
 	if result.QueriedAt.IsZero() {

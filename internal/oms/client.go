@@ -562,7 +562,7 @@ func (c *Client) CheckAccess(ctx context.Context) error {
 	return err
 }
 
-func PublicAuthError(err error) string {
+func AuthErrorMessage(err error) string {
 	if err == nil {
 		return ""
 	}
@@ -576,9 +576,21 @@ func PublicAuthError(err error) string {
 		return "用户名或密码错误"
 	case strings.Contains(message, "password update"), strings.Contains(message, "verification"):
 		return "需要更新登录密码或完成验证"
-	default:
+	case errors.Is(err, ErrAuthentication), strings.Contains(message, "OMS login"), strings.Contains(message, "OMS authentication"):
 		return "领星登录失败"
+	default:
+		return ""
 	}
+}
+
+func PublicAuthError(err error) string {
+	if message := AuthErrorMessage(err); message != "" {
+		return message
+	}
+	if err == nil {
+		return ""
+	}
+	return "领星登录失败"
 }
 
 func (c *Client) invalidateToken(token string) {

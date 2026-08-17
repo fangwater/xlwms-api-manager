@@ -222,7 +222,7 @@ button:disabled { cursor: not-allowed; opacity: .55; }
   .main-content { width: calc(100% - 26px); padding: 21px 0 40px; }
   .page-header { min-height: 50px; margin-bottom: 16px; }
   .page-header h1 { font-size: 21px; line-height: 28px; }
-  .page-header p { max-width: 220px; line-height: 17px; }
+  .page-header p { max-width: min(280px, calc(100vw - 90px)); line-height: 17px; }
   .audit-export-button { width: 36px; padding: 0; }
   .audit-export-button span { display: none; }
   .metric-grid { grid-template-columns: 1fr 1fr; gap: 9px; }

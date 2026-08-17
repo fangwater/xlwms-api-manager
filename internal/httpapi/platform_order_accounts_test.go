@@ -12,12 +12,14 @@ import (
 
 	"xlwms-api-manager/internal/model"
 	"xlwms-api-manager/internal/oms"
+	"xlwms-api-manager/internal/store"
 	"xlwms-api-manager/internal/temutracking"
 )
 
 type fakePlatformOrderAccountStore struct {
-	warehouses []model.WarehouseSummary
-	accounts   map[string]model.WarehouseOMSAccount
+	warehouses    []model.WarehouseSummary
+	accounts      map[string]model.WarehouseOMSAccount
+	loginAccounts map[string]model.OMSLoginAccount
 }
 
 func (f *fakePlatformOrderAccountStore) ListWarehousesWithOMS(context.Context, bool) ([]model.WarehouseSummary, error) {
@@ -29,6 +31,31 @@ func (f *fakePlatformOrderAccountStore) WarehouseOMSAccount(_ context.Context, c
 	if !exists {
 		return model.WarehouseOMSAccount{}, errPlatformOrderAccountNotFound
 	}
+	return account, nil
+}
+
+func (f *fakePlatformOrderAccountStore) SetWarehouseOMSAccount(_ context.Context, code, username, password string) (model.WarehouseSummary, error) {
+	if f.accounts == nil {
+		f.accounts = map[string]model.WarehouseOMSAccount{}
+	}
+	f.accounts[code] = model.WarehouseOMSAccount{WarehouseCode: code, Username: username, Password: password}
+	return model.WarehouseSummary{Code: code, OMSAccountConfigured: true}, nil
+}
+
+func (f *fakePlatformOrderAccountStore) OMSAccount(_ context.Context, key string) (model.OMSLoginAccount, error) {
+	account, exists := f.loginAccounts[key]
+	if !exists {
+		return model.OMSLoginAccount{}, store.ErrOMSAccountNotFound
+	}
+	return account, nil
+}
+
+func (f *fakePlatformOrderAccountStore) SetOMSAccount(_ context.Context, key, username, password string) (model.OMSLoginAccount, error) {
+	if f.loginAccounts == nil {
+		f.loginAccounts = map[string]model.OMSLoginAccount{}
+	}
+	account := model.OMSLoginAccount{Key: key, Username: username, Password: password, Hint: username}
+	f.loginAccounts[key] = account
 	return account, nil
 }
 
@@ -67,6 +94,82 @@ type fakeWarehousePlatformAccounts struct {
 func (f *fakeWarehousePlatformAccounts) OperatorForWarehouse(_ context.Context, warehouseCode string) (platformOrderOperator, error) {
 	f.requested = append(f.requested, warehouseCode)
 	return f.operators[warehouseCode], nil
+}
+
+func TestPlatformOrderAccountUpdateSavesVerifiedWarehouseLogin(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != "/gateway/woms/auth/login" {
+			http.NotFound(writer, request)
+			return
+		}
+		var payload struct {
+			LoginAccount string `json:"loginAccount"`
+		}
+		if err := json.NewDecoder(request.Body).Decode(&payload); err != nil {
+			t.Fatal(err)
+		}
+		if payload.LoginAccount != "new-dps" {
+			_, _ = writer.Write([]byte(`{"code":4213,"msg":"账号已锁定,请联系超管修改或重置密码","data":{}}`))
+			return
+		}
+		_, _ = writer.Write([]byte(`{"code":200,"msg":"ok","data":{"token":"dps-token"}}`))
+	}))
+	defer server.Close()
+
+	accountStore := &fakePlatformOrderAccountStore{
+		warehouses: []model.WarehouseSummary{
+			{Code: "DPSCA004", OMSAccountConfigured: true},
+			{Code: "DPSNY002", OMSAccountConfigured: true},
+		},
+		accounts: map[string]model.WarehouseOMSAccount{
+			"DPSCA004": {WarehouseCode: "DPSCA004", Username: "old-dps", Password: "old-password"},
+			"DPSNY002": {WarehouseCode: "DPSNY002", Username: "old-dps", Password: "old-password"},
+		},
+	}
+	resolver := &postgresPlatformOrderAccounts{
+		store: accountStore, baseURL: server.URL, timeout: time.Second,
+	}
+	if err := resolver.UpdateAccountCredentials(context.Background(), "warehouse:DPSNY002", "new-dps", "new-password"); err != nil {
+		t.Fatal(err)
+	}
+	for _, code := range []string{"DPSCA004", "DPSNY002"} {
+		account := accountStore.accounts[code]
+		if account.Username != "new-dps" || account.Password != "new-password" {
+			t.Fatalf("%s account = %#v", code, account)
+		}
+	}
+}
+
+func TestPlatformOrderAccountUpdateSavesVerifiedSharedLogin(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != "/gateway/woms/auth/login" {
+			http.NotFound(writer, request)
+			return
+		}
+		_, _ = writer.Write([]byte(`{"code":200,"msg":"ok","data":{"token":"arp-token"}}`))
+	}))
+	defer server.Close()
+
+	accountStore := &fakePlatformOrderAccountStore{}
+	resolver := &postgresPlatformOrderAccounts{
+		store: accountStore, baseURL: server.URL, timeout: time.Second,
+		shared: oms.NewClient(server.URL, "old-arp", "old-password", time.Second),
+		sharedUsername: "old-arp", sharedPassword: "old-password",
+	}
+	if err := resolver.UpdateAccountCredentials(context.Background(), "arp", "new-arp", "new-password"); err != nil {
+		t.Fatal(err)
+	}
+	stored := accountStore.loginAccounts[defaultPlatformOrderAccountKey]
+	if stored.Username != "new-arp" || stored.Password != "new-password" {
+		t.Fatalf("stored ARP account = %#v", stored)
+	}
+	account, err := resolver.OperatorForAccount(context.Background(), "arp")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if account == resolver.shared && resolver.sharedUsername == "old-arp" {
+		t.Fatal("updated ARP account still uses the previous shared client")
+	}
 }
 
 func TestPlatformOrderAccountsDeduplicatesCredentials(t *testing.T) {

@@ -376,6 +376,7 @@ export type PlatformOrderAccountOption = {
   key: string;
   label: string;
   warehouse_codes: string[];
+  username_hint?: string;
   available?: boolean;
   status?: string;
   error?: string;

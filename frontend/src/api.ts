@@ -42,6 +42,8 @@ export const api = {
   },
   dashboard: (warehouse?: string) => request<DashboardData>(`/dashboard/summary${query({ warehouse })}`),
   platformOrderAccounts: () => request<PlatformOrderAccountOption[]>("/platform-orders/accounts"),
+  updatePlatformOrderAccount: (account: string, payload: { username: string; password: string }) =>
+    request<PlatformOrderAccountOption[]>(`/platform-orders/accounts/${encodeURIComponent(account)}`, { method: "PATCH", body: JSON.stringify(payload) }),
   pendingPlatformOrders: (params: { account: string; q?: string; page: number; pageSize: number }) =>
     request<PendingPlatformOrderPage>("/platform-orders/pending" + query({ account: params.account, q: params.q, page: params.page, page_size: params.pageSize })),
   platformOrderRoutingPreview: (platformOrderNos: string[], account: string) => request<PlatformOrderRoutingPreview>("/platform-orders/routing-preview", { method: "POST", body: JSON.stringify({ platform_order_nos: platformOrderNos, account }) }),
@@ -85,7 +87,7 @@ export const api = {
   warehouses: () => request<Warehouse[]>("/warehouses"),
   saveWarehouse: (payload: Record<string, unknown>) => request<Warehouse>("/warehouses", { method: "POST", body: JSON.stringify(payload) }),
   setWarehouseActive: (code: string, active: boolean) => request<Warehouse>(`/warehouses/${encodeURIComponent(code)}/status`, { method: "PATCH", body: JSON.stringify({ active }) }),
-  setWarehouseOMSAccount: (code: string, payload: { username: string; password: string }) => request<Warehouse>(`/warehouses/${encodeURIComponent(code)}/oms-account`, { method: "PUT", body: JSON.stringify(payload) }),
+  setWarehouseOMSAccount: (code: string, payload: { username: string; password: string }) => request<Warehouse>(`/warehouses/${encodeURIComponent(code)}/oms-account`, { method: "PATCH", body: JSON.stringify(payload) }),
   clearWarehouseOMSAccount: (code: string) => request<Warehouse>(`/warehouses/${encodeURIComponent(code)}/oms-account`, { method: "DELETE" }),
   inventory: (params: { kind: InventoryKind; warehouse?: string; q?: string; stockType?: string; page: number; pageSize: number }) =>
     request<PageData<InventoryRecord>>(`/inventory${query({ kind: params.kind, warehouse: params.warehouse, q: params.q, stock_type: params.stockType, page: params.page, page_size: params.pageSize })}`),

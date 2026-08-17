@@ -5,7 +5,11 @@ const warehouses = [
   { wh_code: "WEST-02", name: "西部分拨仓", api_base_url: "https://api.xlwms.com/openapi", app_key_hint: "demo...key", oms_account_configured: false, oms_account_hint: "", active: true, updated_at: "2026-08-01T08:00:00Z" }
 ];
 
-async function mockAPI(page: Page, options: { indexedParcelMatch?: boolean } = {}) {
+async function mockAPI(page: Page, options: {
+  indexedParcelMatch?: boolean;
+  accounts?: Array<{ key: string; label: string; warehouse_codes: string[]; available?: boolean; status?: string; error?: string }>;
+  pendingError?: string;
+} = {}) {
   await page.route("**/warehouse-console/healthz", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ success: true, data: { status: "ok" } }) }));
   await page.route("**/warehouse-console/api/**", (route) => {
     const url = new URL(route.request().url());
@@ -127,11 +131,25 @@ async function mockAPI(page: Page, options: { indexedParcelMatch?: boolean } = {
       channel_code: "Upload_Shipping_Label", logistics_carrier: route.request().postDataJSON()?.logistics_carrier || "_AUTO_MATCH_",
       completed_at: "2026-08-06T05:25:00Z"
     };
-    else if (path.endsWith("/platform-orders/accounts")) data = [
-      { key: "arp", label: "ARP 账户", warehouse_codes: ["ARPCA01", "ARPGA", "HYTX30"], available: true, status: "ready" },
-      { key: "warehouse:DPSCA004", label: "DPS 账户", warehouse_codes: ["DPSCA004", "DPSNY002"], available: true, status: "ready" }
+    else if (path.includes("/platform-orders/accounts/") && route.request().method() === "PATCH") {
+      const body = route.request().postDataJSON() || {};
+      data = [{
+        key: "arp", label: "ARP 账户", warehouse_codes: ["ARPCA01", "ARPGA", "HYTX30"],
+        username_hint: String(body.username || "demo").slice(0, 2) + "***",
+        available: true, status: "ready"
+      }, {
+        key: "warehouse:DPSCA004", label: "DPS 账户", warehouse_codes: ["DPSCA004", "DPSNY002"],
+        username_hint: "dp***ps", available: true, status: "ready"
+      }];
+    }
+    else if (path.endsWith("/platform-orders/accounts")) data = options.accounts || [
+      { key: "arp", label: "ARP 账户", warehouse_codes: ["ARPCA01", "ARPGA", "HYTX30"], username_hint: "ar***rp", available: true, status: "ready" },
+      { key: "warehouse:DPSCA004", label: "DPS 账户", warehouse_codes: ["DPSCA004", "DPSNY002"], username_hint: "dp***ps", available: true, status: "ready" }
     ];
     else if (path.endsWith("/platform-orders/pending")) {
+      if (options.pendingError) {
+        return route.fulfill({ status: 502, contentType: "application/json", body: JSON.stringify({ success: false, error: options.pendingError }) });
+      }
       const searched = Boolean(url.searchParams.get("q"));
       const dps = url.searchParams.get("account") === "warehouse:DPSCA004";
       data = {
@@ -237,6 +255,56 @@ test("outbound workspace renders parcel orders", async ({ page }) => {
   await expect(page.getByText(/最近查询/)).toBeVisible();
   expect(fundsRequests).toHaveLength(0);
   await page.screenshot({ path: "/tmp/xlwms-outbound-desktop.png", fullPage: true });
+});
+
+test("pending platform orders show a visible offline banner when both OMS accounts fail", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await mockAPI(page, {
+    accounts: [
+      { key: "arp", label: "ARP 账户", warehouse_codes: ["ARPCA01", "ARPGA", "HYTX30"], available: false, status: "offline", error: "请更新登录密码" },
+      { key: "warehouse:DPSCA004", label: "DPS 账户", warehouse_codes: ["DPSCA004", "DPSNY002"], available: false, status: "offline", error: "账号已锁定，请联系超管修改或重置密码" }
+    ],
+    pendingError: "请更新登录密码"
+  });
+  await page.goto("./platform-orders");
+  const alert = page.getByRole("alert");
+  await expect(alert).toBeVisible();
+  await expect(alert.getByText("领星账户已全部掉线")).toBeVisible();
+  await expect(alert.getByText("ARP 账户：请更新登录密码")).toBeVisible();
+  await expect(alert.getByText("DPS 账户：账号已锁定，请联系超管修改或重置密码")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "平台订单待处理" })).toBeVisible();
+  await expect(page.getByText("领星 OMS 已掉线")).toBeVisible();
+  await expect(page.getByLabel("OMS 账户").locator("option")).toHaveText(["ARP 账户（已掉线）", "DPS 账户（已掉线）"]);
+  await expect(page.getByRole("alert").getByText("请更新登录密码")).toBeVisible();
+  await expect(page.locator(".error-banner", { hasText: "请更新登录密码" })).toHaveCount(2);
+  const alertBox = await alert.boundingBox();
+  expect(alertBox).not.toBeNull();
+  expect(alertBox!.width).toBeGreaterThan(280);
+  await page.screenshot({ path: "/tmp/xlwms-platform-accounts-offline-mobile.png", fullPage: true });
+});
+
+test("pending platform orders can update the selected OMS username and password", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await mockAPI(page, {
+    accounts: [
+      { key: "arp", label: "ARP 账户", warehouse_codes: ["ARPCA01", "ARPGA", "HYTX30"], username_hint: "ar***rp", available: false, status: "offline", error: "请更新登录密码" },
+      { key: "warehouse:DPSCA004", label: "DPS 账户", warehouse_codes: ["DPSCA004", "DPSNY002"], username_hint: "dp***ps", available: false, status: "offline", error: "账号已锁定，请联系超管修改或重置密码" }
+    ],
+    pendingError: "请更新登录密码"
+  });
+  await page.goto("./platform-orders");
+  await page.getByRole("button", { name: "更新账号" }).click();
+  const dialog = page.getByRole("dialog", { name: "更新 OMS 账号" });
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByText("ARP 账户 · 当前 ar***rp")).toBeVisible();
+  await dialog.getByLabel("OMS 账号").fill("new-arp");
+  await dialog.getByLabel("OMS 密码").fill("new-password");
+  const saveRequest = page.waitForRequest((request) => request.method() === "PATCH" && request.url().endsWith("/platform-orders/accounts/arp"));
+  await dialog.getByRole("button", { name: "保存账号和密码" }).click();
+  expect((await saveRequest).postDataJSON()).toEqual({ username: "new-arp", password: "new-password" });
+  await expect(dialog).toHaveCount(0);
+  await expect(page.getByRole("alert")).toHaveCount(0);
+  await page.screenshot({ path: "/tmp/xlwms-platform-account-update-desktop.png", fullPage: true });
 });
 
 test("pending platform orders show live details without a warehouse filter", async ({ page }) => {
@@ -456,9 +524,9 @@ test("warehouse page configures an encrypted OMS shipping account", async ({ pag
   await dialog.getByLabel("OMS 用户名").fill("warehouse-operator");
   await dialog.getByLabel("OMS 密码").fill("test-password");
 
-  const saveRequest = page.waitForRequest(request => request.method() === "PUT" && request.url().endsWith("/warehouses/EAST-01/oms-account"));
+  const saveRequest = page.waitForRequest(request => request.method() === "PATCH" && request.url().endsWith("/warehouses/EAST-01/oms-account"));
   await page.screenshot({ path: "/tmp/xlwms-warehouse-account-desktop.png", fullPage: true });
-  await dialog.getByRole("button", { name: "保存账号" }).click();
+  await dialog.getByRole("button", { name: "保存账号和密码" }).click();
   expect((await saveRequest).postDataJSON()).toEqual({ username: "warehouse-operator", password: "test-password" });
   await expect(dialog).toHaveCount(0);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBeTruthy();

@@ -28,6 +28,13 @@ type WarehouseOMSAccount struct {
 	Password      string `json:"-"`
 }
 
+type OMSLoginAccount struct {
+	Key      string `json:"-"`
+	Username string `json:"-"`
+	Password string `json:"-"`
+	Hint     string `json:"username_hint"`
+}
+
 type FundsFlow struct {
 	ID               int64           `json:"id"`
 	WarehouseCode    string          `json:"wh_code"`
