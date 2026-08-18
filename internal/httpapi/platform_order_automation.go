@@ -239,7 +239,7 @@ func (s *Server) resolveAutomaticPlatformOrderRoutes(ctx context.Context, operat
 	fulfillmentByPlatformOrder := make(map[string][]model.FulfillmentAudit, len(fulfillmentAudits))
 	for _, audit := range fulfillmentAudits {
 		if (!audit.Active && !strings.EqualFold(strings.TrimSpace(audit.OMSStatus), "outbound")) ||
-			!strings.EqualFold(strings.TrimSpace(audit.Platform), "temu") {
+			!purchasedLabelPlatform(audit.Platform) {
 			continue
 		}
 		orderNo := strings.ToUpper(strings.TrimSpace(audit.PlatformOrderNo))
@@ -257,7 +257,7 @@ func (s *Server) resolveAutomaticPlatformOrderRoutes(ctx context.Context, operat
 			}
 			s.logger.Warn("Temu purchased-label lookup failed; using local audit cache", "error", shipmentErr)
 		} else {
-			fulfillmentByPlatformOrder = fulfillmentAuditsFromTemuShipments(shipments)
+			fulfillmentByPlatformOrder = mergePurchasedLabelEvidence(fulfillmentByPlatformOrder, fulfillmentAuditsFromTemuShipments(shipments))
 		}
 	}
 	purchasedByPlatformOrder := make(map[string]model.FulfillmentAudit, len(platformOrderNos))
@@ -427,6 +427,34 @@ func fulfillmentAuditsFromTemuShipments(shipments map[string]temutracking.Purcha
 		})
 	}
 	return result
+}
+
+func mergePurchasedLabelEvidence(existing, temuShipments map[string][]model.FulfillmentAudit) map[string][]model.FulfillmentAudit {
+	merged := make(map[string][]model.FulfillmentAudit, len(existing)+len(temuShipments))
+	for orderNo, audits := range existing {
+		kept := make([]model.FulfillmentAudit, 0, len(audits))
+		for _, audit := range audits {
+			if strings.EqualFold(strings.TrimSpace(audit.Platform), "shein") {
+				kept = append(kept, audit)
+			}
+		}
+		if len(kept) > 0 {
+			merged[orderNo] = kept
+		}
+	}
+	for orderNo, audits := range temuShipments {
+		merged[orderNo] = audits
+	}
+	return merged
+}
+
+func purchasedLabelPlatform(platform string) bool {
+	switch strings.ToLower(strings.TrimSpace(platform)) {
+	case "temu", "shein":
+		return true
+	default:
+		return false
+	}
 }
 
 func purchasedLabelWarehouse(audits []model.FulfillmentAudit) (model.FulfillmentAudit, string) {

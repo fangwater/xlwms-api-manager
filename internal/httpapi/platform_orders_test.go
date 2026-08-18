@@ -203,6 +203,49 @@ func TestPlatformOrderLookupRejectsConflictingAccountSelectors(t *testing.T) {
 	}
 }
 
+func TestPlatformOrderRoutingPreviewUsesSheinPurchasedLabelWarehouse(t *testing.T) {
+	source := readyPlatformOrderOperator()
+	source.resolved = source.resolved[:1]
+	fulfillment := &fakePlatformFulfillment{audits: []model.FulfillmentAudit{{
+		Platform: "shein", PlatformOrderNo: "PO-A", Active: true,
+		WarehouseKey: "HYTX30", WarehouseCode: "WH-1",
+	}}}
+	handler := platformOrderOperationHandler(source, readyPlatformMappings(), fulfillment)
+	request := httptest.NewRequest(http.MethodPost, "/v1/platform-orders/routing-preview", strings.NewReader(`{"platform_order_nos":["PO-A"]}`))
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("got status %d: %s", recorder.Code, recorder.Body.String())
+	}
+	var payload struct {
+		Success bool                    `json:"success"`
+		Data    automaticRoutingPreview `json:"data"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if !payload.Success || !payload.Data.Ready || len(payload.Data.Routes) != 1 || payload.Data.Routes[0].WarehouseCode != "WH-1" {
+		t.Fatalf("SHEIN purchased-label preview = %#v", payload)
+	}
+}
+
+func TestPlatformOrderRoutingPreviewKeepsSheinEvidenceWhenTemuHasNoShipment(t *testing.T) {
+	source := readyPlatformOrderOperator()
+	source.resolved = source.resolved[:1]
+	services := &fakePlatformServices{fakePlatformMappings: readyPlatformMappings(), shipments: map[string]temutracking.PurchasedShipment{}}
+	fulfillment := &fakePlatformFulfillment{audits: []model.FulfillmentAudit{{
+		Platform: "shein", PlatformOrderNo: "PO-A", Active: true,
+		WarehouseKey: "HYTX30", WarehouseCode: "WH-1",
+	}}}
+	handler := newWithPlatformOrderOperations(nil, nil, nil, source, services, fulfillment, time.Second, slog.Default())
+	request := httptest.NewRequest(http.MethodPost, "/v1/platform-orders/routing-preview", strings.NewReader(`{"platform_order_nos":["PO-A"]}`))
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK || !strings.Contains(recorder.Body.String(), `"ready":true`) {
+		t.Fatalf("SHEIN audit evidence was dropped when Temu had no shipment: %s", recorder.Body.String())
+	}
+}
+
 func TestPlatformOrderRoutingPreviewUsesPurchasedLabelWarehouse(t *testing.T) {
 	source := readyPlatformOrderOperator()
 	handler := platformOrderOperationHandler(source, readyPlatformMappings(), readyPlatformFulfillment("PO-A", "PO-B"))

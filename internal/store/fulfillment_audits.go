@@ -362,7 +362,7 @@ func (p *Postgres) FulfillmentAuditWarehouseEvidenceByPlatformOrderNos(ctx conte
 		return nil, nil
 	}
 	rows, err := p.pool.Query(ctx, fulfillmentAuditSelect+`
-WHERE platform='temu' AND upper(platform_order_no)=ANY($1)
+WHERE platform IN ('temu','shein') AND upper(platform_order_no)=ANY($1)
   AND warehouse_key<>'' AND wh_code<>''
   AND (active OR oms_status='outbound')
 ORDER BY upper(platform_order_no),active DESC,id`, orderNos)
