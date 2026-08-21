@@ -131,33 +131,59 @@ type InventoryRecord struct {
 }
 
 type SKUWarehouseStock struct {
-	TotalAmount     float64 `json:"total_amount"`
-	AvailableAmount float64 `json:"available_amount"`
-	LockAmount      float64 `json:"lock_amount"`
-	TransportAmount float64 `json:"transport_amount"`
+	TotalAmount                   float64    `json:"total_amount"`
+	AvailableAmount               float64    `json:"available_amount"`
+	FulfillmentAvailableAmount    float64    `json:"fulfillment_available_amount"`
+	RawFulfillmentAvailableAmount float64    `json:"raw_fulfillment_available_amount"`
+	LockAmount                    float64    `json:"lock_amount"`
+	TransportAmount               float64    `json:"transport_amount"`
+	Corrected                     bool       `json:"corrected"`
+	CorrectionMode                string     `json:"correction_mode,omitempty"`
+	CorrectionAmount              float64    `json:"correction_amount,omitempty"`
+	CorrectionNote                string     `json:"correction_note,omitempty"`
+	CorrectionUpdatedAt           *time.Time `json:"correction_updated_at,omitempty"`
 }
 
 type SKUStockLevel struct {
-	SKU             string                       `json:"sku"`
-	ProductName     string                       `json:"product_name"`
-	StockType       *int                         `json:"stock_type"`
-	ProductType     *int                         `json:"product_type"`
-	TotalAmount     float64                      `json:"total_amount"`
-	AvailableAmount float64                      `json:"available_amount"`
-	LockAmount      float64                      `json:"lock_amount"`
-	TransportAmount float64                      `json:"transport_amount"`
-	WarehouseCount  int                          `json:"warehouse_count"`
-	Warehouses      map[string]SKUWarehouseStock `json:"warehouses"`
-	LastSeenAt      time.Time                    `json:"last_seen_at"`
+	SKU                           string                       `json:"sku"`
+	ProductName                   string                       `json:"product_name"`
+	StockType                     *int                         `json:"stock_type"`
+	ProductType                   *int                         `json:"product_type"`
+	TotalAmount                   float64                      `json:"total_amount"`
+	AvailableAmount               float64                      `json:"available_amount"`
+	FulfillmentAvailableAmount    float64                      `json:"fulfillment_available_amount"`
+	RawFulfillmentAvailableAmount float64                      `json:"raw_fulfillment_available_amount"`
+	LockAmount                    float64                      `json:"lock_amount"`
+	TransportAmount               float64                      `json:"transport_amount"`
+	WarehouseCount                int                          `json:"warehouse_count"`
+	Warehouses                    map[string]SKUWarehouseStock `json:"warehouses"`
+	LastSeenAt                    time.Time                    `json:"last_seen_at"`
+}
+
+type InventoryCorrection struct {
+	WarehouseCode            string    `json:"wh_code"`
+	WarehouseName            string    `json:"warehouse_name"`
+	WarehouseSKU             string    `json:"warehouse_sku"`
+	ProductName              string    `json:"product_name"`
+	RawAvailableAmount       float64   `json:"raw_available_amount"`
+	CorrectedAvailableAmount float64   `json:"corrected_available_amount"`
+	CorrectionMode           string    `json:"correction_mode"`
+	CorrectionAmount         float64   `json:"correction_amount"`
+	Note                     string    `json:"note"`
+	CreatedAt                time.Time `json:"created_at"`
+	UpdatedAt                time.Time `json:"updated_at"`
 }
 
 type SKUStockSummary struct {
-	SKUCount        int     `json:"sku_count"`
-	RecordCount     int     `json:"record_count"`
-	TotalAmount     float64 `json:"total_amount"`
-	AvailableAmount float64 `json:"available_amount"`
-	LockAmount      float64 `json:"lock_amount"`
-	TransportAmount float64 `json:"transport_amount"`
+	SKUCount                      int     `json:"sku_count"`
+	RecordCount                   int     `json:"record_count"`
+	TotalAmount                   float64 `json:"total_amount"`
+	AvailableAmount               float64 `json:"available_amount"`
+	FulfillmentAvailableAmount    float64 `json:"fulfillment_available_amount"`
+	RawFulfillmentAvailableAmount float64 `json:"raw_fulfillment_available_amount"`
+	CorrectionCount               int     `json:"correction_count"`
+	LockAmount                    float64 `json:"lock_amount"`
+	TransportAmount               float64 `json:"transport_amount"`
 }
 
 type WarehouseSKUSpec struct {

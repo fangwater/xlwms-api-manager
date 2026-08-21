@@ -13,6 +13,7 @@
 - 库存概览、库龄结构、仓库库存分布和同步记录
 - 按仓库、SKU、产品、箱型、条码和关联单号查询
 - Temu 发货前实时 SKU 库存查询、东西区域安全库存判断和 DPS 优先选仓
+- 按仓库和 SKU 修正发货可用库存；SHEIN/Temu 使用修正值且不回写领星 WMS
 - Temu 已出库订单追踪、24 小时揽收超时识别及店铺/仓库维度筛选
 - 桌面与移动端自适应管理界面
 
@@ -116,6 +117,9 @@ POST   /v1/warehouses
 PATCH  /v1/warehouses/{code}/status
 GET    /v1/inventory
 GET    /v1/inventory/sku-levels
+GET    /v1/inventory-corrections
+PATCH  /v1/inventory-corrections/{warehouse}/{warehouseSKU}
+POST   /v1/inventory-corrections/{warehouse}/{warehouseSKU}/reset
 GET    /v1/inventory-alerts
 PATCH  /v1/inventory-alerts/default
 PATCH  /v1/inventory-alerts/config
@@ -134,6 +138,12 @@ POST   /v1/sync/cost-details
 POST   /v1/outbound/{operation}
 GET    /v1/sync/runs
 ```
+
+库存修正支持指定仓库、指定 SKU 的两种规则：`直接设为` 固定发货可用库存，或
+`比 OMS 少` 按 `max(OMS 实时库存 - 扣减量, 0)` 动态计算；新增时默认选择直接设为 `0`。
+实时领星查询成功后，SHEIN 和 Temu 的仓库决策使用修正值；撤销修正后立即恢复使用领星原始值。
+决策响应会同时返回 `available_amount`、`raw_available_amount`、`corrected` 和修正时间，便于核对。
+
 `GET /v1/platform-orders/pending` 支持 `q` 参数按平台单号精确查询；仅返回当前仍处于待处理状态的订单。
 
 `GET /v1/platform-orders/{platformOrderNo}` 实时查询所选 OMS 账户的“全部订单”，

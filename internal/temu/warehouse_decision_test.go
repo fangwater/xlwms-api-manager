@@ -40,6 +40,21 @@ func TestBuildSKUDecisionFallsBackToARPWhenDPSHasNoAvailableStock(t *testing.T) 
 	}
 }
 
+func TestBuildSKUDecisionReportsCorrectedInventory(t *testing.T) {
+	inventory := completeInventory(60, 10, 63, 20)
+	west := inventory["DPSCA004"]
+	west.RawAvailableAmount = 63
+	west.AvailableAmount = 0
+	west.Corrected = true
+	inventory["DPSCA004"] = west
+	decision := BuildSKUDecision("SKU-1", inventory, defaultThresholds())
+	region := regionByName(t, decision, RegionWest)
+	corrected := region.Warehouses[0]
+	if corrected.Selectable || !corrected.Corrected || corrected.RawAvailableAmount != 63 || corrected.ReasonCode != "CORRECTED_ZERO_AVAILABLE_STOCK" {
+		t.Fatalf("unexpected corrected warehouse decision: %#v", corrected)
+	}
+}
+
 func TestBuildSKUDecisionRequiresManualReviewWhenQueryIsIncomplete(t *testing.T) {
 	inventory := completeInventory(60, 10, 60, 10)
 	failed := inventory["DPSNY002"]

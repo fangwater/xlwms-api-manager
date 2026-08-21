@@ -221,6 +221,34 @@ CREATE TABLE IF NOT EXISTS xlwms_warehouse_sku_specs (
 CREATE INDEX IF NOT EXISTS idx_xlwms_warehouse_sku_specs_status
     ON xlwms_warehouse_sku_specs (enabled, warehouse_sku);
 
+CREATE TABLE IF NOT EXISTS xlwms_inventory_corrections (
+    wh_code text NOT NULL REFERENCES xlwms_warehouses(wh_code) ON DELETE CASCADE,
+    warehouse_sku text NOT NULL REFERENCES xlwms_warehouse_sku_specs(warehouse_sku) ON DELETE CASCADE,
+    corrected_available_amount numeric NOT NULL DEFAULT 0 CHECK (corrected_available_amount >= 0),
+    note text NOT NULL DEFAULT '',
+    created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (wh_code, warehouse_sku)
+);
+
+ALTER TABLE xlwms_inventory_corrections
+    ADD COLUMN IF NOT EXISTS correction_mode text NOT NULL DEFAULT 'absolute',
+    ADD COLUMN IF NOT EXISTS correction_amount numeric NOT NULL DEFAULT 0;
+
+UPDATE xlwms_inventory_corrections
+SET correction_amount=corrected_available_amount
+WHERE correction_mode='absolute' AND correction_amount=0 AND corrected_available_amount<>0;
+
+ALTER TABLE xlwms_inventory_corrections
+    DROP CONSTRAINT IF EXISTS xlwms_inventory_corrections_mode_check,
+    DROP CONSTRAINT IF EXISTS xlwms_inventory_corrections_amount_check;
+ALTER TABLE xlwms_inventory_corrections
+    ADD CONSTRAINT xlwms_inventory_corrections_mode_check CHECK (correction_mode IN ('absolute', 'subtract')),
+    ADD CONSTRAINT xlwms_inventory_corrections_amount_check CHECK (correction_amount >= 0);
+
+CREATE INDEX IF NOT EXISTS idx_xlwms_inventory_corrections_sku
+    ON xlwms_inventory_corrections (warehouse_sku, wh_code);
+
 CREATE TABLE IF NOT EXISTS xlwms_inventory_threshold_defaults (
     id smallint PRIMARY KEY DEFAULT 1 CHECK (id = 1),
     east_threshold numeric NOT NULL DEFAULT 50 CHECK (east_threshold >= 0),

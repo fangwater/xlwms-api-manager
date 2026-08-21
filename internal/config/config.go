@@ -14,6 +14,7 @@ const (
 	DefaultOMSBaseURL                 = "https://oms.xlwms.com"
 	DefaultTemuGoBaseURL              = "http://127.0.0.1:18082/temu"
 	DefaultListen                     = "127.0.0.1:18083"
+	DefaultInventorySyncInterval      = 3 * time.Minute
 	DefaultFulfillmentTrackingLimit   = 500
 	DefaultFulfillmentTrackingWorkers = 8
 )
@@ -31,6 +32,7 @@ type Config struct {
 	Listen                     string
 	RequestTimeout             time.Duration
 	SyncTimeout                time.Duration
+	InventorySyncInterval      time.Duration
 	FulfillmentAuditInterval   time.Duration
 	FulfillmentTrackingLimit   int
 	FulfillmentTrackingWorkers int
@@ -54,6 +56,7 @@ func Load() (Config, error) {
 		Listen:                     envOrDefault("XLWMS_LISTEN", DefaultListen),
 		RequestTimeout:             30 * time.Second,
 		SyncTimeout:                30 * time.Minute,
+		InventorySyncInterval:      DefaultInventorySyncInterval,
 		FulfillmentAuditInterval:   time.Hour,
 		FulfillmentTrackingLimit:   DefaultFulfillmentTrackingLimit,
 		FulfillmentTrackingWorkers: DefaultFulfillmentTrackingWorkers,
@@ -68,6 +71,9 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 	if cfg.SyncTimeout, err = positiveDuration("XLWMS_SYNC_TIMEOUT", cfg.SyncTimeout); err != nil {
+		return Config{}, err
+	}
+	if cfg.InventorySyncInterval, err = positiveDuration("XLWMS_INVENTORY_SYNC_INTERVAL", cfg.InventorySyncInterval); err != nil {
 		return Config{}, err
 	}
 	if cfg.FulfillmentAuditInterval, err = positiveDuration("XLWMS_FULFILLMENT_AUDIT_INTERVAL", cfg.FulfillmentAuditInterval); err != nil {

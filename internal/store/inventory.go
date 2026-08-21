@@ -279,16 +279,43 @@ func (p *Postgres) ListSKUStockLevels(ctx context.Context, filter InventoryFilte
 	}
 	var summary model.SKUStockSummary
 	if err := p.pool.QueryRow(ctx, `
-		SELECT count(DISTINCT i.sku)::int, count(DISTINCT i.sku)::int,
-			coalesce(sum(i.total_amount),0)::float8,
-			coalesce(sum(i.available_amount),0)::float8,
-			coalesce(sum(i.lock_amount),0)::float8,
-			coalesce(sum(i.transport_amount),0)::float8
-		FROM xlwms_inventory_records i
-		JOIN xlwms_warehouses w ON w.wh_code=i.wh_code
-		WHERE `+clause, args...).Scan(
+		WITH warehouse_stock AS (
+			SELECT i.sku, i.wh_code,
+				bool_or(i.stock_type=0) AS has_sellable_stock,
+				coalesce(sum(i.total_amount),0) AS total_amount,
+				coalesce(sum(i.available_amount),0) AS available_amount,
+				coalesce(sum(i.product_available_amount) FILTER (WHERE i.stock_type=0),0) AS raw_fulfillment_available_amount,
+				coalesce(sum(i.lock_amount),0) AS lock_amount,
+				coalesce(sum(i.transport_amount),0) AS transport_amount
+			FROM xlwms_inventory_records i
+			JOIN xlwms_warehouses w ON w.wh_code=i.wh_code
+			WHERE `+clause+`
+			GROUP BY i.sku, i.wh_code
+		), effective_stock AS (
+			SELECT stock.*,
+				CASE WHEN c.correction_mode='subtract'
+				  THEN greatest(stock.raw_fulfillment_available_amount-c.correction_amount,0)
+				  WHEN c.correction_mode='absolute' THEN c.correction_amount
+				  ELSE stock.raw_fulfillment_available_amount END AS fulfillment_available_amount,
+				(c.wh_code IS NOT NULL) AS corrected
+			FROM warehouse_stock stock
+			LEFT JOIN xlwms_inventory_corrections c
+			  ON c.wh_code=stock.wh_code AND c.warehouse_sku=stock.sku AND stock.has_sellable_stock
+		)
+		SELECT count(DISTINCT sku)::int, count(DISTINCT sku)::int,
+			coalesce(sum(total_amount),0)::float8,
+			coalesce(sum(available_amount),0)::float8,
+			coalesce(sum(fulfillment_available_amount),0)::float8,
+			coalesce(sum(raw_fulfillment_available_amount),0)::float8,
+			count(*) FILTER (WHERE corrected)::int,
+			coalesce(sum(lock_amount),0)::float8,
+			coalesce(sum(transport_amount),0)::float8
+		FROM effective_stock
+	`, args...).Scan(
 		&summary.SKUCount, &summary.RecordCount, &summary.TotalAmount,
-		&summary.AvailableAmount, &summary.LockAmount, &summary.TransportAmount,
+		&summary.AvailableAmount, &summary.FulfillmentAvailableAmount,
+		&summary.RawFulfillmentAvailableAmount, &summary.CorrectionCount,
+		&summary.LockAmount, &summary.TransportAmount,
 	); err != nil {
 		return nil, 0, summary, fmt.Errorf("summarize SKU stock levels: %w", err)
 	}
@@ -298,8 +325,10 @@ func (p *Postgres) ListSKUStockLevels(ctx context.Context, filter InventoryFilte
 		WITH warehouse_stock AS (
 			SELECT i.sku, i.wh_code, max(i.product_name) AS product_name,
 				max(i.product_type) AS product_type,
+				bool_or(i.stock_type=0) AS has_sellable_stock,
 				coalesce(sum(i.total_amount),0) AS total_amount,
 				coalesce(sum(i.available_amount),0) AS available_amount,
+				coalesce(sum(i.product_available_amount) FILTER (WHERE i.stock_type=0),0) AS raw_fulfillment_available_amount,
 				coalesce(sum(i.lock_amount),0) AS lock_amount,
 				coalesce(sum(i.transport_amount),0) AS transport_amount,
 				max(i.last_seen_at) AS last_seen_at
@@ -307,22 +336,45 @@ func (p *Postgres) ListSKUStockLevels(ctx context.Context, filter InventoryFilte
 			JOIN xlwms_warehouses w ON w.wh_code=i.wh_code
 			WHERE `+clause+`
 			GROUP BY i.sku, i.wh_code
+		), effective_stock AS (
+			SELECT stock.*,
+				CASE WHEN c.correction_mode='subtract'
+				  THEN greatest(stock.raw_fulfillment_available_amount-c.correction_amount,0)
+				  WHEN c.correction_mode='absolute' THEN c.correction_amount
+				  ELSE stock.raw_fulfillment_available_amount END AS fulfillment_available_amount,
+				(c.wh_code IS NOT NULL) AS corrected,
+				coalesce(c.correction_mode,'') AS correction_mode,
+				coalesce(c.correction_amount,0) AS correction_amount,
+				coalesce(c.note,'') AS correction_note,
+				c.updated_at AS correction_updated_at
+			FROM warehouse_stock stock
+			LEFT JOIN xlwms_inventory_corrections c
+			  ON c.wh_code=stock.wh_code AND c.warehouse_sku=stock.sku AND stock.has_sellable_stock
 		)
 		SELECT sku, coalesce(max(product_name),'') AS product_name, NULL::integer AS stock_type,
 			max(product_type) AS product_type,
 			coalesce(sum(total_amount),0)::float8 AS total_amount,
 			coalesce(sum(available_amount),0)::float8 AS available_amount,
+			coalesce(sum(fulfillment_available_amount),0)::float8 AS fulfillment_available_amount,
+			coalesce(sum(raw_fulfillment_available_amount),0)::float8 AS raw_fulfillment_available_amount,
 			coalesce(sum(lock_amount),0)::float8 AS lock_amount,
 			coalesce(sum(transport_amount),0)::float8 AS transport_amount,
 			count(*)::int AS warehouse_count,
 			jsonb_object_agg(wh_code, jsonb_build_object(
 				'total_amount', total_amount,
 				'available_amount', available_amount,
+				'fulfillment_available_amount', fulfillment_available_amount,
+				'raw_fulfillment_available_amount', raw_fulfillment_available_amount,
 				'lock_amount', lock_amount,
-				'transport_amount', transport_amount
+				'transport_amount', transport_amount,
+				'corrected', corrected,
+				'correction_mode', correction_mode,
+				'correction_amount', correction_amount,
+				'correction_note', correction_note,
+				'correction_updated_at', correction_updated_at
 			)) AS warehouses,
 			max(last_seen_at) AS last_seen_at
-		FROM warehouse_stock
+		FROM effective_stock
 		GROUP BY sku
 		ORDER BY available_amount ASC, sku ASC
 		LIMIT $`+fmt.Sprint(len(args)-1)+` OFFSET $`+fmt.Sprint(len(args)), args...)
@@ -336,7 +388,8 @@ func (p *Postgres) ListSKUStockLevels(ctx context.Context, filter InventoryFilte
 		var warehouses []byte
 		if err := rows.Scan(
 			&item.SKU, &item.ProductName, &item.StockType, &item.ProductType,
-			&item.TotalAmount, &item.AvailableAmount, &item.LockAmount, &item.TransportAmount,
+			&item.TotalAmount, &item.AvailableAmount, &item.FulfillmentAvailableAmount,
+			&item.RawFulfillmentAvailableAmount, &item.LockAmount, &item.TransportAmount,
 			&item.WarehouseCount, &warehouses, &item.LastSeenAt,
 		); err != nil {
 			return nil, 0, summary, fmt.Errorf("scan SKU stock level: %w", err)

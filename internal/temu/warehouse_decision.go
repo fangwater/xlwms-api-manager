@@ -9,7 +9,7 @@ import (
 )
 
 const (
-	RuleVersion    = "2026-08-16-per-shop-sku-thresholds"
+	RuleVersion    = "2026-08-21-inventory-corrections"
 	RegionEast     = "east"
 	RegionWest     = "west"
 	QuerySucceeded = "succeeded"
@@ -35,29 +35,41 @@ var warehouseRules = []WarehouseRule{
 }
 
 type WarehouseInventory struct {
-	Name            string
-	Active          bool
-	QueryStatus     string
-	SKUFound        bool
-	AvailableAmount float64
-	QueriedAt       *time.Time
+	Name                string
+	Active              bool
+	QueryStatus         string
+	SKUFound            bool
+	AvailableAmount     float64
+	RawAvailableAmount  float64
+	Corrected           bool
+	CorrectionMode      string
+	CorrectionAmount    float64
+	CorrectionNote      string
+	CorrectionUpdatedAt *time.Time
+	QueriedAt           *time.Time
 }
 
 type WarehouseDecision struct {
-	WarehouseKey    string     `json:"warehouse_key"`
-	WarehouseCode   string     `json:"wh_code"`
-	WarehouseName   string     `json:"warehouse_name"`
-	Region          string     `json:"region"`
-	Provider        string     `json:"provider"`
-	Active          bool       `json:"active"`
-	QueryStatus     string     `json:"query_status"`
-	SKUFound        bool       `json:"sku_found"`
-	AvailableAmount float64    `json:"available_amount"`
-	Selectable      bool       `json:"selectable"`
-	Recommended     bool       `json:"recommended"`
-	InventoryAt     *time.Time `json:"inventory_queried_at,omitempty"`
-	ReasonCode      string     `json:"reason_code"`
-	Reason          string     `json:"reason"`
+	WarehouseKey        string     `json:"warehouse_key"`
+	WarehouseCode       string     `json:"wh_code"`
+	WarehouseName       string     `json:"warehouse_name"`
+	Region              string     `json:"region"`
+	Provider            string     `json:"provider"`
+	Active              bool       `json:"active"`
+	QueryStatus         string     `json:"query_status"`
+	SKUFound            bool       `json:"sku_found"`
+	AvailableAmount     float64    `json:"available_amount"`
+	RawAvailableAmount  float64    `json:"raw_available_amount"`
+	Corrected           bool       `json:"corrected"`
+	CorrectionMode      string     `json:"correction_mode,omitempty"`
+	CorrectionAmount    float64    `json:"correction_amount"`
+	CorrectionNote      string     `json:"correction_note,omitempty"`
+	CorrectionUpdatedAt *time.Time `json:"correction_updated_at,omitempty"`
+	Selectable          bool       `json:"selectable"`
+	Recommended         bool       `json:"recommended"`
+	InventoryAt         *time.Time `json:"inventory_queried_at,omitempty"`
+	ReasonCode          string     `json:"reason_code"`
+	Reason              string     `json:"reason"`
 }
 
 type RegionDecision struct {
@@ -145,7 +157,10 @@ func buildRegionDecision(region string, inventory map[string]WarehouseInventory,
 		warehouse := WarehouseDecision{
 			WarehouseKey: rule.Key, WarehouseCode: rule.Code, WarehouseName: name, Region: rule.Region, Provider: rule.Provider,
 			Active: current.Active, QueryStatus: current.QueryStatus, SKUFound: current.SKUFound,
-			AvailableAmount: current.AvailableAmount, InventoryAt: current.QueriedAt,
+			AvailableAmount: current.AvailableAmount, RawAvailableAmount: current.RawAvailableAmount,
+			Corrected: current.Corrected, CorrectionNote: current.CorrectionNote,
+			CorrectionMode: current.CorrectionMode, CorrectionAmount: current.CorrectionAmount,
+			CorrectionUpdatedAt: current.CorrectionUpdatedAt, InventoryAt: current.QueriedAt,
 		}
 		switch {
 		case !current.Active || current.QueryStatus == QueryInactive:
@@ -157,6 +172,11 @@ func buildRegionDecision(region string, inventory map[string]WarehouseInventory,
 			warehouse.Reason = "OMS库存查询失败，不能用于自动发货"
 			queryIncomplete = true
 		case current.AvailableAmount <= 0:
+			if current.Corrected {
+				warehouse.ReasonCode = "CORRECTED_ZERO_AVAILABLE_STOCK"
+				warehouse.Reason = "库存修正值为0，不能选择该仓发货"
+				break
+			}
 			warehouse.ReasonCode = "ZERO_AVAILABLE_STOCK"
 			if current.SKUFound {
 				warehouse.Reason = "正品产品可用库存小于等于0，不能选择该仓发货"
@@ -165,8 +185,13 @@ func buildRegionDecision(region string, inventory map[string]WarehouseInventory,
 			}
 		default:
 			warehouse.Selectable = true
-			warehouse.ReasonCode = "AVAILABLE_STOCK"
-			warehouse.Reason = "正品产品可用库存大于0，可作为候选仓"
+			if current.Corrected {
+				warehouse.ReasonCode = "CORRECTED_AVAILABLE_STOCK"
+				warehouse.Reason = "库存修正值大于0，可作为候选仓"
+			} else {
+				warehouse.ReasonCode = "AVAILABLE_STOCK"
+				warehouse.Reason = "正品产品可用库存大于0，可作为候选仓"
+			}
 			result.AvailableAmount += current.AvailableAmount
 		}
 		result.Warehouses = append(result.Warehouses, warehouse)

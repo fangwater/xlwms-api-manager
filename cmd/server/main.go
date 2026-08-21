@@ -58,6 +58,7 @@ func run(ctx context.Context, logger *slog.Logger) error {
 		}
 	}
 	service := syncer.New(ctx, destination, cfg.RequestTimeout, cfg.SyncTimeout, logger)
+	go backgroundInventorySync(ctx, destination, service, cfg.InventorySyncInterval, logger)
 	trackingClient := temutracking.NewClient(cfg.TemuGoBaseURL, cfg.RequestTimeout)
 	auditService := auditor.NewWithTracking(destination, trackingClient, cfg.RequestTimeout,
 		cfg.FulfillmentTrackingLimit, cfg.FulfillmentTrackingWorkers, logger)

@@ -41,15 +41,27 @@ async function mockAPI(page: Page, options: {
     else if (path.endsWith("/inventory/sku-levels")) data = {
       records: [{
         sku: "DEMO-SKU-01", product_name: "演示产品", stock_type: 0, total_amount: 42,
-        available_amount: 36, lock_amount: 4, transport_amount: 2, warehouse_count: 2,
+        available_amount: 36, fulfillment_available_amount: 10, raw_fulfillment_available_amount: 36,
+        lock_amount: 4, transport_amount: 2, warehouse_count: 2,
         warehouses: {
-          "EAST-01": { total_amount: 30, available_amount: 26, lock_amount: 3, transport_amount: 1 },
-          "WEST-02": { total_amount: 12, available_amount: 10, lock_amount: 1, transport_amount: 1 }
+          "EAST-01": { total_amount: 30, available_amount: 26, fulfillment_available_amount: 0, raw_fulfillment_available_amount: 26, lock_amount: 3, transport_amount: 1, corrected: true, correction_mode: "absolute", correction_amount: 0, correction_note: "盘点差异" },
+          "WEST-02": { total_amount: 12, available_amount: 10, fulfillment_available_amount: 10, raw_fulfillment_available_amount: 10, lock_amount: 1, transport_amount: 1, corrected: false }
         },
         last_seen_at: "2026-08-01T08:00:00Z"
       }],
       total: 1, page: 1, page_size: 30, pages: 1,
-      summary: { sku_count: 1, record_count: 1, total_amount: 42, available_amount: 36, lock_amount: 4, transport_amount: 2 }
+      summary: { sku_count: 1, record_count: 1, total_amount: 42, available_amount: 36, fulfillment_available_amount: 10, raw_fulfillment_available_amount: 36, correction_count: 1, lock_amount: 4, transport_amount: 2 }
+    };
+    else if (path.includes("/inventory-corrections/") && route.request().method() === "PATCH") data = {
+      wh_code: "EAST-01", warehouse_name: "华东一号仓", warehouse_sku: "DEMO-SKU-01", product_name: "演示产品",
+      raw_available_amount: 26, corrected_available_amount: route.request().postDataJSON()?.correction_amount ?? 0,
+      correction_mode: route.request().postDataJSON()?.correction_mode || "absolute", correction_amount: route.request().postDataJSON()?.correction_amount ?? 0,
+      note: route.request().postDataJSON()?.note || "", created_at: "2026-08-01T08:00:00Z", updated_at: "2026-08-01T09:00:00Z"
+    };
+    else if (path.endsWith("/reset") && path.includes("/inventory-corrections/")) data = { deleted: true };
+    else if (path.endsWith("/inventory-corrections")) data = {
+      records: [{ wh_code: "EAST-01", warehouse_name: "华东一号仓", warehouse_sku: "DEMO-SKU-01", product_name: "演示产品", raw_available_amount: 26, corrected_available_amount: 0, correction_mode: "absolute", correction_amount: 0, note: "盘点差异", created_at: "2026-08-01T08:00:00Z", updated_at: "2026-08-01T08:00:00Z" }],
+      total: 1, page: 1, page_size: 30, pages: 1
     };
     else if (path.endsWith("/inventory-alerts/default")) data = { threshold: 100 };
     else if (path.endsWith("/inventory-alerts/config/reset")) data = { deleted: true };
@@ -207,8 +219,18 @@ test("mobile navigation reaches all inventory views", async ({ page }) => {
   await expect(page.getByRole("link", { name: "Temu 履约台" })).toHaveAttribute("href", "/temu/");
   await page.getByRole("button", { name: "库存中心" }).click();
   await expect(page.getByRole("heading", { name: "库存中心" })).toBeVisible();
-  await expect(page.getByRole("tablist").getByRole("button")).toHaveCount(8);
+  await expect(page.getByRole("tablist").getByRole("button")).toHaveCount(9);
   await expect(page.getByText("DEMO-SKU-01")).toBeVisible();
+  await page.getByRole("button", { name: "库存修正" }).click();
+  await expect(page.getByText("盘点差异")).toBeVisible();
+  await page.getByTitle("编辑库存修正").click();
+  await expect(page.getByLabel("修正后的发货可用库存")).toHaveValue("0");
+  await expect(page.getByText("领星当前原值")).toBeVisible();
+  await page.getByLabel("修正后的发货可用库存").fill("5");
+  const correctionRequest = page.waitForRequest((request) => request.url().includes("/inventory-corrections/EAST-01/DEMO-SKU-01") && request.method() === "PATCH");
+  await page.getByRole("button", { name: "保存并立即生效" }).click();
+  expect((await correctionRequest).postDataJSON()).toMatchObject({ correction_mode: "absolute", correction_amount: 5, note: "盘点差异" });
+  await expect(page.getByText(/库存修正已生效/)).toBeVisible();
   await expect(page.locator("body")).not.toHaveCSS("overflow-x", "scroll");
   await page.screenshot({ path: "/tmp/xlwms-inventory-mobile.png", fullPage: true });
 });

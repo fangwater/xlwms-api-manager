@@ -84,6 +84,12 @@ func (s *Server) temuWarehouseAvailability(writer http.ResponseWriter, request *
 	}
 	queriedAt := time.Now()
 	inventory := temu.QueryLiveInventory(ctx, warehouses, inventorySKUs, s.requestTimeout, queriedAt)
+	corrections, err := s.store.InventoryCorrectionsForSKUs(ctx, inventorySKUs)
+	if err != nil {
+		s.internalError(writer, "load inventory corrections", err)
+		return
+	}
+	temu.ApplyInventoryCorrections(&inventory, corrections)
 	thresholdsBySKU, defaultThresholds, err := s.store.InventoryThresholdsForShopSKUs(ctx, platform, shopCode, inventorySKUs)
 	if err != nil {
 		if isShopIdentityError(err) {
@@ -103,7 +109,7 @@ func (s *Server) temuWarehouseAvailability(writer http.ResponseWriter, request *
 		RuleVersion:          temu.RuleVersion,
 		SafetyStockThreshold: defaultThresholds.EastThreshold,
 		DefaultThresholds:    defaultThresholds,
-		InventoryBasis:       "XLWMS实时综合库存中的正品产品可用库存（stockType=0, productStockDtl.availableAmount）",
+		InventoryBasis:       "XLWMS实时综合库存中的正品产品可用库存；存在仓库+SKU修正时使用修正后的可用库存",
 		InventoryWindowStart: inventory.WindowStart,
 		InventoryWindowEnd:   inventory.WindowEnd,
 		QueriedAt:            queriedAt,

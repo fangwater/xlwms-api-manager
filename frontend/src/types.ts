@@ -62,8 +62,15 @@ export type InventoryRecord = {
 export type SKUWarehouseStock = {
   total_amount: number;
   available_amount: number;
+  fulfillment_available_amount: number;
+  raw_fulfillment_available_amount: number;
   lock_amount: number;
   transport_amount: number;
+  corrected: boolean;
+  correction_mode?: "absolute" | "subtract";
+  correction_amount?: number;
+  correction_note?: string;
+  correction_updated_at?: string;
 };
 
 export type SKUStockLevel = {
@@ -73,6 +80,8 @@ export type SKUStockLevel = {
   product_type?: number;
   total_amount: number;
   available_amount: number;
+  fulfillment_available_amount: number;
+  raw_fulfillment_available_amount: number;
   lock_amount: number;
   transport_amount: number;
   warehouse_count: number;
@@ -86,9 +95,26 @@ export type SKUStockLevelPage = PageData<SKUStockLevel> & {
     record_count: number;
     total_amount: number;
     available_amount: number;
+    fulfillment_available_amount: number;
+    raw_fulfillment_available_amount: number;
+    correction_count: number;
     lock_amount: number;
     transport_amount: number;
   };
+};
+
+export type InventoryCorrection = {
+  wh_code: string;
+  warehouse_name: string;
+  warehouse_sku: string;
+  product_name: string;
+  raw_available_amount: number;
+  corrected_available_amount: number;
+  correction_mode: "absolute" | "subtract";
+  correction_amount: number;
+  note: string;
+  created_at: string;
+  updated_at: string;
 };
 
 export type FundsFlow = {

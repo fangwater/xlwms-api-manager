@@ -1,4 +1,4 @@
-import type { CostDetail, DashboardData, FulfilledOrderPage, FulfillmentAuditPage, FundsFlow, InventoryAlertPage, InventoryKind, InventoryRecord, InventoryThresholdPage, InventoryThresholds, PackingPlan, PackingPlanRequest, PageData, PendingPlatformOrderPage, PlatformOrderAccountOption, PlatformOrderAssignmentResult, PlatformOrderRoutingPreview, ShopInventoryThresholds, SKUInventoryThreshold, SKUStockLevelPage, SyncRun, Warehouse, WarehouseSKUInventoryAlertThreshold, WarehouseSKUSpec } from "./types";
+import type { CostDetail, DashboardData, FulfilledOrderPage, FulfillmentAuditPage, FundsFlow, InventoryAlertPage, InventoryCorrection, InventoryKind, InventoryRecord, InventoryThresholdPage, InventoryThresholds, PackingPlan, PackingPlanRequest, PageData, PendingPlatformOrderPage, PlatformOrderAccountOption, PlatformOrderAssignmentResult, PlatformOrderRoutingPreview, ShopInventoryThresholds, SKUInventoryThreshold, SKUStockLevelPage, SyncRun, Warehouse, WarehouseSKUInventoryAlertThreshold, WarehouseSKUSpec } from "./types";
 
 type Envelope<T> = { success: boolean; data?: T; error?: string };
 const apiBase = `${import.meta.env.BASE_URL}api`;
@@ -54,6 +54,12 @@ export const api = {
   }),
   skuStockLevels: (params: { warehouse?: string; q?: string; stockType?: string; page: number; pageSize: number }) =>
     request<SKUStockLevelPage>(`/inventory/sku-levels${query({ warehouse: params.warehouse, q: params.q, stock_type: params.stockType, page: params.page, page_size: params.pageSize })}`),
+  inventoryCorrections: (params: { warehouse?: string; q?: string; page: number; pageSize: number }) =>
+    request<PageData<InventoryCorrection>>(`/inventory-corrections${query({ warehouse: params.warehouse, q: params.q, page: params.page, page_size: params.pageSize })}`),
+  saveInventoryCorrection: (warehouse: string, warehouseSKU: string, payload: { correction_mode: "absolute" | "subtract"; correction_amount: number; note: string }) =>
+    request<InventoryCorrection>(`/inventory-corrections/${encodeURIComponent(warehouse)}/${encodeURIComponent(warehouseSKU)}`, { method: "PATCH", body: JSON.stringify(payload) }),
+  deleteInventoryCorrection: (warehouse: string, warehouseSKU: string) =>
+    request<{ deleted: boolean }>(`/inventory-corrections/${encodeURIComponent(warehouse)}/${encodeURIComponent(warehouseSKU)}/reset`, { method: "POST" }),
   inventoryAlerts: (params: { warehouse?: string; q?: string; status: "alert" | "all"; page: number; pageSize: number }) =>
     request<InventoryAlertPage>(`/inventory-alerts${query({ warehouse: params.warehouse, q: params.q, status: params.status, page: params.page, page_size: params.pageSize })}`),
   updateInventoryAlertDefault: (threshold: number) => request<{ threshold: number }>("/inventory-alerts/default", { method: "PATCH", body: JSON.stringify({ threshold }) }),

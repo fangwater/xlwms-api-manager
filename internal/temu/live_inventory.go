@@ -90,6 +90,45 @@ func QueryLiveInventory(ctx context.Context, credentials []model.WarehouseCreden
 	return result
 }
 
+func ApplyInventoryCorrections(result *LiveInventoryResult, corrections map[string]map[string]model.InventoryCorrection) {
+	if result == nil {
+		return
+	}
+	for sku, byWarehouse := range corrections {
+		inventoryByWarehouse, exists := result.InventoryBySKU[sku]
+		if !exists {
+			continue
+		}
+		for warehouseCode, correction := range byWarehouse {
+			current, exists := inventoryByWarehouse[warehouseCode]
+			if !exists || !current.Active || current.QueryStatus != QuerySucceeded {
+				continue
+			}
+			updatedAt := correction.UpdatedAt
+			current.RawAvailableAmount = current.AvailableAmount
+			current.AvailableAmount = correctedInventoryAmount(current.RawAvailableAmount, correction)
+			current.SKUFound = true
+			current.Corrected = true
+			current.CorrectionMode = correction.CorrectionMode
+			current.CorrectionAmount = correction.CorrectionAmount
+			current.CorrectionNote = correction.Note
+			current.CorrectionUpdatedAt = &updatedAt
+			inventoryByWarehouse[warehouseCode] = current
+		}
+	}
+}
+
+func correctedInventoryAmount(rawAmount float64, correction model.InventoryCorrection) float64 {
+	if correction.CorrectionMode == "subtract" {
+		result := rawAmount - correction.CorrectionAmount
+		if result < 0 {
+			return 0
+		}
+		return result
+	}
+	return correction.CorrectionAmount
+}
+
 func queryWarehouse(ctx context.Context, rule WarehouseRule, warehouse model.WarehouseCredentials, skus []string, requestTimeout time.Duration, windowStart, windowEnd string) queryOutcome {
 	now := time.Now()
 	query := WarehouseQuery{
@@ -143,7 +182,9 @@ func queryWarehouse(ctx context.Context, rule WarehouseRule, warehouse model.War
 		}
 		current := availability[sku]
 		current.SKUFound = true
-		current.AvailableAmount += nestedNumber(record, "productStockDtl", "availableAmount")
+		amount := nestedNumber(record, "productStockDtl", "availableAmount")
+		current.AvailableAmount += amount
+		current.RawAvailableAmount += amount
 		availability[sku] = current
 	}
 	return queryOutcome{Code: rule.Code, Query: query, Availability: availability}
