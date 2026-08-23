@@ -13,6 +13,7 @@ func TestLoadUsesXLWMSDefaults(t *testing.T) {
 	t.Setenv("XLWMS_OMS_USERNAME", "")
 	t.Setenv("XLWMS_OMS_PASSWORD", "")
 	t.Setenv("TEMU_GO_BASE_URL", "")
+	t.Setenv("SHEIN_GO_BASE_URL", "")
 	t.Setenv("XLWMS_INVENTORY_SYNC_INTERVAL", "")
 	t.Setenv("XLWMS_FULFILLMENT_TRACKING_LIMIT", "")
 	t.Setenv("XLWMS_FULFILLMENT_TRACKING_CONCURRENCY", "")
@@ -30,6 +31,9 @@ func TestLoadUsesXLWMSDefaults(t *testing.T) {
 	}
 	if cfg.TemuGoBaseURL != DefaultTemuGoBaseURL {
 		t.Fatalf("unexpected Temu Go base URL %q", cfg.TemuGoBaseURL)
+	}
+	if cfg.SheinGoBaseURL != DefaultSheinGoBaseURL {
+		t.Fatalf("unexpected SHEIN Go base URL %q", cfg.SheinGoBaseURL)
 	}
 	if cfg.FulfillmentTrackingLimit != DefaultFulfillmentTrackingLimit || cfg.FulfillmentTrackingWorkers != DefaultFulfillmentTrackingWorkers {
 		t.Fatalf("unexpected tracking worker configuration: limit=%d workers=%d", cfg.FulfillmentTrackingLimit, cfg.FulfillmentTrackingWorkers)

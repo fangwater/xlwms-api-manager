@@ -17,6 +17,7 @@ import (
 	"xlwms-api-manager/internal/credentials"
 	"xlwms-api-manager/internal/httpapi"
 	"xlwms-api-manager/internal/oms"
+	"xlwms-api-manager/internal/sheinfulfillment"
 	"xlwms-api-manager/internal/store"
 	"xlwms-api-manager/internal/syncer"
 	"xlwms-api-manager/internal/temutracking"
@@ -60,6 +61,10 @@ func run(ctx context.Context, logger *slog.Logger) error {
 	service := syncer.New(ctx, destination, cfg.RequestTimeout, cfg.SyncTimeout, logger)
 	go backgroundInventorySync(ctx, destination, service, cfg.InventorySyncInterval, logger)
 	trackingClient := temutracking.NewClient(cfg.TemuGoBaseURL, cfg.RequestTimeout)
+	platformSources := &platformOrderSources{
+		Client: trackingClient,
+		shein:  sheinfulfillment.NewClient(cfg.SheinGoBaseURL, cfg.RequestTimeout),
+	}
 	auditService := auditor.NewWithTracking(destination, trackingClient, cfg.RequestTimeout,
 		cfg.FulfillmentTrackingLimit, cfg.FulfillmentTrackingWorkers, logger)
 	var platformOrders *oms.Client
@@ -72,7 +77,7 @@ func run(ctx context.Context, logger *slog.Logger) error {
 		return fmt.Errorf("listen on %s: %w", cfg.Listen, err)
 	}
 	server := &http.Server{
-		Handler:           httpapi.NewWithWarehousePlatformOrderOperations(destination, service, auditService, platformOrders, trackingClient, cfg.OMSBaseURL, cfg.OMSUsername, cfg.OMSPassword, cfg.RequestTimeout, logger),
+		Handler:           httpapi.NewWithWarehousePlatformOrderOperations(destination, service, auditService, platformOrders, platformSources, cfg.OMSBaseURL, cfg.OMSUsername, cfg.OMSPassword, cfg.RequestTimeout, logger),
 		ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 30 * time.Second, WriteTimeout: 30 * time.Second, IdleTimeout: 60 * time.Second,
 		BaseContext: func(net.Listener) context.Context { return ctx },
 	}
@@ -92,6 +97,15 @@ func run(ctx context.Context, logger *slog.Logger) error {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 	return server.Shutdown(shutdownCtx)
+}
+
+type platformOrderSources struct {
+	*temutracking.Client
+	shein *sheinfulfillment.Client
+}
+
+func (s *platformOrderSources) PurchasedSheinLabelsByPlatformOrderNos(ctx context.Context, orderNos []string) (map[string]sheinfulfillment.PurchasedLabel, error) {
+	return s.shein.PurchasedSheinLabelsByPlatformOrderNos(ctx, orderNos)
 }
 
 func backgroundFulfillmentAudits(ctx context.Context, service *auditor.Service, interval, timeout time.Duration, logger *slog.Logger) {

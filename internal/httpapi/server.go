@@ -30,6 +30,7 @@ type Server struct {
 	platformOrders       platformOrderSource
 	platformMappings     platformWarehouseMappingSource
 	platformShipments    platformOrderShipmentSource
+	platformSheinLabels  platformOrderSheinLabelSource
 	platformFulfillment  platformOrderFulfillmentSource
 	platformAccounts     platformOrderAccountSource
 	platformOrderMu      sync.Mutex
@@ -78,9 +79,13 @@ func newWithPlatformOrderAccountOperations(destination *store.Postgres, service 
 	if source, ok := platformMappings.(platformOrderShipmentSource); ok {
 		platformShipments = source
 	}
+	var platformSheinLabels platformOrderSheinLabelSource
+	if source, ok := platformMappings.(platformOrderSheinLabelSource); ok {
+		platformSheinLabels = source
+	}
 	server := &Server{
 		store: destination, warehouseCredentials: destination, syncer: service, fulfillmentAuditor: fulfillmentAuditor, platformOrders: platformOrders,
-		platformMappings: platformMappings, platformShipments: platformShipments,
+		platformMappings: platformMappings, platformShipments: platformShipments, platformSheinLabels: platformSheinLabels,
 		platformFulfillment: platformFulfillment, platformAccounts: platformAccounts,
 		requestTimeout: requestTimeout, logger: logger,
 	}

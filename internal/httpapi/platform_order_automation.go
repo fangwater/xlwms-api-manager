@@ -11,6 +11,7 @@ import (
 
 	"xlwms-api-manager/internal/model"
 	"xlwms-api-manager/internal/oms"
+	"xlwms-api-manager/internal/sheinfulfillment"
 	"xlwms-api-manager/internal/store"
 	"xlwms-api-manager/internal/temutracking"
 )
@@ -21,6 +22,10 @@ type platformWarehouseMappingSource interface {
 
 type platformOrderShipmentSource interface {
 	PurchasedShipmentsByPlatformOrderNos(context.Context, []string) (map[string]temutracking.PurchasedShipment, error)
+}
+
+type platformOrderSheinLabelSource interface {
+	PurchasedSheinLabelsByPlatformOrderNos(context.Context, []string) (map[string]sheinfulfillment.PurchasedLabel, error)
 }
 
 type platformOrderFulfillmentSource interface {
@@ -260,6 +265,21 @@ func (s *Server) resolveAutomaticPlatformOrderRoutes(ctx context.Context, operat
 			fulfillmentByPlatformOrder = mergePurchasedLabelEvidence(fulfillmentByPlatformOrder, fulfillmentAuditsFromTemuShipments(shipments))
 		}
 	}
+	if s.platformSheinLabels != nil {
+		labels, labelErr := s.platformSheinLabels.PurchasedSheinLabelsByPlatformOrderNos(ctx, platformOrderNos)
+		if labelErr != nil {
+			for _, platformOrderNo := range platformOrderNos {
+				if _, reason := purchasedLabelWarehouse(fulfillmentByPlatformOrder[strings.ToUpper(platformOrderNo)]); reason != "" {
+					return preview, fmt.Errorf("query authoritative SHEIN purchased-label records: %w", labelErr)
+				}
+			}
+			s.logger.Warn("SHEIN purchased-label lookup failed; using local audit cache", "error", labelErr)
+		} else {
+			fulfillmentByPlatformOrder = mergeAuthoritativePurchasedLabelEvidence(
+				fulfillmentByPlatformOrder, fulfillmentAuditsFromSheinLabels(labels), "shein",
+			)
+		}
+	}
 	purchasedByPlatformOrder := make(map[string]model.FulfillmentAudit, len(platformOrderNos))
 	purchaseReasonByPlatformOrder := make(map[string]string)
 	accountOrderNosByWarehouse := make(map[string][]string)
@@ -429,12 +449,34 @@ func fulfillmentAuditsFromTemuShipments(shipments map[string]temutracking.Purcha
 	return result
 }
 
+func fulfillmentAuditsFromSheinLabels(labels map[string]sheinfulfillment.PurchasedLabel) map[string][]model.FulfillmentAudit {
+	result := make(map[string][]model.FulfillmentAudit, len(labels))
+	for orderNo, label := range labels {
+		warehouseKey := strings.ToUpper(strings.TrimSpace(label.OMSWarehouseKey))
+		warehouseCode := strings.ToUpper(strings.TrimSpace(label.OMSWarehouseCode))
+		normalizedOrderNo := strings.ToUpper(strings.TrimSpace(orderNo))
+		if normalizedOrderNo == "" || warehouseKey == "" || warehouseCode == "" {
+			continue
+		}
+		result[normalizedOrderNo] = append(result[normalizedOrderNo], model.FulfillmentAudit{
+			Platform: "shein", ShopCode: strings.TrimSpace(label.ShopCode), PlatformOrderNo: normalizedOrderNo,
+			WarehouseKey: warehouseKey, WarehouseCode: warehouseCode,
+			TrackingNumber: strings.TrimSpace(label.TrackingNumber), Active: true,
+		})
+	}
+	return result
+}
+
 func mergePurchasedLabelEvidence(existing, temuShipments map[string][]model.FulfillmentAudit) map[string][]model.FulfillmentAudit {
-	merged := make(map[string][]model.FulfillmentAudit, len(existing)+len(temuShipments))
+	return mergeAuthoritativePurchasedLabelEvidence(existing, temuShipments, "temu")
+}
+
+func mergeAuthoritativePurchasedLabelEvidence(existing, authoritative map[string][]model.FulfillmentAudit, platform string) map[string][]model.FulfillmentAudit {
+	merged := make(map[string][]model.FulfillmentAudit, len(existing)+len(authoritative))
 	for orderNo, audits := range existing {
 		kept := make([]model.FulfillmentAudit, 0, len(audits))
 		for _, audit := range audits {
-			if strings.EqualFold(strings.TrimSpace(audit.Platform), "shein") {
+			if !strings.EqualFold(strings.TrimSpace(audit.Platform), platform) {
 				kept = append(kept, audit)
 			}
 		}
@@ -442,8 +484,8 @@ func mergePurchasedLabelEvidence(existing, temuShipments map[string][]model.Fulf
 			merged[orderNo] = kept
 		}
 	}
-	for orderNo, audits := range temuShipments {
-		merged[orderNo] = audits
+	for orderNo, audits := range authoritative {
+		merged[orderNo] = append(merged[orderNo], audits...)
 	}
 	return merged
 }

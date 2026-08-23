@@ -13,6 +13,7 @@ import (
 
 	"xlwms-api-manager/internal/model"
 	"xlwms-api-manager/internal/oms"
+	"xlwms-api-manager/internal/sheinfulfillment"
 	"xlwms-api-manager/internal/temutracking"
 )
 
@@ -243,6 +244,25 @@ func TestPlatformOrderRoutingPreviewKeepsSheinEvidenceWhenTemuHasNoShipment(t *t
 	handler.ServeHTTP(recorder, request)
 	if recorder.Code != http.StatusOK || !strings.Contains(recorder.Body.String(), `"ready":true`) {
 		t.Fatalf("SHEIN audit evidence was dropped when Temu had no shipment: %s", recorder.Body.String())
+	}
+}
+
+func TestPlatformOrderRoutingPreviewUsesAuthoritativeSheinPurchasedLabel(t *testing.T) {
+	source := readyPlatformOrderOperator()
+	source.resolved = source.resolved[:1]
+	services := &fakeSheinPlatformServices{
+		fakePlatformServices: &fakePlatformServices{fakePlatformMappings: readyPlatformMappings(), shipments: map[string]temutracking.PurchasedShipment{}},
+		labels: map[string]sheinfulfillment.PurchasedLabel{"PO-A": {
+			ShopCode: "beauty-hangers-home", PlatformOrderNo: "PO-A",
+			OMSWarehouseKey: "EAST", OMSWarehouseCode: "WH-1", TrackingNumber: "GU-1",
+		}},
+	}
+	handler := newWithPlatformOrderOperations(nil, nil, nil, source, services, &fakePlatformFulfillment{}, time.Second, slog.Default())
+	request := httptest.NewRequest(http.MethodPost, "/v1/platform-orders/routing-preview", strings.NewReader(`{"platform_order_nos":["PO-A"]}`))
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK || !strings.Contains(recorder.Body.String(), `"ready":true`) || !strings.Contains(recorder.Body.String(), `"warehouse_code":"WH-1"`) {
+		t.Fatalf("authoritative SHEIN preview failed: %d %s", recorder.Code, recorder.Body.String())
 	}
 }
 
@@ -541,6 +561,15 @@ func readyPlatformMappings() *fakePlatformMappings {
 type fakePlatformServices struct {
 	*fakePlatformMappings
 	shipments map[string]temutracking.PurchasedShipment
+}
+
+type fakeSheinPlatformServices struct {
+	*fakePlatformServices
+	labels map[string]sheinfulfillment.PurchasedLabel
+}
+
+func (f *fakeSheinPlatformServices) PurchasedSheinLabelsByPlatformOrderNos(context.Context, []string) (map[string]sheinfulfillment.PurchasedLabel, error) {
+	return f.labels, nil
 }
 
 func (f *fakePlatformServices) PurchasedShipmentsByPlatformOrderNos(context.Context, []string) (map[string]temutracking.PurchasedShipment, error) {

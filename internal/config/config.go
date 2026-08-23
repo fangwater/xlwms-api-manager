@@ -13,6 +13,7 @@ const (
 	DefaultAPIBaseURL                 = "https://api.xlwms.com/openapi"
 	DefaultOMSBaseURL                 = "https://oms.xlwms.com"
 	DefaultTemuGoBaseURL              = "http://127.0.0.1:18082/temu"
+	DefaultSheinGoBaseURL             = "http://127.0.0.1:18084"
 	DefaultListen                     = "127.0.0.1:18083"
 	DefaultInventorySyncInterval      = 3 * time.Minute
 	DefaultFulfillmentTrackingLimit   = 500
@@ -29,6 +30,7 @@ type Config struct {
 	OMSUsername                string
 	OMSPassword                string
 	TemuGoBaseURL              string
+	SheinGoBaseURL             string
 	Listen                     string
 	RequestTimeout             time.Duration
 	SyncTimeout                time.Duration
@@ -53,6 +55,7 @@ func Load() (Config, error) {
 		OMSUsername:                strings.TrimSpace(os.Getenv("XLWMS_OMS_USERNAME")),
 		OMSPassword:                os.Getenv("XLWMS_OMS_PASSWORD"),
 		TemuGoBaseURL:              strings.TrimRight(envOrDefault("TEMU_GO_BASE_URL", DefaultTemuGoBaseURL), "/"),
+		SheinGoBaseURL:             strings.TrimRight(envOrDefault("SHEIN_GO_BASE_URL", DefaultSheinGoBaseURL), "/"),
 		Listen:                     envOrDefault("XLWMS_LISTEN", DefaultListen),
 		RequestTimeout:             30 * time.Second,
 		SyncTimeout:                30 * time.Minute,
