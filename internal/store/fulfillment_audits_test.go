@@ -37,6 +37,33 @@ func TestFulfillmentAuditWhereCombinesTrackingDimensions(t *testing.T) {
 	}
 }
 
+func TestFulfillmentAuditWhereListsManualResolutionsSeparately(t *testing.T) {
+	t.Parallel()
+	clause, args := fulfillmentAuditWhere(FulfillmentAuditFilter{ManualResolved: true, WarehouseCode: " east-01 "})
+	for _, expected := range []string{"NOT active", "terminal_status<>''", "wh_code=$1"} {
+		if !strings.Contains(clause, expected) {
+			t.Fatalf("clause %q does not contain %q", clause, expected)
+		}
+	}
+	if !reflect.DeepEqual(args, []any{"EAST-01"}) {
+		t.Fatalf("args = %#v", args)
+	}
+}
+
+func TestValidFulfillmentAuditTerminalStatus(t *testing.T) {
+	t.Parallel()
+	for _, status := range []string{"manually_fulfilled", "cancelled", "not_required", "other"} {
+		if !validFulfillmentAuditTerminalStatus(status) {
+			t.Errorf("valid terminal status %q was rejected", status)
+		}
+	}
+	for _, status := range []string{"", "resolved", "manual_required"} {
+		if validFulfillmentAuditTerminalStatus(status) {
+			t.Errorf("invalid terminal status %q was accepted", status)
+		}
+	}
+}
+
 func TestCompleteFulfillmentTrackingBatchAdvancesAndWrapsWatermark(t *testing.T) {
 	t.Parallel()
 	tests := []struct {

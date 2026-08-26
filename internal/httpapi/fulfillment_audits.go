@@ -11,6 +11,7 @@ import (
 	"io"
 	"net/http"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -23,6 +24,11 @@ type fulfillmentAuditSnapshotRequest struct {
 	ShopCode string                               `json:"shop_code"`
 	ShopName string                               `json:"shop_name"`
 	Orders   []model.FulfillmentAuditSnapshotItem `json:"orders"`
+}
+
+type fulfillmentAuditResolutionRequest struct {
+	TerminalStatus string `json:"terminal_status"`
+	TerminalNote   string `json:"terminal_note"`
 }
 
 func (s *Server) syncFulfillmentAudits(writer http.ResponseWriter, request *http.Request) {
@@ -59,6 +65,11 @@ func (s *Server) syncFulfillmentAudits(writer http.ResponseWriter, request *http
 
 func (s *Server) listFulfillmentAudits(writer http.ResponseWriter, request *http.Request) {
 	page, pageSize := queryInt(request, "page", 1), queryInt(request, "page_size", 30)
+	resolution := strings.TrimSpace(request.URL.Query().Get("resolution"))
+	if resolution != "" && resolution != "manual_resolved" {
+		writeJSON(writer, http.StatusBadRequest, response{Success: false, Error: "resolution must be manual_resolved"})
+		return
+	}
 	ctx, cancel := context.WithTimeout(request.Context(), s.requestTimeout)
 	defer cancel()
 	if err := s.store.RefreshFulfillmentAuditCategories(ctx); err != nil {
@@ -66,7 +77,8 @@ func (s *Server) listFulfillmentAudits(writer http.ResponseWriter, request *http
 		return
 	}
 	items, total, summary, err := s.store.ListFulfillmentAudits(ctx, store.FulfillmentAuditFilter{
-		ShopCode: request.URL.Query().Get("shop"), WarehouseCode: request.URL.Query().Get("warehouse"),
+		ManualResolved: resolution == "manual_resolved",
+		ShopCode:       request.URL.Query().Get("shop"), WarehouseCode: request.URL.Query().Get("warehouse"),
 		ExceptionCategory: request.URL.Query().Get("category"), OMSStatus: request.URL.Query().Get("oms_status"),
 		Query: request.URL.Query().Get("q"), Page: page, PageSize: pageSize,
 	})
@@ -74,7 +86,7 @@ func (s *Server) listFulfillmentAudits(writer http.ResponseWriter, request *http
 		s.internalError(writer, "list fulfillment audits", err)
 		return
 	}
-	shops, err := s.store.FulfillmentAuditShops(ctx, false)
+	shops, err := s.store.FulfillmentAuditShops(ctx, store.FulfillmentAuditFilter{ManualResolved: resolution == "manual_resolved"})
 	if err != nil {
 		s.internalError(writer, "list fulfillment audit shops", err)
 		return
@@ -112,7 +124,7 @@ func (s *Server) listArchivedFulfillmentAudits(writer http.ResponseWriter, reque
 		s.internalError(writer, "summarize fulfilled tracking", err)
 		return
 	}
-	shops, err := s.store.FulfillmentAuditShops(ctx, true)
+	shops, err := s.store.FulfillmentAuditShops(ctx, store.FulfillmentAuditFilter{Archived: true, Platform: "temu"})
 	if err != nil {
 		s.internalError(writer, "list archived fulfillment shops", err)
 		return
@@ -125,6 +137,31 @@ func (s *Server) listArchivedFulfillmentAudits(writer http.ResponseWriter, reque
 		"records": items, "total": total, "page": page, "page_size": pageSize,
 		"pages": pages, "last_query_at": trackingSummary.LastQueryAt,
 		"last_tracking_at": trackingSummary.LastTrackingAt, "summary": trackingSummary, "shops": shops,
+	}})
+}
+
+func (s *Server) resolveFulfillmentAudit(writer http.ResponseWriter, request *http.Request) {
+	id, err := strconv.ParseInt(strings.TrimSpace(request.PathValue("id")), 10, 64)
+	if err != nil || id < 1 {
+		writeJSON(writer, http.StatusBadRequest, response{Success: false, Error: "invalid fulfillment audit id"})
+		return
+	}
+	var payload fulfillmentAuditResolutionRequest
+	if !decodeFulfillmentAuditJSON(writer, request, &payload) {
+		return
+	}
+	ctx, cancel := context.WithTimeout(request.Context(), s.requestTimeout)
+	defer cancel()
+	if err := s.store.ResolveFulfillmentAudit(ctx, id, payload.TerminalStatus, payload.TerminalNote); err != nil {
+		if errors.Is(err, store.ErrFulfillmentAuditNotResolvable) {
+			writeJSON(writer, http.StatusConflict, response{Success: false, Error: "only an active problem audit can be resolved"})
+			return
+		}
+		writeJSON(writer, http.StatusBadRequest, response{Success: false, Error: err.Error()})
+		return
+	}
+	writeJSON(writer, http.StatusOK, response{Success: true, Data: map[string]any{
+		"id": id, "terminal_status": strings.TrimSpace(payload.TerminalStatus), "terminal_note": strings.TrimSpace(payload.TerminalNote),
 	}})
 }
 

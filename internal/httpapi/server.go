@@ -135,6 +135,7 @@ func newWithPlatformOrderAccountOperations(destination *store.Postgres, service 
 	mux.HandleFunc("GET /v1/fulfillment-audits", server.listFulfillmentAudits)
 	mux.HandleFunc("GET /v1/fulfillment-audits/archived", server.listArchivedFulfillmentAudits)
 	mux.HandleFunc("GET /v1/fulfillment-audits/export-manual", server.exportManualFulfillmentAudits)
+	mux.HandleFunc("POST /v1/fulfillment-audits/{id}/resolve", server.resolveFulfillmentAudit)
 	mux.HandleFunc("POST /v1/fulfillment-audits/sync", server.syncFulfillmentAudits)
 	mux.HandleFunc("GET /v1/outbound-orders", server.listOutboundOrders)
 	mux.HandleFunc("POST /v1/inventory/query/{kind}", server.queryInventory)

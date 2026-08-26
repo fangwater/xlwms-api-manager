@@ -367,7 +367,11 @@ export type FulfillmentAudit = {
   pickup_exception_reason?: string;
   pickup_confirmed_at?: string;
   sync_error?: string;
+  active: boolean;
   last_checked_at?: string;
+  terminal_status?: "manually_fulfilled" | "cancelled" | "not_required" | "other";
+  terminal_note?: string;
+  manual_resolved_at?: string;
   updated_at: string;
 };
 
@@ -379,6 +383,7 @@ export type FulfillmentAuditPage = PageData<FulfillmentAudit> & {
     warehouse_overdue: number;
     sync_error: number;
     monitoring: number;
+    manual_resolved: number;
     last_query_at?: string;
   };
   shops: Array<{ code: string; name: string }>;

@@ -1,4 +1,4 @@
-import { AlertTriangle, Download, RefreshCw, Search, ShieldAlert, Truck, Warehouse } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Download, RefreshCw, Search, ShieldAlert, Truck, Warehouse, X } from "lucide-react";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { api } from "../api";
 import { EmptyState, ErrorState, LoadingState, PageHeader, Pagination, dateTime } from "../components/Common";
@@ -34,6 +34,15 @@ const omsStatusCodeLabels: Record<number, string> = {
   7: "面单异常"
 };
 
+const terminalStatusLabels: Record<string, string> = {
+  manually_fulfilled: "已人工完成",
+  cancelled: "订单已取消",
+  not_required: "无需继续处理",
+  other: "其他"
+};
+
+type AuditView = "active" | "manual_resolved";
+
 export default function FulfillmentAuditsPage({ warehouse, warehouses, onWarehouseChange }: { warehouse: string; warehouses: WarehouseType[]; onWarehouseChange: (value: string) => void }) {
   const [page, setPage] = useState(1);
   const [query, setQuery] = useState("");
@@ -41,19 +50,25 @@ export default function FulfillmentAuditsPage({ warehouse, warehouses, onWarehou
   const [shop, setShop] = useState("");
   const [category, setCategory] = useState("");
   const [omsStatus, setOMSStatus] = useState("");
+	const [view, setView] = useState<AuditView>("active");
   const [data, setData] = useState<FulfillmentAuditPage | null>(null);
   const [loading, setLoading] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [error, setError] = useState("");
+	const [resolving, setResolving] = useState<FulfillmentAudit | null>(null);
+	const [terminalStatus, setTerminalStatus] = useState<"manually_fulfilled" | "cancelled" | "not_required" | "other">("manually_fulfilled");
+	const [terminalNote, setTerminalNote] = useState("");
+	const [resolutionError, setResolutionError] = useState("");
+	const [savingResolution, setSavingResolution] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true); setError("");
     try {
-      setData(await api.fulfillmentAudits({ shop, warehouse, category, omsStatus, q: submittedQuery, page, pageSize: 30 }));
+      setData(await api.fulfillmentAudits({ shop, warehouse, category, omsStatus, resolution: view === "manual_resolved" ? "manual_resolved" : undefined, q: submittedQuery, page, pageSize: 30 }));
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "无法加载履约核查数据");
     } finally { setLoading(false); }
-  }, [shop, warehouse, category, omsStatus, submittedQuery, page]);
+  }, [shop, warehouse, category, omsStatus, view, submittedQuery, page]);
 
   useEffect(() => { void load(); }, [load]);
   useEffect(() => {
@@ -62,7 +77,26 @@ export default function FulfillmentAuditsPage({ warehouse, warehouses, onWarehou
   }, [load]);
 
   const selectCategory = (value: string) => { setCategory(current => current === value ? "" : value); setPage(1); };
+  const showActive = () => { setView("active"); setCategory(""); setPage(1); };
+  const showManualResolved = () => { setView("manual_resolved"); setCategory(""); setPage(1); };
   const submitSearch = () => { setSubmittedQuery(query.trim()); setPage(1); };
+	const openResolution = (item: FulfillmentAudit) => {
+		setResolving(item); setTerminalStatus("manually_fulfilled"); setTerminalNote(""); setResolutionError("");
+	};
+	const closeResolution = () => { if (!savingResolution) setResolving(null); };
+	const submitResolution = async () => {
+		if (!resolving) return;
+		const note = terminalNote.trim();
+		if (!note) { setResolutionError("请填写结案备注"); return; }
+		setSavingResolution(true); setResolutionError("");
+		try {
+			await api.resolveFulfillmentAudit(resolving.id, { terminal_status: terminalStatus, terminal_note: note });
+			setResolving(null);
+			await load();
+		} catch (reason) {
+			setResolutionError(reason instanceof Error ? reason.message : "人工结案失败");
+		} finally { setSavingResolution(false); }
+	};
   const exportManual = async () => {
     setExporting(true); setError("");
     try {
@@ -79,13 +113,14 @@ export default function FulfillmentAuditsPage({ warehouse, warehouses, onWarehou
   const summary = data?.summary;
 
   return <>
-    <PageHeader title="履约核查" subtitle={`Temu 店铺与领星仓库状态${summary?.last_query_at ? ` · 最近查询 ${dateTime(summary.last_query_at)}` : ""}`} actions={<><button className="secondary-button audit-export-button" onClick={() => void exportManual()} disabled={exporting || !summary?.manual_required} title={warehouse ? "导出当前仓库人工订单 CSV" : "按仓库拆分导出人工订单 ZIP"}><Download size={16} /><span>{exporting ? "导出中" : warehouse ? "导出人工订单" : "按仓导出人工订单"}</span></button><button className="icon-button bordered" onClick={() => void load()} title="刷新"><RefreshCw size={18} className={loading ? "spin" : ""} /></button></>} />
+    <PageHeader title="履约核查" subtitle={`${view === "manual_resolved" ? "已人工结案的 Temu 仓库履约问题" : "Temu 店铺与领星仓库状态"}${summary?.last_query_at ? ` · 最近查询 ${dateTime(summary.last_query_at)}` : ""}`} actions={<><button className="secondary-button audit-export-button" onClick={() => void exportManual()} disabled={view !== "active" || exporting || !summary?.manual_required} title={warehouse ? "导出当前仓库人工订单 CSV" : "按仓库拆分导出人工订单 ZIP"}><Download size={16} /><span>{exporting ? "导出中" : warehouse ? "导出人工订单" : "按仓导出人工订单"}</span></button><button className="icon-button bordered" onClick={() => void load()} title="刷新"><RefreshCw size={18} className={loading ? "spin" : ""} /></button></>} />
     <section className="audit-summary">
-      <SummaryButton label="核查中" value={summary?.total || 0} icon={<Truck size={17} />} active={!category} onClick={() => { setCategory(""); setPage(1); }} />
-      <SummaryButton label="待查询" value={summary?.pending_query || 0} icon={<RefreshCw size={17} />} active={category === "pending_query"} onClick={() => selectCategory("pending_query")} />
-      <SummaryButton label="转人工" value={summary?.manual_required || 0} icon={<ShieldAlert size={17} />} tone="danger" active={category === "manual_required"} onClick={() => selectCategory("manual_required")} />
-      <SummaryButton label="仓库超时" value={summary?.warehouse_overdue || 0} icon={<Warehouse size={17} />} tone="warning" active={category === "warehouse_overdue"} onClick={() => selectCategory("warehouse_overdue")} />
-      <SummaryButton label="查询异常" value={summary?.sync_error || 0} icon={<AlertTriangle size={17} />} tone="danger" active={category === "sync_error"} onClick={() => selectCategory("sync_error")} />
+      <SummaryButton label="核查中" value={summary?.total || 0} icon={<Truck size={17} />} active={view === "active" && !category} onClick={showActive} />
+      <SummaryButton label="待查询" value={summary?.pending_query || 0} icon={<RefreshCw size={17} />} active={view === "active" && category === "pending_query"} onClick={() => { if (view !== "active") showActive(); selectCategory("pending_query"); }} />
+      <SummaryButton label="转人工" value={summary?.manual_required || 0} icon={<ShieldAlert size={17} />} tone="danger" active={view === "active" && category === "manual_required"} onClick={() => { if (view !== "active") showActive(); selectCategory("manual_required"); }} />
+      <SummaryButton label="仓库超时" value={summary?.warehouse_overdue || 0} icon={<Warehouse size={17} />} tone="warning" active={view === "active" && category === "warehouse_overdue"} onClick={() => { if (view !== "active") showActive(); selectCategory("warehouse_overdue"); }} />
+      <SummaryButton label="查询异常" value={summary?.sync_error || 0} icon={<AlertTriangle size={17} />} tone="danger" active={view === "active" && category === "sync_error"} onClick={() => { if (view !== "active") showActive(); selectCategory("sync_error"); }} />
+      <SummaryButton label="人工结案" value={summary?.manual_resolved || 0} icon={<CheckCircle2 size={17} />} active={view === "manual_resolved"} onClick={showManualResolved} />
     </section>
     <div className="filter-bar audit-filters">
       <label className="search-field"><Search size={17} /><input value={query} onChange={event => setQuery(event.target.value)} onKeyDown={event => { if (event.key === "Enter") submitSearch(); }} placeholder="PO 单号、出库单号或跟踪号" /></label>
@@ -97,8 +132,9 @@ export default function FulfillmentAuditsPage({ warehouse, warehouses, onWarehou
       </div>
     </div>
     {error && <ErrorState message={error} onRetry={() => void load()} />}
-    {loading && !data ? <LoadingState label="正在加载履约状态" /> : data?.records.length ? <div className="table-panel"><div className="table-scroll"><table className="data-table audit-table"><thead><tr><th>店铺 / PO</th><th>仓库</th><th>OMS 状态</th><th>核查结果</th><th>状态时长</th><th>出库时间</th><th>跟踪号</th><th>最近核查</th></tr></thead><tbody>{data.records.map(item => <AuditRow item={item} key={item.id} />)}</tbody></table></div></div> : <EmptyState label="当前筛选暂无履约核查订单" />}
+    {loading && !data ? <LoadingState label="正在加载履约状态" /> : data?.records.length ? <div className="table-panel"><div className="table-scroll"><table className="data-table audit-table"><thead><tr><th>店铺 / PO</th><th>仓库</th><th>OMS 状态</th><th>核查结果</th><th>状态时长</th><th>出库时间</th><th>跟踪号</th><th>最近核查</th><th>操作</th></tr></thead><tbody>{data.records.map(item => <AuditRow item={item} key={item.id} onResolve={openResolution} />)}</tbody></table></div></div> : <EmptyState label={view === "manual_resolved" ? "当前筛选暂无人工结案记录" : "当前筛选暂无履约核查订单"} />}
     {data && data.total > 0 && <Pagination page={data.page} pages={data.pages} total={data.total} onChange={setPage} />}
+		{resolving && <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) closeResolution(); }}><section className="modal audit-resolution-modal" role="dialog" aria-modal="true" aria-labelledby="audit-resolution-title"><header><div><h2 id="audit-resolution-title">人工完成履约核查</h2><p>{resolving.platform_order_no} · {resolving.wh_code || "待匹配仓库"}</p></div><button className="icon-button" type="button" onClick={closeResolution} title="关闭" disabled={savingResolution}><X size={19}/></button></header><form onSubmit={(event) => { event.preventDefault(); void submitResolution(); }}>{resolutionError && <div className="error-banner">{resolutionError}</div>}<div className="form-grid audit-resolution-form"><label className="full"><span>终态</span><select value={terminalStatus} onChange={(event) => setTerminalStatus(event.target.value as typeof terminalStatus)}><option value="manually_fulfilled">已人工完成</option><option value="cancelled">订单已取消</option><option value="not_required">无需继续处理</option><option value="other">其他</option></select></label><label className="full"><span>结案备注</span><textarea required autoFocus maxLength={500} rows={4} value={terminalNote} onChange={(event) => setTerminalNote(event.target.value)} /></label></div><footer><button type="button" className="secondary-button" onClick={closeResolution} disabled={savingResolution}>取消</button><button type="submit" className="primary-button" disabled={savingResolution}>{savingResolution ? "结案中" : "确认结案"}</button></footer></form></section></div>}
   </>;
 }
 
@@ -106,7 +142,7 @@ function SummaryButton({ label, value, icon, tone = "", active, onClick }: { lab
   return <button className={`audit-summary-item ${tone} ${active ? "active" : ""}`} onClick={onClick}><span>{icon}{label}</span><strong>{value.toLocaleString()}</strong></button>;
 }
 
-function AuditRow({ item }: { item: FulfillmentAudit }) {
+function AuditRow({ item, onResolve }: { item: FulfillmentAudit; onResolve: (item: FulfillmentAudit) => void }) {
   const since = item.oms_status === "processing" ? item.oms_processing_since : item.oms_status === "outbound" ? item.oms_outbound_at : item.oms_status_since;
   const tracking = item.oms_tracking_number || item.tracking_number;
   const reason = auditReason(item);
@@ -114,12 +150,17 @@ function AuditRow({ item }: { item: FulfillmentAudit }) {
     <td><strong>{item.platform_order_no}</strong><small className="cell-subtitle">{item.shop_name || item.shop_code}</small></td>
     <td><strong>{item.wh_code || "待匹配"}</strong><small className="cell-subtitle">{item.warehouse_key || "-"}</small></td>
     <td><span className={`audit-status oms-${item.oms_status}`}>{omsStatusLabel(item)}</span>{item.outbound_order_no && <small className="cell-subtitle">{item.outbound_order_no}</small>}</td>
-    <td><span className={`audit-status category-${item.exception_category}`}>{categoryLabels[item.exception_category] || item.exception_category}</span>{reason && <small className="cell-subtitle audit-reason">{reason}</small>}{item.sync_error && <small className="cell-error" title={item.sync_error}>{item.sync_error}</small>}</td>
+    <td>{item.terminal_status ? <><span className="audit-status terminal-status">人工结案 · {terminalStatusLabels[item.terminal_status] || item.terminal_status}</span>{item.terminal_note && <small className="cell-subtitle audit-reason">{item.terminal_note}</small>}{item.manual_resolved_at && <small className="cell-subtitle">结案 {dateTime(item.manual_resolved_at)}</small>}</> : <><span className={`audit-status category-${item.exception_category}`}>{categoryLabels[item.exception_category] || item.exception_category}</span>{reason && <small className="cell-subtitle audit-reason">{reason}</small>}{item.sync_error && <small className="cell-error" title={item.sync_error}>{item.sync_error}</small>}</>}</td>
     <td>{elapsed(since)}</td>
     <td>{dateTime(item.oms_outbound_at)}</td>
     <td>{tracking || "-"}</td>
     <td>{dateTime(item.last_checked_at)}</td>
+    <td>{canResolveAudit(item) && <button className="secondary-button audit-resolve-button" type="button" onClick={() => onResolve(item)}>人工结案</button>}</td>
   </tr>;
+}
+
+function canResolveAudit(item: FulfillmentAudit) {
+  return item.active && !item.terminal_status && ["manual_required", "warehouse_overdue", "sync_error"].includes(item.exception_category);
 }
 
 function auditReason(item: FulfillmentAudit) {

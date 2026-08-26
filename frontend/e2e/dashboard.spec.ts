@@ -108,20 +108,28 @@ async function mockAPI(page: Page, options: {
       summary: { total: 2007, awaiting_pickup: 100, picked_up: 1820, pickup_exception: 82, tracking_error: 5, last_tracking_at: "2026-08-06T08:00:00Z" },
       shops: [{ code: "panda-buy", name: "PANDA BUY" }]
     };
-    else if (path.endsWith("/fulfillment-audits")) data = {
+    else if (/\/fulfillment-audits\/\d+\/resolve$/.test(path) && route.request().method() === "POST") data = {
+      id: Number(path.split("/").at(-2)), terminal_status: route.request().postDataJSON()?.terminal_status,
+      terminal_note: route.request().postDataJSON()?.terminal_note
+    };
+    else if (path.endsWith("/fulfillment-audits")) {
+      const manuallyResolved = url.searchParams.get("resolution") === "manual_resolved";
+      data = {
       records: [{
         id: 1, platform: "temu", shop_code: "panda-homes", shop_name: "PANDA HOMES",
         platform_order_no: "PO-DEMO-1001", platform_status: "pending_pickup", platform_status_code: 4,
         wh_code: "HYTX30", warehouse_key: "arp-east", tracking_number: "TRACK-DEMO",
         oms_status: "exception", oms_status_code: 4, outbound_order_no: "OB-DEMO-1001",
-        oms_tracking_number: "TRACK-DEMO", exception_category: "manual_required", active: true,
+        oms_tracking_number: "TRACK-DEMO", exception_category: "manual_required", active: !manuallyResolved,
+        ...(manuallyResolved ? { terminal_status: "cancelled", terminal_note: "订单已在线下取消", manual_resolved_at: "2026-08-01T09:00:00Z" } : {}),
         first_seen_at: "2026-08-01T08:00:00Z", last_seen_at: "2026-08-01T08:00:00Z",
         last_checked_at: "2026-08-01T08:05:00Z", updated_at: "2026-08-01T08:05:00Z"
       }],
       total: 1, page: 1, page_size: 30, pages: 1,
-      summary: { total: 400, pending_query: 0, manual_required: 20, warehouse_overdue: 0, sync_error: 0, monitoring: 380, last_query_at: "2026-08-05T07:00:00Z" },
+      summary: { total: 400, pending_query: 0, manual_required: 20, warehouse_overdue: 0, sync_error: 0, monitoring: 380, manual_resolved: 12, last_query_at: "2026-08-05T07:00:00Z" },
       shops: [{ code: "panda-homes", name: "PANDA HOMES" }, { code: "panda-buy", name: "PANDA BUY" }]
-    };
+      };
+    }
     else if (path.endsWith("/platform-orders/routing-preview")) data = {
       ready: true,
       routes: [{
@@ -277,6 +285,27 @@ test("outbound workspace renders parcel orders", async ({ page }) => {
   await expect(page.getByText(/最近查询/)).toBeVisible();
   expect(fundsRequests).toHaveLength(0);
   await page.screenshot({ path: "/tmp/xlwms-outbound-desktop.png", fullPage: true });
+});
+
+test("fulfillment audit problems can be manually resolved", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 860 });
+  await mockAPI(page);
+  await page.goto("./fulfillment-audits");
+  await expect(page.getByRole("heading", { name: "履约核查" })).toBeVisible();
+  await page.getByRole("button", { name: "人工结案" }).last().click();
+  const dialog = page.getByRole("dialog", { name: "人工完成履约核查" });
+  await expect(dialog).toBeVisible();
+  await dialog.getByLabel("结案备注").fill("已由仓库线下完成处理");
+  const resolutionRequest = page.waitForRequest((request) => request.method() === "POST" && request.url().endsWith("/fulfillment-audits/1/resolve"));
+  await dialog.getByRole("button", { name: "确认结案" }).click();
+  expect((await resolutionRequest).postDataJSON()).toEqual({ terminal_status: "manually_fulfilled", terminal_note: "已由仓库线下完成处理" });
+  await expect(dialog).toHaveCount(0);
+  const historyRequest = page.waitForRequest((request) => new URL(request.url()).searchParams.get("resolution") === "manual_resolved");
+  await page.getByRole("button", { name: "人工结案" }).first().click();
+  expect((await historyRequest).method()).toBe("GET");
+  await expect(page.getByText("人工结案 · 订单已取消")).toBeVisible();
+  await expect(page.getByText("订单已在线下取消")).toBeVisible();
+  await page.screenshot({ path: "/tmp/xlwms-fulfillment-audit-resolution-desktop.png", fullPage: true });
 });
 
 test("pending platform orders show a visible offline banner when both OMS accounts fail", async ({ page }) => {

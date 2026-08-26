@@ -382,10 +382,13 @@ CREATE TABLE IF NOT EXISTS xlwms_fulfillment_audits (
     active boolean NOT NULL DEFAULT true,
     first_seen_at timestamptz NOT NULL DEFAULT now(),
     last_seen_at timestamptz NOT NULL DEFAULT now(),
-    last_checked_at timestamptz,
-    resolved_at timestamptz,
-    updated_at timestamptz NOT NULL DEFAULT now(),
-    UNIQUE (platform, shop_code, platform_order_no)
+	last_checked_at timestamptz,
+	resolved_at timestamptz,
+	terminal_status text NOT NULL DEFAULT '',
+	terminal_note text NOT NULL DEFAULT '',
+	manual_resolved_at timestamptz,
+	updated_at timestamptz NOT NULL DEFAULT now(),
+	UNIQUE (platform, shop_code, platform_order_no)
 );
 
 ALTER TABLE xlwms_fulfillment_audits
@@ -398,8 +401,17 @@ ALTER TABLE xlwms_fulfillment_audits
     ADD COLUMN IF NOT EXISTS tracking_category text NOT NULL DEFAULT 'awaiting_pickup',
     ADD COLUMN IF NOT EXISTS tracking_package_count integer NOT NULL DEFAULT 0,
     ADD COLUMN IF NOT EXISTS picked_up_package_count integer NOT NULL DEFAULT 0,
-    ADD COLUMN IF NOT EXISTS pickup_exception_reason text NOT NULL DEFAULT '',
-    ADD COLUMN IF NOT EXISTS pickup_confirmed_at timestamptz;
+	ADD COLUMN IF NOT EXISTS pickup_exception_reason text NOT NULL DEFAULT '',
+	ADD COLUMN IF NOT EXISTS pickup_confirmed_at timestamptz,
+	ADD COLUMN IF NOT EXISTS terminal_status text NOT NULL DEFAULT '',
+	ADD COLUMN IF NOT EXISTS terminal_note text NOT NULL DEFAULT '',
+	ADD COLUMN IF NOT EXISTS manual_resolved_at timestamptz;
+
+ALTER TABLE xlwms_fulfillment_audits
+    DROP CONSTRAINT IF EXISTS xlwms_fulfillment_audits_terminal_status_check,
+    ADD CONSTRAINT xlwms_fulfillment_audits_terminal_status_check CHECK (
+        terminal_status IN ('', 'manually_fulfilled', 'cancelled', 'not_required', 'other')
+    );
 
 CREATE INDEX IF NOT EXISTS idx_xlwms_fulfillment_audits_tracking
     ON xlwms_fulfillment_audits (tracking_category, wh_code, shop_code, oms_outbound_at DESC);
@@ -410,6 +422,9 @@ CREATE INDEX IF NOT EXISTS idx_xlwms_fulfillment_audits_filters
     ON xlwms_fulfillment_audits (shop_code, wh_code, exception_category, updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_xlwms_fulfillment_audits_order
     ON xlwms_fulfillment_audits (platform_order_no);
+CREATE INDEX IF NOT EXISTS idx_xlwms_fulfillment_audits_manual_resolved
+    ON xlwms_fulfillment_audits (manual_resolved_at DESC)
+    WHERE terminal_status<>'';
 
 CREATE TABLE IF NOT EXISTS xlwms_fulfillment_tracking_watermarks (
     queue_name text PRIMARY KEY,

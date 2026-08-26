@@ -344,6 +344,9 @@ type FulfillmentAudit struct {
 	LastSeenAt             time.Time  `json:"last_seen_at"`
 	LastCheckedAt          *time.Time `json:"last_checked_at,omitempty"`
 	ResolvedAt             *time.Time `json:"resolved_at,omitempty"`
+	TerminalStatus         string     `json:"terminal_status,omitempty"`
+	TerminalNote           string     `json:"terminal_note,omitempty"`
+	ManualResolvedAt       *time.Time `json:"manual_resolved_at,omitempty"`
 	UpdatedAt              time.Time  `json:"updated_at"`
 }
 
@@ -388,6 +391,7 @@ type FulfillmentAuditSummary struct {
 	WarehouseOverdue int        `json:"warehouse_overdue"`
 	SyncError        int        `json:"sync_error"`
 	Monitoring       int        `json:"monitoring"`
+	ManualResolved   int        `json:"manual_resolved"`
 	LastQueryAt      *time.Time `json:"last_query_at,omitempty"`
 }
 

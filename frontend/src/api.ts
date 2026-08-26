@@ -82,8 +82,10 @@ export const api = {
     request<SKUInventoryThreshold>(`/inventory-thresholds/${encodeURIComponent(warehouseSKU)}${query({ platform: params?.platform, shop: params?.shop })}`, { method: "PATCH", body: JSON.stringify(payload) }),
   resetSKUInventoryThreshold: (warehouseSKU: string, params?: { platform?: string; shop?: string }) =>
     request<{ deleted: boolean }>(`/inventory-thresholds/${encodeURIComponent(warehouseSKU)}/reset${query({ platform: params?.platform, shop: params?.shop })}`, { method: "POST" }),
-  fulfillmentAudits: (params: { shop?: string; warehouse?: string; category?: string; omsStatus?: string; q?: string; page: number; pageSize: number }) =>
-    request<FulfillmentAuditPage>(`/fulfillment-audits${query({ shop: params.shop, warehouse: params.warehouse, category: params.category, oms_status: params.omsStatus, q: params.q, page: params.page, page_size: params.pageSize })}`),
+  fulfillmentAudits: (params: { shop?: string; warehouse?: string; category?: string; omsStatus?: string; resolution?: "manual_resolved"; q?: string; page: number; pageSize: number }) =>
+    request<FulfillmentAuditPage>(`/fulfillment-audits${query({ shop: params.shop, warehouse: params.warehouse, category: params.category, oms_status: params.omsStatus, resolution: params.resolution, q: params.q, page: params.page, page_size: params.pageSize })}`),
+  resolveFulfillmentAudit: (id: number, payload: { terminal_status: "manually_fulfilled" | "cancelled" | "not_required" | "other"; terminal_note: string }) =>
+    request<{ id: number; terminal_status: string; terminal_note: string }>(`/fulfillment-audits/${id}/resolve`, { method: "POST", body: JSON.stringify(payload) }),
   fulfilledOrders: (params: { shop?: string; warehouse?: string; trackingCategory?: string; q?: string; page: number; pageSize: number }) =>
     request<FulfilledOrderPage>(`/fulfillment-audits/archived${query({ shop: params.shop, warehouse: params.warehouse, tracking_category: params.trackingCategory, q: params.q, page: params.page, page_size: params.pageSize })}`),
   outboundOrders: <T>(params: { warehouse?: string; q: string; page: number; pageSize: number }) =>

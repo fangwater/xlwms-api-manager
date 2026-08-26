@@ -277,7 +277,7 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .order-status.status-3 { background: #e8f3ee; color: #246f56; }
 .order-status.status-4 { background: #eef0f1; color: #70777c; }
 .order-status.status-5, .order-status.status-7 { background: #f8e9eb; color: #b13b45; }
-.audit-summary { display: grid; grid-template-columns: repeat(5,minmax(0,1fr)); gap: 10px; margin-bottom: 16px; }
+.audit-summary { display: grid; grid-template-columns: repeat(6,minmax(0,1fr)); gap: 10px; margin-bottom: 16px; }
 .audit-summary-item { min-width: 0; min-height: 84px; display: flex; flex-direction: column; align-items: flex-start; justify-content: space-between; padding: 13px 14px; border: 1px solid #e1e5e7; border-radius: 7px; background: #fff; color: #596168; text-align: left; cursor: pointer; }
 .audit-summary-item:hover, .audit-summary-item.active { border-color: #8da79b; box-shadow: 0 3px 12px rgba(26,54,43,.08); }
 .audit-summary-item span { display: flex; align-items: center; gap: 7px; font-size: 11px; font-weight: 650; }
@@ -301,6 +301,11 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .audit-status.category-picked_up { background: #e8f3ee; color: #246f56; }
 .audit-status.category-pickup_exception { background: #f8e9eb; color: #a93642; }
 .audit-status.category-tracking_error { background: #f6efd9; color: #876516; }
+.audit-status.terminal-status { white-space: normal; background: #e8f3ee; color: #246f56; }
+.audit-resolve-button { min-height: 30px; padding: 0 9px; font-size: 10px; white-space: nowrap; }
+.audit-resolution-modal { width: min(520px,100%); }
+.audit-resolution-form textarea { width: 100%; min-height: 96px; resize: vertical; padding: 9px 10px; border: 1px solid #d9dddf; border-radius: 6px; outline: 0; color: #30363a; font: inherit; font-size: 12px; line-height: 18px; }
+.audit-resolution-form textarea:focus { border-color: #4c8b75; box-shadow: 0 0 0 3px rgba(44,126,99,.09); }
 .tracking-progress { min-width: 68px; display: inline-flex; align-items: center; gap: 4px; font-variant-numeric: tabular-nums; }
 .tracking-table td { vertical-align: top; }
 @media (max-width: 1000px) { .audit-summary { grid-template-columns: repeat(3,minmax(0,1fr)); } }

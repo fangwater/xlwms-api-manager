@@ -12,6 +12,7 @@ import (
 
 type FulfillmentAuditFilter struct {
 	Archived          bool
+	ManualResolved    bool
 	Platform          string
 	ShopCode          string
 	WarehouseCode     string
@@ -27,6 +28,8 @@ func fulfillmentAuditWhere(filter FulfillmentAuditFilter) (string, []any) {
 	where := []string{"active"}
 	if filter.Archived {
 		where = []string{"NOT active", "oms_status='outbound'"}
+	} else if filter.ManualResolved {
+		where = []string{"NOT active", "terminal_status<>''"}
 	}
 	args := make([]any, 0, 6)
 	add := func(value any) string {
@@ -58,14 +61,11 @@ func fulfillmentAuditWhere(filter FulfillmentAuditFilter) (string, []any) {
 	return strings.Join(where, " AND "), args
 }
 
-func (p *Postgres) FulfillmentAuditShops(ctx context.Context, archived bool) ([]model.FulfillmentAuditShop, error) {
-	condition := "active"
-	if archived {
-		condition = "NOT active AND oms_status='outbound' AND platform='temu'"
-	}
+func (p *Postgres) FulfillmentAuditShops(ctx context.Context, filter FulfillmentAuditFilter) ([]model.FulfillmentAuditShop, error) {
+	clause, args := fulfillmentAuditWhere(filter)
 	rows, err := p.pool.Query(ctx, `
 SELECT shop_code,max(shop_name) FROM xlwms_fulfillment_audits
-WHERE `+condition+` GROUP BY shop_code ORDER BY max(shop_name),shop_code`)
+WHERE `+clause+` GROUP BY shop_code ORDER BY max(shop_name),shop_code`, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -132,27 +132,34 @@ platform_status_code=EXCLUDED.platform_status_code,
 platform_shipping_at=coalesce(EXCLUDED.platform_shipping_at,xlwms_fulfillment_audits.platform_shipping_at),
 warehouse_key=coalesce(nullif(EXCLUDED.warehouse_key,''),xlwms_fulfillment_audits.warehouse_key),
 wh_code=coalesce(nullif(EXCLUDED.wh_code,''),xlwms_fulfillment_audits.wh_code),
-tracking_number=coalesce(nullif(EXCLUDED.tracking_number,''),xlwms_fulfillment_audits.tracking_number),
-oms_status=CASE
-WHEN xlwms_fulfillment_audits.oms_status='outbound'
-THEN xlwms_fulfillment_audits.oms_status
+		tracking_number=coalesce(nullif(EXCLUDED.tracking_number,''),xlwms_fulfillment_audits.tracking_number),
+		oms_status=CASE
+	WHEN xlwms_fulfillment_audits.terminal_status<>''
+	THEN xlwms_fulfillment_audits.oms_status
+	WHEN xlwms_fulfillment_audits.oms_status='outbound'
+	THEN xlwms_fulfillment_audits.oms_status
 WHEN nullif(EXCLUDED.wh_code,'') IS NOT NULL
  AND nullif(EXCLUDED.wh_code,'') IS DISTINCT FROM nullif(xlwms_fulfillment_audits.wh_code,'')
 THEN 'pending_query' ELSE xlwms_fulfillment_audits.oms_status END,
-last_checked_at=CASE
-WHEN xlwms_fulfillment_audits.oms_status='outbound'
-THEN xlwms_fulfillment_audits.last_checked_at
+	last_checked_at=CASE
+	WHEN xlwms_fulfillment_audits.terminal_status<>''
+	THEN xlwms_fulfillment_audits.last_checked_at
+	WHEN xlwms_fulfillment_audits.oms_status='outbound'
+	THEN xlwms_fulfillment_audits.last_checked_at
 WHEN nullif(EXCLUDED.wh_code,'') IS NOT NULL
  AND nullif(EXCLUDED.wh_code,'') IS DISTINCT FROM nullif(xlwms_fulfillment_audits.wh_code,'')
 THEN NULL ELSE xlwms_fulfillment_audits.last_checked_at END,
-exception_category=CASE
-WHEN xlwms_fulfillment_audits.oms_status='outbound' THEN 'archived'
+	exception_category=CASE
+	WHEN xlwms_fulfillment_audits.terminal_status<>'' THEN xlwms_fulfillment_audits.exception_category
+	WHEN xlwms_fulfillment_audits.oms_status='outbound' THEN 'archived'
 WHEN nullif(EXCLUDED.wh_code,'') IS NOT NULL
  AND nullif(EXCLUDED.wh_code,'') IS DISTINCT FROM nullif(xlwms_fulfillment_audits.wh_code,'')
 THEN 'pending_query' ELSE xlwms_fulfillment_audits.exception_category END,
-active=xlwms_fulfillment_audits.oms_status<>'outbound',
-resolved_at=CASE WHEN xlwms_fulfillment_audits.oms_status='outbound'
-THEN coalesce(xlwms_fulfillment_audits.resolved_at,now()) ELSE NULL END,
+	active=xlwms_fulfillment_audits.terminal_status='' AND xlwms_fulfillment_audits.oms_status<>'outbound',
+	resolved_at=CASE WHEN xlwms_fulfillment_audits.terminal_status<>''
+	THEN xlwms_fulfillment_audits.resolved_at
+	WHEN xlwms_fulfillment_audits.oms_status='outbound'
+	THEN coalesce(xlwms_fulfillment_audits.resolved_at,now()) ELSE NULL END,
 last_seen_at=now(),updated_at=now()
 `, platform, shopCode, shopName, item.PlatformOrderNo, item.PlatformStatus,
 			item.PlatformStatusCode, item.PlatformShippingAt, item.WarehouseKey,
@@ -427,12 +434,51 @@ exception_category=CASE WHEN $3='outbound' THEN 'archived' ELSE exception_catego
 active=CASE WHEN $3='outbound' THEN false ELSE active END,
 resolved_at=CASE WHEN $3='outbound' THEN coalesce(resolved_at,now()) ELSE resolved_at END,
 last_checked_at=now(),updated_at=now()
-WHERE id=$1
+WHERE id=$1 AND terminal_status=''
 `, id, resolution.WarehouseCode, resolution.OMSStatus, resolution.OMSStatusCode,
 		resolution.OMSOrderCreated, resolution.OMSOutboundAt, strings.TrimSpace(resolution.OutboundOrderNo),
 		strings.TrimSpace(resolution.TrackingNumber), strings.TrimSpace(resolution.SyncError))
 	if err != nil {
 		return fmt.Errorf("update fulfillment audit resolution: %w", err)
+	}
+	return nil
+}
+
+var ErrFulfillmentAuditNotResolvable = errors.New("fulfillment audit is not an active problem")
+
+func validFulfillmentAuditTerminalStatus(status string) bool {
+	switch strings.TrimSpace(status) {
+	case "manually_fulfilled", "cancelled", "not_required", "other":
+		return true
+	default:
+		return false
+	}
+}
+
+func (p *Postgres) ResolveFulfillmentAudit(ctx context.Context, id int64, terminalStatus, terminalNote string) error {
+	terminalStatus = strings.TrimSpace(terminalStatus)
+	terminalNote = strings.TrimSpace(terminalNote)
+	if !validFulfillmentAuditTerminalStatus(terminalStatus) {
+		return errors.New("terminal_status must be manually_fulfilled, cancelled, not_required, or other")
+	}
+	if terminalNote == "" {
+		return errors.New("terminal_note is required")
+	}
+	if len([]rune(terminalNote)) > 500 {
+		return errors.New("terminal_note must not exceed 500 characters")
+	}
+	tag, err := p.pool.Exec(ctx, `
+UPDATE xlwms_fulfillment_audits SET
+	terminal_status=$2,terminal_note=$3,manual_resolved_at=now(),
+	active=false,resolved_at=coalesce(resolved_at,now()),updated_at=now()
+WHERE id=$1 AND active AND terminal_status=''
+  AND exception_category IN ('manual_required','warehouse_overdue','sync_error')
+`, id, terminalStatus, terminalNote)
+	if err != nil {
+		return fmt.Errorf("resolve fulfillment audit: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrFulfillmentAuditNotResolvable
 	}
 	return nil
 }
@@ -477,13 +523,14 @@ func (p *Postgres) ListFulfillmentAudits(ctx context.Context, filter Fulfillment
 	}
 	var summary model.FulfillmentAuditSummary
 	if err := p.pool.QueryRow(ctx, `
-SELECT count(*),count(*) FILTER (WHERE exception_category='pending_query'),
-       count(*) FILTER (WHERE exception_category='manual_required'),
-       count(*) FILTER (WHERE exception_category='warehouse_overdue'),
-       count(*) FILTER (WHERE exception_category='sync_error'),
-       count(*) FILTER (WHERE exception_category='monitoring')
-FROM xlwms_fulfillment_audits WHERE active
-`).Scan(&summary.Total, &summary.PendingQuery, &summary.ManualRequired, &summary.WarehouseOverdue, &summary.SyncError, &summary.Monitoring); err != nil {
+	SELECT count(*) FILTER (WHERE active),count(*) FILTER (WHERE active AND exception_category='pending_query'),
+	       count(*) FILTER (WHERE active AND exception_category='manual_required'),
+	       count(*) FILTER (WHERE active AND exception_category='warehouse_overdue'),
+	       count(*) FILTER (WHERE active AND exception_category='sync_error'),
+	       count(*) FILTER (WHERE active AND exception_category='monitoring'),
+	       count(*) FILTER (WHERE terminal_status<>'')
+FROM xlwms_fulfillment_audits WHERE active OR terminal_status<>''
+	`).Scan(&summary.Total, &summary.PendingQuery, &summary.ManualRequired, &summary.WarehouseOverdue, &summary.SyncError, &summary.Monitoring, &summary.ManualResolved); err != nil {
 		return nil, 0, summary, err
 	}
 	lastQueryAt, err := p.LatestOutboundQueryEvent(ctx)
@@ -500,6 +547,8 @@ coalesce(oms_processing_since,oms_outbound_at,platform_shipping_at,first_seen_at
 		orderBy = `CASE tracking_category WHEN 'pickup_exception' THEN 0
 		WHEN 'tracking_error' THEN 1 WHEN 'awaiting_pickup' THEN 2 ELSE 3 END,
 		coalesce(oms_outbound_at,resolved_at,updated_at) DESC,id DESC`
+	} else if filter.ManualResolved {
+		orderBy = `manual_resolved_at DESC,id DESC`
 	}
 	rows, err := p.pool.Query(ctx, fulfillmentAuditSelect+` WHERE `+clause+`
 ORDER BY `+orderBy+`
@@ -555,7 +604,8 @@ oms_order_created_at,oms_outbound_at,outbound_order_no,oms_tracking_number,
 	last_mile_tracking_number,tracking_status,tracking_status_text,tracking_updated_at,
 	tracking_checked_at,tracking_error,tracking_category,tracking_package_count,
 	picked_up_package_count,pickup_exception_reason,pickup_confirmed_at,
-exception_category,sync_error,active,first_seen_at,last_seen_at,last_checked_at,resolved_at,updated_at
+	exception_category,sync_error,active,first_seen_at,last_seen_at,last_checked_at,resolved_at,
+	terminal_status,terminal_note,manual_resolved_at,updated_at
 FROM xlwms_fulfillment_audits `
 
 type fulfillmentAuditRows interface {
@@ -579,7 +629,8 @@ func scanFulfillmentAudits(rows fulfillmentAuditRows) ([]model.FulfillmentAudit,
 			&item.TrackingPackageCount, &item.PickedUpPackageCount,
 			&item.PickupExceptionReason, &item.PickupConfirmedAt,
 			&item.ExceptionCategory, &item.SyncError, &item.Active, &item.FirstSeenAt,
-			&item.LastSeenAt, &item.LastCheckedAt, &item.ResolvedAt, &item.UpdatedAt); err != nil {
+			&item.LastSeenAt, &item.LastCheckedAt, &item.ResolvedAt, &item.TerminalStatus,
+			&item.TerminalNote, &item.ManualResolvedAt, &item.UpdatedAt); err != nil {
 			return nil, err
 		}
 		items = append(items, item)

@@ -129,6 +129,7 @@ POST   /v1/temu/warehouse-availability/query
 GET    /v1/fulfillment-audits
 GET    /v1/fulfillment-audits/archived
 GET    /v1/fulfillment-audits/export-manual
+POST   /v1/fulfillment-audits/{id}/resolve
 POST   /v1/fulfillment-audits/sync
 POST   /v1/sync/inventory
 GET    /v1/funds-flows
@@ -374,6 +375,11 @@ XLWMS 不保存 Temu 凭据，也不直接签名 Temu OpenAPI 请求。追踪查
 - 任一包裹出现 `Last Mile Carrier Pick up failed` 时，出库未满 12 小时仍按“待揽收”处理且不计入异常统计；
   满 12 小时后仍未恢复正常流程，才归类为“揽收异常订单”。
 - 自领星出库时间起达到 24 小时，仍有包裹未出现 `Last Mile Carrier Picked up` 时，归类为“揽收异常订单”；`Last-Mile Manifest` 包含在该规则内。
+
+对于 `转人工`、`仓库超时` 或 `查询异常` 的仓库履约核查，可调用
+`POST /v1/fulfillment-audits/{id}/resolve`，提交 `terminal_status`（`manually_fulfilled`、
+`cancelled`、`not_required` 或 `other`）及必填的 `terminal_note`。结案后任务停止自动核查，
+可在履约核查页的“人工结案”中查询。
 - 订单的所有包裹均出现 `Last Mile Carrier Picked up` 后，才归类为“已揽收”；若换单号后的轨迹缺少揽收节点，但包裹已显示 `In transit` 或 `Delivered`，同样视为已经完成揽收。
 
 `GET /v1/fulfillment-audits/archived` 支持 `shop`、`warehouse`、
