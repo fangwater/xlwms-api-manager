@@ -33,3 +33,9 @@
 - Keep the Fernet master key only in `.warehouse_credentials_key` with mode `600`.
 - Never print decrypted app keys or secrets; warehouse lists show only an app-key hint.
 - Synchronization must obtain credentials through `list_active_warehouse_credentials` so disabled warehouses are skipped.
+
+## Production Deployment
+
+- Do not start or leave isolated trial API or frontend services after making changes.
+- After implementing and verifying requested changes, publish them directly to the production service with `make start`, which builds the Go server and frontend and reloads the PM2 process configuration.
+- After every deployment, verify the production health endpoint and the affected production API route. Do not expose credentials or customer/logistics payloads while verifying.
