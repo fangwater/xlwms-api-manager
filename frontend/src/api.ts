@@ -1,4 +1,4 @@
-import type { CostDetail, DashboardData, FulfilledOrderPage, FulfillmentAuditPage, FundsFlow, InventoryAlertPage, InventoryCorrection, InventoryKind, InventoryRecord, InventoryThresholdPage, InventoryThresholds, PackingPlan, PackingPlanRequest, PageData, PendingPlatformOrderPage, PlatformOrderAccountOption, PlatformOrderAssignmentResult, PlatformOrderRoutingPreview, ShopInventoryThresholds, SKUInventoryThreshold, SKUStockLevelPage, SyncRun, Warehouse, WarehouseSKUInventoryAlertThreshold, WarehouseSKUSpec } from "./types";
+import type { CostDetail, DashboardData, FulfilledOrderPage, FulfillmentAuditPage, FundsFlow, InventoryAlertPage, InventoryCorrection, InventoryKind, InventoryRecord, InventoryThresholdPage, InventoryThresholds, PackingPlan, PackingPlanRequest, PageData, PendingPlatformOrderPage, PlatformOrderAccountOption, PlatformOrderAssignmentResult, PlatformOrderRoutingPreview, ShopInventoryThresholds, SKUCombination, SKUCombinationPayload, SKUInventoryThreshold, SKUStockLevelPage, SyncRun, Warehouse, WarehouseSKUInventoryAlertThreshold, WarehouseSKUSpec } from "./types";
 
 type Envelope<T> = { success: boolean; data?: T; error?: string };
 const apiBase = `${import.meta.env.BASE_URL}api`;
@@ -72,6 +72,16 @@ export const api = {
   saveWarehouseSKUSpec: (payload: Record<string, unknown>) => request<WarehouseSKUSpec>("/warehouse-sku-specs", { method: "POST", body: JSON.stringify(payload) }),
   updateWarehouseSKUSpec: (warehouseSKU: string, payload: Record<string, unknown>) => request<WarehouseSKUSpec>(`/warehouse-sku-specs/${encodeURIComponent(warehouseSKU)}`, { method: "PATCH", body: JSON.stringify(payload) }),
   packingPlan: (payload: PackingPlanRequest) => request<PackingPlan>("/packing/plans", { method: "POST", body: JSON.stringify(payload) }),
+  skuCombinations: (params?: { q?: string; status?: "all" | "active" | "disabled" }) =>
+    request<SKUCombination[]>(`/packing/combinations${query({ q: params?.q, status: params?.status })}`),
+  skuCombination: (id: number) => request<SKUCombination>(`/packing/combinations/${id}`),
+  skuSubstitution: (warehouseSKU: string) => request<SKUCombination>(`/packing/substitutions/${encodeURIComponent(warehouseSKU)}`),
+  createSKUCombination: (payload: SKUCombinationPayload) =>
+    request<SKUCombination>("/packing/combinations", { method: "POST", body: JSON.stringify(payload) }),
+  updateSKUCombination: (id: number, payload: SKUCombinationPayload) =>
+    request<SKUCombination>(`/packing/combinations/${id}`, { method: "PUT", body: JSON.stringify(payload) }),
+  deleteSKUCombination: (id: number) =>
+    request<{ deleted: boolean }>(`/packing/combinations/${id}`, { method: "DELETE" }),
   inventoryThresholds: (params: { q?: string; page: number; pageSize: number; platform?: string; shop?: string }) =>
     request<InventoryThresholdPage>(`/inventory-thresholds${query({ q: params.q, page: params.page, page_size: params.pageSize, platform: params.platform, shop: params.shop })}`),
   updateInventoryThresholdDefaults: (payload: InventoryThresholds, params?: { platform?: string; shop?: string }) =>

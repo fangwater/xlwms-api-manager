@@ -54,7 +54,13 @@ function packingPlan() {
   };
 }
 
-async function mockPackingAPI(page: Page, createPlan: () => unknown = packingPlan) {
+type CombinationMockOptions = {
+  combinations?: Array<Record<string, unknown>>;
+  onSave?: (method: string, payload: Record<string, unknown>) => void;
+};
+
+async function mockPackingAPI(page: Page, createPlan: () => unknown = packingPlan, combinationOptions: CombinationMockOptions = {}) {
+  const combinations = combinationOptions.combinations ?? [];
   await page.route("**/warehouse-console/healthz", (route) => route.fulfill({
     status: 200, contentType: "application/json", body: JSON.stringify({ success: true, data: { status: "ok" } }),
   }));
@@ -64,8 +70,45 @@ async function mockPackingAPI(page: Page, createPlan: () => unknown = packingPla
     if (path.endsWith("/warehouses")) data = [];
     else if (path.endsWith("/warehouse-sku-specs")) data = { records: skuSpecs, total: 2, page: 1, page_size: 30, pages: 1 };
     else if (path.endsWith("/packing/plans")) data = createPlan();
-    return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ success: true, data }) });
+    else if (path.endsWith("/packing/combinations") && route.request().method() === "GET") data = combinations;
+    else if (path.includes("/packing/combinations") && ["POST", "PUT"].includes(route.request().method())) {
+      const payload = route.request().postDataJSON() as Record<string, unknown>;
+      combinationOptions.onSave?.(route.request().method(), payload);
+      const existingID = Number(path.split("/").at(-1)) || 41;
+      const saved = {
+        id: existingID, corrected: true, created_at: "2026-08-26T08:00:00Z", updated_at: "2026-08-26T09:00:00Z",
+        ...payload,
+        items: (payload.items as Array<Record<string, unknown>>).map((member) => ({
+          ...member,
+          product_name: member.warehouse_sku === "PACK-A" ? "折叠收纳盒" : "桌面配件包",
+          length_cm: member.warehouse_sku === "PACK-A" ? 20 : 12,
+          width_cm: member.warehouse_sku === "PACK-A" ? 10 : 8,
+          height_cm: member.warehouse_sku === "PACK-A" ? 10 : 6,
+          weight_kg: member.warehouse_sku === "PACK-A" ? 1.2 : 0.8,
+        })),
+      };
+      const index = combinations.findIndex((item) => item.id === existingID);
+      if (index >= 0) combinations[index] = saved; else combinations.push(saved);
+      data = saved;
+    } else if (path.includes("/packing/combinations") && route.request().method() === "DELETE") data = { deleted: true };
+    return route.fulfill({ status: path.endsWith("/packing/combinations") && route.request().method() === "POST" ? 201 : 200, contentType: "application/json", body: JSON.stringify({ success: true, data }) });
   });
+}
+
+function singlePackagePlan() {
+  const result = packingPlan();
+  const secondPlacement = result.packages[1].placements[0];
+  result.packages = [{
+    ...result.packages[0],
+    dimensions: { length_cm: 52, width_cm: 10, height_cm: 10 },
+    placements: [...result.packages[0].placements, { ...secondPlacement, position: { x: 32, y: 0, z: 0 }, step: 3 }],
+    packed_units: 3,
+    used_weight_kg: 3.2,
+    used_volume_cm3: 4576,
+    volume_utilization_percent: 88,
+  }];
+  result.summary.packages_used = 1;
+  return result;
 }
 
 async function selectPackingSKUs(page: Page) {
@@ -141,6 +184,7 @@ test("desktop planner requests only SKU quantities and renders calculated packag
 
   await expect(page.getByText("3 / 3")).toBeVisible();
   await expect(page.getByRole("tab", { name: "包裹 2 1 件" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "保存为组合" })).toBeEnabled();
   await expect(page.locator(".packing-package-spec")).toContainText("32 × 10 × 10 cm");
   await page.getByRole("tab", { name: "包裹 2 1 件" }).click();
   await expect(page.locator(".packing-package-spec")).toContainText("20 × 10 × 10 cm");
@@ -215,4 +259,80 @@ test("planner reports unavailable instead of falling back to 2D", async ({ page 
   await expect(page.getByTestId("packing-scene")).toHaveAttribute("data-active-renderer", "unavailable");
   await expect(page.getByText("三维视图不可用")).toBeVisible();
   await expect(page.locator('canvas[data-renderer="canvas2d"]')).toHaveCount(0);
+});
+
+test("combination can be saved with corrections, retrieved, edited, and overwritten", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  const writes: Array<{ method: string; payload: Record<string, unknown> }> = [];
+  await mockPackingAPI(page, singlePackagePlan, { onSave: (method, payload) => writes.push({ method, payload }) });
+  await page.goto("./packing");
+  await selectPackingSKUs(page);
+  await page.getByRole("button", { name: "生成包装方案" }).click();
+
+  await page.getByRole("button", { name: "保存为组合" }).click();
+  const dialog = page.getByRole("dialog", { name: "保存组合" });
+  await expect(dialog).toBeVisible();
+  await dialog.getByLabel("组合名称").fill("A 与 B 发货组合");
+  await dialog.getByLabel("被替代的发货 SKU").fill("PACK-20PCS");
+  await dialog.getByLabel("重量 (kg)").fill("3.05");
+  await dialog.getByRole("button", { name: "保存组合", exact: true }).click();
+  await expect(page.getByText("组合“A 与 B 发货组合”已保存")).toBeVisible();
+
+  expect(writes).toHaveLength(1);
+  expect(writes[0].method).toBe("POST");
+  expect(writes[0].payload).toMatchObject({
+    name: "A 与 B 发货组合", substitute_for_sku: "PACK-20PCS",
+    length_cm: 52, width_cm: 10, height_cm: 10, weight_kg: 3.05,
+    calculated_length_cm: 52, calculated_width_cm: 10, calculated_height_cm: 10, calculated_weight_kg: 3.2,
+    items: [{ warehouse_sku: "PACK-A", quantity: 2 }, { warehouse_sku: "PACK-B", quantity: 1 }],
+  });
+
+  await page.getByRole("tab", { name: "组合库" }).click();
+  await expect(page.getByText("A 与 B 发货组合")).toBeVisible();
+  await expect(page.getByText("PACK-20PCS")).toBeVisible();
+  await expect(page.getByText("已修正")).toBeVisible();
+  await page.screenshot({ path: "/tmp/xlwms-packing-combination-library.png", fullPage: true });
+  await page.getByRole("button", { name: "编辑组合" }).click();
+  await expect(page.getByText("正在修改")).toBeVisible();
+
+  const row = page.locator(".packing-selected-row", { hasText: "PACK-B" });
+  await row.getByTitle("增加数量").click();
+  await page.getByRole("button", { name: "生成包装方案" }).click();
+  await page.getByRole("button", { name: "保存组合修改" }).click();
+  const editDialog = page.getByRole("dialog", { name: "修改组合" });
+  await editDialog.getByLabel("长度 (cm)").fill("50");
+  await editDialog.getByRole("button", { name: "保存修改" }).click();
+
+  expect(writes).toHaveLength(2);
+  expect(writes[1].method).toBe("PUT");
+  expect(writes[1].payload).toMatchObject({
+    name: "A 与 B 发货组合", substitute_for_sku: "PACK-20PCS", length_cm: 50, weight_kg: 3.05,
+    items: [{ warehouse_sku: "PACK-A", quantity: 2 }, { warehouse_sku: "PACK-B", quantity: 2 }],
+  });
+  await expect(page.getByText("组合“A 与 B 发货组合”已保存")).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBeTruthy();
+  await page.screenshot({ path: "/tmp/xlwms-packing-combination.png", fullPage: true });
+});
+
+test("mobile combination library keeps mappings and corrections readable", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await mockPackingAPI(page, packingPlan, { combinations: [{
+    id: 51, name: "20pcs 替代组合", substitute_for_sku: "PACK-20PCS",
+    length_cm: 22, width_cm: 10, height_cm: 10, weight_kg: 2.3,
+    calculated_length_cm: 24, calculated_width_cm: 10, calculated_height_cm: 10, calculated_weight_kg: 2.4,
+    corrected: true, note: "移动端检查", enabled: true,
+    created_at: "2026-08-26T08:00:00Z", updated_at: "2026-08-26T09:00:00Z",
+    items: [
+      { warehouse_sku: "PACK-A", product_name: "折叠收纳盒", quantity: 1, length_cm: 20, width_cm: 10, height_cm: 10, weight_kg: 1.2 },
+      { warehouse_sku: "PACK-B", product_name: "桌面配件包", quantity: 2, length_cm: 12, width_cm: 8, height_cm: 6, weight_kg: 0.8 },
+    ],
+  }] });
+  await page.goto("./packing");
+  await page.getByRole("tab", { name: "组合库" }).click();
+  await expect(page.getByText("20pcs 替代组合")).toBeVisible();
+  await expect(page.getByText("PACK-20PCS")).toBeVisible();
+  await expect(page.getByText("22 × 10 × 10 cm")).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBeTruthy();
+  await page.screenshot({ path: "/tmp/xlwms-packing-combination-mobile.png", fullPage: true });
 });

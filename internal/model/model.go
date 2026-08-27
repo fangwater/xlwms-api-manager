@@ -202,6 +202,36 @@ type WarehouseSKUSpec struct {
 	UpdatedAt     time.Time `json:"updated_at"`
 }
 
+type SKUCombinationItem struct {
+	WarehouseSKU string   `json:"warehouse_sku"`
+	ProductName  string   `json:"product_name,omitempty"`
+	Quantity     int      `json:"quantity"`
+	LengthCM     *float64 `json:"length_cm,omitempty"`
+	WidthCM      *float64 `json:"width_cm,omitempty"`
+	HeightCM     *float64 `json:"height_cm,omitempty"`
+	WeightKG     *float64 `json:"weight_kg,omitempty"`
+}
+
+type SKUCombination struct {
+	ID                 int64                `json:"id"`
+	Name               string               `json:"name"`
+	SubstituteForSKU   string               `json:"substitute_for_sku,omitempty"`
+	LengthCM           float64              `json:"length_cm"`
+	WidthCM            float64              `json:"width_cm"`
+	HeightCM           float64              `json:"height_cm"`
+	WeightKG           float64              `json:"weight_kg"`
+	CalculatedLengthCM *float64             `json:"calculated_length_cm,omitempty"`
+	CalculatedWidthCM  *float64             `json:"calculated_width_cm,omitempty"`
+	CalculatedHeightCM *float64             `json:"calculated_height_cm,omitempty"`
+	CalculatedWeightKG *float64             `json:"calculated_weight_kg,omitempty"`
+	Corrected          bool                 `json:"corrected"`
+	Note               string               `json:"note"`
+	Enabled            bool                 `json:"enabled"`
+	Items              []SKUCombinationItem `json:"items"`
+	CreatedAt          time.Time            `json:"created_at"`
+	UpdatedAt          time.Time            `json:"updated_at"`
+}
+
 type InventoryThresholds struct {
 	EastThreshold  float64 `json:"east_threshold"`
 	WestThreshold  float64 `json:"west_threshold"`

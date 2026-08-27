@@ -264,6 +264,40 @@ export type PackingPlan = {
   };
 };
 
+export type SKUCombinationItem = {
+  warehouse_sku: string;
+  product_name?: string;
+  quantity: number;
+  length_cm?: number;
+  width_cm?: number;
+  height_cm?: number;
+  weight_kg?: number;
+};
+
+export type SKUCombination = {
+  id: number;
+  name: string;
+  substitute_for_sku?: string;
+  length_cm: number;
+  width_cm: number;
+  height_cm: number;
+  weight_kg: number;
+  calculated_length_cm?: number;
+  calculated_width_cm?: number;
+  calculated_height_cm?: number;
+  calculated_weight_kg?: number;
+  corrected: boolean;
+  note: string;
+  enabled: boolean;
+  items: SKUCombinationItem[];
+  created_at: string;
+  updated_at: string;
+};
+
+export type SKUCombinationPayload = Omit<SKUCombination, "id" | "corrected" | "created_at" | "updated_at" | "items"> & {
+  items: Array<{ warehouse_sku: string; quantity: number }>;
+};
+
 export type InventoryThresholds = {
   east_threshold: number;
   west_threshold: number;

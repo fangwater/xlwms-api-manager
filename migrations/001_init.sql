@@ -221,6 +221,38 @@ CREATE TABLE IF NOT EXISTS xlwms_warehouse_sku_specs (
 CREATE INDEX IF NOT EXISTS idx_xlwms_warehouse_sku_specs_status
     ON xlwms_warehouse_sku_specs (enabled, warehouse_sku);
 
+CREATE TABLE IF NOT EXISTS xlwms_sku_combinations (
+    id bigserial PRIMARY KEY,
+    name text NOT NULL,
+    substitute_for_sku text UNIQUE REFERENCES xlwms_warehouse_sku_specs(warehouse_sku) ON DELETE RESTRICT,
+    length_cm numeric NOT NULL CHECK (length_cm > 0),
+    width_cm numeric NOT NULL CHECK (width_cm > 0),
+    height_cm numeric NOT NULL CHECK (height_cm > 0),
+    weight_kg numeric NOT NULL CHECK (weight_kg > 0),
+    calculated_length_cm numeric CHECK (calculated_length_cm IS NULL OR calculated_length_cm > 0),
+    calculated_width_cm numeric CHECK (calculated_width_cm IS NULL OR calculated_width_cm > 0),
+    calculated_height_cm numeric CHECK (calculated_height_cm IS NULL OR calculated_height_cm > 0),
+    calculated_weight_kg numeric CHECK (calculated_weight_kg IS NULL OR calculated_weight_kg > 0),
+    note text NOT NULL DEFAULT '',
+    enabled boolean NOT NULL DEFAULT true,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now(),
+    CHECK (length(btrim(name)) BETWEEN 1 AND 120)
+);
+
+CREATE INDEX IF NOT EXISTS idx_xlwms_sku_combinations_status
+    ON xlwms_sku_combinations (enabled, updated_at DESC);
+
+CREATE TABLE IF NOT EXISTS xlwms_sku_combination_items (
+    combination_id bigint NOT NULL REFERENCES xlwms_sku_combinations(id) ON DELETE CASCADE,
+    warehouse_sku text NOT NULL REFERENCES xlwms_warehouse_sku_specs(warehouse_sku) ON DELETE RESTRICT,
+    quantity integer NOT NULL CHECK (quantity > 0 AND quantity <= 300),
+    PRIMARY KEY (combination_id, warehouse_sku)
+);
+
+CREATE INDEX IF NOT EXISTS idx_xlwms_sku_combination_items_sku
+    ON xlwms_sku_combination_items (warehouse_sku, combination_id);
+
 CREATE TABLE IF NOT EXISTS xlwms_inventory_corrections (
     wh_code text NOT NULL REFERENCES xlwms_warehouses(wh_code) ON DELETE CASCADE,
     warehouse_sku text NOT NULL REFERENCES xlwms_warehouse_sku_specs(warehouse_sku) ON DELETE CASCADE,

@@ -1,8 +1,9 @@
-import { AlertTriangle, Boxes, ChevronLeft, ChevronRight, LoaderCircle, Minus, PackageCheck, PackagePlus, Pause, Play, Plus, RotateCcw, Search, Trash2, Weight } from "lucide-react";
+import { AlertTriangle, Boxes, ChevronLeft, ChevronRight, Layers3, Library, LoaderCircle, Minus, PackageCheck, PackagePlus, Pause, Play, Plus, RotateCcw, Save, Search, Trash2, Weight, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../api";
 import { EmptyState, ErrorState, PageHeader, number } from "../components/Common";
-import type { PackingPackagePlan, PackingPlan, WarehouseSKUSpec } from "../types";
+import type { PackingPackagePlan, PackingPlan, SKUCombination, WarehouseSKUSpec } from "../types";
+import { PackingCombinationsPanel, SKUCombinationEditor } from "./PackingCombinations";
 import PackingScene, { packingColorForSKU } from "./PackingScene";
 
 type SelectedSKU = { spec: WarehouseSKUSpec; quantity: number };
@@ -39,6 +40,11 @@ export default function PackingPlannerPage() {
   const [playing, setPlaying] = useState(false);
   const [speed, setSpeed] = useState(1);
   const [resetToken, setResetToken] = useState(0);
+  const [view, setView] = useState<"planner" | "combinations">("planner");
+  const [editingCombination, setEditingCombination] = useState<SKUCombination | null>(null);
+  const [editorOpen, setEditorOpen] = useState(false);
+  const [combinationRefreshToken, setCombinationRefreshToken] = useState(0);
+  const [savedMessage, setSavedMessage] = useState("");
 
   useEffect(() => {
     let cancelled = false;
@@ -127,8 +133,53 @@ export default function PackingPlannerPage() {
     setPlaying((plan?.packages[index]?.placements.length ?? 0) > 0 && !prefersReducedMotion());
   };
 
+  const editCombination = async (combination: SKUCombination) => {
+    const members: SelectedSKU[] = combination.items.map((item) => ({
+      quantity: item.quantity,
+      spec: {
+        warehouse_sku: item.warehouse_sku, product_name: item.product_name ?? "",
+        length_cm: item.length_cm, width_cm: item.width_cm, height_cm: item.height_cm, weight_kg: item.weight_kg,
+        note: "", enabled: true, source: "combination", complete: true, missing_fields: [],
+        first_seen_at: combination.created_at, updated_at: combination.updated_at,
+      },
+    }));
+    setView("planner");
+    setEditingCombination(combination);
+    setSelected(members);
+    setSavedMessage("");
+    setPlanError("");
+    setPlanning(true);
+    try {
+      const result = await api.packingPlan({ items: members.map((item) => ({ warehouse_sku: item.spec.warehouse_sku, quantity: item.quantity })) });
+      setPlan(result);
+      setActivePackageIndex(0);
+      setVisibleCount(0);
+      setPlaying(false);
+    } catch (reason) {
+      setPlan(null);
+      setPlanError(reason instanceof Error ? reason.message : "无法重新计算组合");
+    } finally {
+      setPlanning(false);
+    }
+  };
+
+  const canSaveCombination = selected.length > 0 && Boolean(editingCombination || plan?.summary.requested_units);
+  const finishCombinationSave = (item: SKUCombination) => {
+    setEditorOpen(false);
+    setEditingCombination(item);
+    setSavedMessage(`组合“${item.name}”已保存`);
+    setCombinationRefreshToken((value) => value + 1);
+  };
+
   return <>
-    <PageHeader title="包装规划" subtitle="按仓库 SKU 规格自动计算包裹尺寸与逐件摆放顺序" />
+    <PageHeader title="包装规划" subtitle={view === "planner" ? "按仓库 SKU 规格计算包裹，并保存组合与发货替代映射" : "已保存的 SKU 组合、人工包裹修正与发货替代映射"} actions={view === "planner" && editingCombination ? <button type="button" className="secondary-button" onClick={() => setEditingCombination(null)}><X size={15}/>退出修改</button> : undefined} />
+    <div className="segmented-tabs packing-mode-tabs" role="tablist" aria-label="包装功能">
+      <button type="button" role="tab" aria-selected={view === "planner"} className={view === "planner" ? "active" : ""} onClick={() => setView("planner")}><Layers3 size={15}/>包装规划</button>
+      <button type="button" role="tab" aria-selected={view === "combinations"} className={view === "combinations" ? "active" : ""} onClick={() => setView("combinations")}><Library size={15}/>组合库</button>
+    </div>
+    {view === "planner" ? <>
+    {editingCombination && <div className="combination-edit-banner"><span>正在修改</span><strong>{editingCombination.name}</strong><small>{editingCombination.substitute_for_sku ? `替代 ${editingCombination.substitute_for_sku}` : "未绑定发货替代"}</small></div>}
+    {savedMessage && <div className="success-banner"><Save size={16}/>{savedMessage}</div>}
     <div className="packing-layout">
       <aside className="packing-config" aria-label="包装选品">
         <section className="packing-config-section">
@@ -160,7 +211,10 @@ export default function PackingPlannerPage() {
               <button type="button" className="icon-button packing-remove" onClick={() => removeSKU(spec.warehouse_sku)} title="移除 SKU"><Trash2 size={15}/></button>
             </div>) : <div className="packing-empty-selection"><PackagePlus size={20}/><span>从上方列表添加 SKU</span></div>}
           </div>
-          <button className="primary-button packing-generate" type="button" disabled={planning || selected.length === 0} onClick={() => void createPlan()}>{planning ? <LoaderCircle className="spin" size={16}/> : <PackageCheck size={16}/>} {planning ? "规划中" : "生成包装方案"}</button>
+          <div className="packing-primary-actions">
+            <button className="primary-button packing-generate" type="button" disabled={planning || selected.length === 0} onClick={() => void createPlan()}>{planning ? <LoaderCircle className="spin" size={16}/> : <PackageCheck size={16}/>} {planning ? "规划中" : "生成包装方案"}</button>
+            <button className="secondary-button packing-save-combination" type="button" disabled={!canSaveCombination} onClick={() => setEditorOpen(true)}><Save size={15}/>{editingCombination ? "保存组合修改" : "保存为组合"}</button>
+          </div>
         </section>
       </aside>
 
@@ -218,5 +272,7 @@ export default function PackingPlannerPage() {
         </section> : null}
       </section>
     </div>
+    </> : <PackingCombinationsPanel refreshToken={combinationRefreshToken} onEdit={(item) => void editCombination(item)} />}
+    {editorOpen && canSaveCombination && <SKUCombinationEditor selected={selected} plan={plan} existing={editingCombination} targetOptions={candidates} onClose={() => setEditorOpen(false)} onSaved={finishCombinationSave} />}
   </>;
 }
