@@ -15,6 +15,7 @@ func TestLoadUsesXLWMSDefaults(t *testing.T) {
 	t.Setenv("TEMU_GO_BASE_URL", "")
 	t.Setenv("SHEIN_GO_BASE_URL", "")
 	t.Setenv("XLWMS_INVENTORY_SYNC_INTERVAL", "")
+	t.Setenv("XLWMS_COST_SYNC_INTERVAL", "")
 	t.Setenv("XLWMS_FULFILLMENT_TRACKING_LIMIT", "")
 	t.Setenv("XLWMS_FULFILLMENT_TRACKING_CONCURRENCY", "")
 	t.Setenv("XLWMS_LISTEN", "")
@@ -41,6 +42,9 @@ func TestLoadUsesXLWMSDefaults(t *testing.T) {
 	if cfg.InventorySyncInterval != DefaultInventorySyncInterval {
 		t.Fatalf("unexpected inventory sync interval %s", cfg.InventorySyncInterval)
 	}
+	if cfg.CostSyncInterval != DefaultCostSyncInterval {
+		t.Fatalf("unexpected cost sync interval %s", cfg.CostSyncInterval)
+	}
 	if cfg.Listen != DefaultListen {
 		t.Fatalf("unexpected listen address %q", cfg.Listen)
 	}
@@ -55,6 +59,16 @@ func TestLoadRejectsInvalidInventorySyncInterval(t *testing.T) {
 	t.Setenv("XLWMS_OMS_PASSWORD", "")
 	t.Setenv("XLWMS_INVENTORY_SYNC_INTERVAL", "0s")
 	if _, err := Load(); err == nil || err.Error() != "XLWMS_INVENTORY_SYNC_INTERVAL must be a positive duration" {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestLoadRejectsInvalidCostSyncInterval(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgresql://example.test/xlwms")
+	t.Setenv("XLWMS_OMS_USERNAME", "")
+	t.Setenv("XLWMS_OMS_PASSWORD", "")
+	t.Setenv("XLWMS_COST_SYNC_INTERVAL", "invalid")
+	if _, err := Load(); err == nil || err.Error() != "XLWMS_COST_SYNC_INTERVAL must be a positive duration" {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }

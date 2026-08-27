@@ -60,6 +60,7 @@ func run(ctx context.Context, logger *slog.Logger) error {
 	}
 	service := syncer.New(ctx, destination, cfg.RequestTimeout, cfg.SyncTimeout, logger)
 	go backgroundInventorySync(ctx, destination, service, cfg.InventorySyncInterval, logger)
+	go backgroundCostSync(ctx, destination, service, cfg.CostSyncInterval, 2*cfg.SyncTimeout, logger)
 	trackingClient := temutracking.NewClient(cfg.TemuGoBaseURL, cfg.RequestTimeout)
 	platformSources := &platformOrderSources{
 		Client: trackingClient,

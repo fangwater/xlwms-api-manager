@@ -444,6 +444,16 @@ func (p *Postgres) FinishSyncRun(ctx context.Context, run model.SyncRun, syncErr
 	return err
 }
 
+func (p *Postgres) SyncRun(ctx context.Context, id int64) (model.SyncRun, error) {
+	var run model.SyncRun
+	err := p.pool.QueryRow(ctx, `
+		SELECT id, coalesce(wh_code, ''), target, status, pages, records_seen, records_saved,
+		       targets, succeeded, failed, cost_items, coalesce(error_message, ''), started_at, finished_at
+		FROM xlwms_sync_runs WHERE id=$1
+	`, id).Scan(&run.ID, &run.WarehouseCode, &run.Target, &run.Status, &run.Pages, &run.RecordsSeen, &run.RecordsSaved, &run.Targets, &run.Succeeded, &run.Failed, &run.CostItems, &run.Error, &run.StartedAt, &run.FinishedAt)
+	return run, err
+}
+
 func (p *Postgres) RecentSyncRuns(ctx context.Context, limit int) ([]model.SyncRun, error) {
 	if limit < 1 || limit > 100 {
 		limit = 20

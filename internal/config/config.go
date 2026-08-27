@@ -16,6 +16,7 @@ const (
 	DefaultSheinGoBaseURL             = "http://127.0.0.1:18084"
 	DefaultListen                     = "127.0.0.1:18083"
 	DefaultInventorySyncInterval      = 3 * time.Minute
+	DefaultCostSyncInterval           = time.Hour
 	DefaultFulfillmentTrackingLimit   = 500
 	DefaultFulfillmentTrackingWorkers = 8
 )
@@ -35,6 +36,7 @@ type Config struct {
 	RequestTimeout             time.Duration
 	SyncTimeout                time.Duration
 	InventorySyncInterval      time.Duration
+	CostSyncInterval           time.Duration
 	FulfillmentAuditInterval   time.Duration
 	FulfillmentTrackingLimit   int
 	FulfillmentTrackingWorkers int
@@ -60,6 +62,7 @@ func Load() (Config, error) {
 		RequestTimeout:             30 * time.Second,
 		SyncTimeout:                30 * time.Minute,
 		InventorySyncInterval:      DefaultInventorySyncInterval,
+		CostSyncInterval:           DefaultCostSyncInterval,
 		FulfillmentAuditInterval:   time.Hour,
 		FulfillmentTrackingLimit:   DefaultFulfillmentTrackingLimit,
 		FulfillmentTrackingWorkers: DefaultFulfillmentTrackingWorkers,
@@ -77,6 +80,9 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 	if cfg.InventorySyncInterval, err = positiveDuration("XLWMS_INVENTORY_SYNC_INTERVAL", cfg.InventorySyncInterval); err != nil {
+		return Config{}, err
+	}
+	if cfg.CostSyncInterval, err = positiveDuration("XLWMS_COST_SYNC_INTERVAL", cfg.CostSyncInterval); err != nil {
 		return Config{}, err
 	}
 	if cfg.FulfillmentAuditInterval, err = positiveDuration("XLWMS_FULFILLMENT_AUDIT_INTERVAL", cfg.FulfillmentAuditInterval); err != nil {
