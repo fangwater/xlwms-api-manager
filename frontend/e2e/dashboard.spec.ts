@@ -334,7 +334,7 @@ test("pending platform orders show a visible offline banner when both OMS accoun
   await page.screenshot({ path: "/tmp/xlwms-platform-accounts-offline-mobile.png", fullPage: true });
 });
 
-test("pending platform orders can update the selected OMS username and password", async ({ page }) => {
+test("pending platform orders can re-login the selected OMS account", async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 900 });
   await mockAPI(page, {
     accounts: [
@@ -344,14 +344,14 @@ test("pending platform orders can update the selected OMS username and password"
     pendingError: "请更新登录密码"
   });
   await page.goto("./platform-orders");
-  await page.getByRole("button", { name: "更新账号" }).click();
-  const dialog = page.getByRole("dialog", { name: "更新 OMS 账号" });
+  await page.getByRole("button", { name: "重新登录" }).click();
+  const dialog = page.getByRole("dialog", { name: "重新登录 OMS" });
   await expect(dialog).toBeVisible();
   await expect(dialog.getByText("ARP 账户 · 当前 ar***rp")).toBeVisible();
   await dialog.getByLabel("OMS 账号").fill("new-arp");
   await dialog.getByLabel("OMS 密码").fill("new-password");
   const saveRequest = page.waitForRequest((request) => request.method() === "PATCH" && request.url().endsWith("/platform-orders/accounts/arp"));
-  await dialog.getByRole("button", { name: "保存账号和密码" }).click();
+  await dialog.getByRole("button", { name: "验证并重新登录" }).click();
   expect((await saveRequest).postDataJSON()).toEqual({ username: "new-arp", password: "new-password" });
   await expect(dialog).toHaveCount(0);
   await expect(page.getByRole("alert")).toHaveCount(0);

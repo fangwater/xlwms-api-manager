@@ -455,6 +455,12 @@ func (s *Server) updatePlatformOrderAccount(writer http.ResponseWriter, request 
 			writePlatformOrderAccountError(writer, err)
 			return
 		}
+		if errors.Is(err, oms.ErrPasswordUpdateRequired) {
+			writeJSON(writer, http.StatusConflict, response{
+				Success: false, Error: "领星要求更新登录密码", Code: "OMS_PASSWORD_UPDATE_REQUIRED",
+			})
+			return
+		}
 		if message := oms.AuthErrorMessage(err); message != "" {
 			writeJSON(writer, http.StatusBadGateway, response{Success: false, Error: message})
 			return
@@ -472,8 +478,69 @@ func (s *Server) updatePlatformOrderAccount(writer http.ResponseWriter, request 
 	writeJSON(writer, http.StatusOK, response{Success: true, Data: accounts})
 }
 
+type platformOrderAccountPasswordUpgradeRequest struct {
+	Username           string `json:"username"`
+	CurrentPassword    string `json:"current_password"`
+	NewPassword        string `json:"new_password"`
+	ConfirmNewPassword string `json:"confirm_new_password"`
+}
+
+func (s *Server) upgradePlatformOrderAccountPassword(writer http.ResponseWriter, request *http.Request) {
+	var payload platformOrderAccountPasswordUpgradeRequest
+	if !decodeJSON(writer, request, &payload) {
+		return
+	}
+	if payload.NewPassword == "" || payload.NewPassword != payload.ConfirmNewPassword {
+		writeJSON(writer, http.StatusBadRequest, response{Success: false, Error: "两次输入的新密码不一致"})
+		return
+	}
+	accountKey, err := requestedPlatformOrderAccountWithBody(request, request.PathValue("accountKey"))
+	if err != nil {
+		writeJSON(writer, http.StatusBadRequest, response{Success: false, Error: "OMS 账户参数冲突"})
+		return
+	}
+	ctx, cancel := context.WithTimeout(request.Context(), s.requestTimeout)
+	defer cancel()
+	upgrader, ok := s.platformAccounts.(platformOrderAccountPasswordUpgrader)
+	if !ok {
+		writeJSON(writer, http.StatusServiceUnavailable, response{Success: false, Error: "所选 OMS 账户暂不支持密码更新"})
+		return
+	}
+	if err := upgrader.UpgradeAccountPassword(ctx, accountKey, payload.Username, payload.CurrentPassword, payload.NewPassword); err != nil {
+		switch {
+		case errors.Is(err, errPlatformOrderAccountNotFound):
+			writePlatformOrderAccountError(writer, err)
+		case errors.Is(err, oms.ErrInvalidNewPassword):
+			writeJSON(writer, http.StatusBadRequest, response{Success: false, Error: "新密码不符合领星密码规则"})
+		case errors.Is(err, oms.ErrPasswordUpdateNotRequired):
+			writeJSON(writer, http.StatusConflict, response{
+				Success: false, Error: "该账号当前不需要强制更新密码", Code: "OMS_PASSWORD_UPDATE_NOT_REQUIRED",
+			})
+		case errors.Is(err, oms.ErrPasswordUpdateRequired):
+			writeJSON(writer, http.StatusBadGateway, response{Success: false, Error: "领星未返回可用的密码更新会话"})
+		case oms.AuthErrorMessage(err) != "":
+			writeJSON(writer, http.StatusBadGateway, response{Success: false, Error: oms.AuthErrorMessage(err)})
+		default:
+			s.logger.Warn("upgrade OMS platform order account password", "account", accountKey, "error", err)
+			writeJSON(writer, http.StatusBadGateway, response{Success: false, Error: "无法更新 OMS 登录密码"})
+		}
+		return
+	}
+	accounts, err := s.availablePlatformOrderAccounts(ctx)
+	if err != nil {
+		s.logger.Warn("reload OMS platform order accounts after password update", "error", err)
+		writeJSON(writer, http.StatusOK, response{Success: true, Data: []platformOrderAccountOption{}})
+		return
+	}
+	writeJSON(writer, http.StatusOK, response{Success: true, Data: accounts})
+}
+
 type platformOrderAccountUpdater interface {
 	UpdateAccountCredentials(context.Context, string, string, string) error
+}
+
+type platformOrderAccountPasswordUpgrader interface {
+	UpgradeAccountPassword(context.Context, string, string, string, string) error
 }
 
 func (p *postgresPlatformOrderAccounts) UpdateAccountCredentials(ctx context.Context, key, username, password string) error {
@@ -485,6 +552,42 @@ func (p *postgresPlatformOrderAccounts) UpdateAccountCredentials(ctx context.Con
 	if err := probe.CheckAccess(ctx); err != nil {
 		return err
 	}
+	return p.saveVerifiedAccountCredentials(ctx, key, username, password, probe)
+}
+
+func (p *postgresPlatformOrderAccounts) UpgradeAccountPassword(ctx context.Context, key, username, currentPassword, newPassword string) error {
+	username = strings.TrimSpace(username)
+	if username == "" || currentPassword == "" || newPassword == "" {
+		return errors.New("OMS username, current password, and new password are required")
+	}
+	if err := p.validateAccountKey(ctx, key); err != nil {
+		return err
+	}
+	probe := oms.NewClient(p.baseURL, username, currentPassword, p.timeout)
+	if err := probe.UpgradeRequiredPassword(ctx, newPassword); err != nil {
+		return err
+	}
+	return p.saveVerifiedAccountCredentials(ctx, key, username, newPassword, probe)
+}
+
+func (p *postgresPlatformOrderAccounts) validateAccountKey(ctx context.Context, key string) error {
+	accounts, err := p.selectableAccounts(ctx)
+	if err != nil {
+		return err
+	}
+	key = strings.TrimSpace(key)
+	if key == "" {
+		key = defaultPlatformOrderAccountKey
+	}
+	for _, selectable := range accounts {
+		if platformOrderAccountKeyMatches(selectable.option, key) {
+			return nil
+		}
+	}
+	return errPlatformOrderAccountNotFound
+}
+
+func (p *postgresPlatformOrderAccounts) saveVerifiedAccountCredentials(ctx context.Context, key, username, password string, verified platformOrderAccount) error {
 	accounts, err := p.selectableAccounts(ctx)
 	if err != nil {
 		return err
@@ -501,7 +604,7 @@ func (p *postgresPlatformOrderAccounts) UpdateAccountCredentials(ctx context.Con
 			if _, err := p.store.SetOMSAccount(ctx, defaultPlatformOrderAccountKey, username, password); err != nil {
 				return err
 			}
-			p.replaceShared(username, password, probe)
+			p.replaceShared(username, password, verified)
 			return nil
 		}
 		if len(selectable.option.WarehouseCodes) == 0 {

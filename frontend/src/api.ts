@@ -1,7 +1,19 @@
-import type { CostDetail, DashboardData, FulfilledOrderPage, FulfillmentAuditPage, FundsFlow, InventoryAlertPage, InventoryCorrection, InventoryKind, InventoryRecord, InventoryThresholdPage, InventoryThresholds, PackingPlan, PackingPlanRequest, PageData, PendingPlatformOrderPage, PlatformOrderAccountOption, PlatformOrderAssignmentResult, PlatformOrderRoutingPreview, ShopInventoryThresholds, SKUCombination, SKUCombinationPayload, SKUInventoryThreshold, SKUStockLevelPage, SyncRun, Warehouse, WarehouseSKUInventoryAlertThreshold, WarehouseSKUSpec } from "./types";
+import type { CostDetail, DashboardData, FulfilledOrderPage, FulfillmentAuditPage, FundsFlow, InventoryAlertPage, InventoryCorrection, InventoryKind, InventoryRecord, InventoryThresholdPage, InventoryThresholds, PackingPlan, PackingPlanRequest, PageData, PendingPlatformOrderPage, PlatformOrderAccountOption, PlatformOrderAssignmentResult, PlatformOrderRoutingPreview, ProductPairingMutationResult, ProductPairingPage, ProductPairingPayload, ShopInventoryThresholds, SKUCombination, SKUCombinationPayload, SKUInventoryThreshold, SKUStockLevelPage, SyncRun, Warehouse, WarehouseSKUInventoryAlertThreshold, WarehouseSKUSpec } from "./types";
 
-type Envelope<T> = { success: boolean; data?: T; error?: string };
+type Envelope<T> = { success: boolean; data?: T; error?: string; code?: string };
 const apiBase = `${import.meta.env.BASE_URL}api`;
+
+export class APIError extends Error {
+  readonly code?: string;
+  readonly status: number;
+
+  constructor(message: string, status: number, code?: string) {
+    super(message);
+    this.name = "APIError";
+    this.status = status;
+    this.code = code;
+  }
+}
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${apiBase}${path}`, {
@@ -9,7 +21,9 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     headers: { ...(init?.body ? { "Content-Type": "application/json" } : {}), ...init?.headers }
   });
   const payload = await response.json() as Envelope<T>;
-  if (!response.ok || !payload.success || payload.data === undefined) throw new Error(payload.error || `请求失败 (${response.status})`);
+  if (!response.ok || !payload.success || payload.data === undefined) {
+    throw new APIError(payload.error || `请求失败 (${response.status})`, response.status, payload.code);
+  }
   return payload.data;
 }
 
@@ -44,6 +58,14 @@ export const api = {
   platformOrderAccounts: () => request<PlatformOrderAccountOption[]>("/platform-orders/accounts"),
   updatePlatformOrderAccount: (account: string, payload: { username: string; password: string }) =>
     request<PlatformOrderAccountOption[]>(`/platform-orders/accounts/${encodeURIComponent(account)}`, { method: "PATCH", body: JSON.stringify(payload) }),
+  upgradePlatformOrderAccountPassword: (account: string, payload: { username: string; current_password: string; new_password: string; confirm_new_password: string }) =>
+    request<PlatformOrderAccountOption[]>(`/platform-orders/accounts/${encodeURIComponent(account)}/password-upgrade`, { method: "POST", body: JSON.stringify(payload) }),
+  productPairings: (params: { account: string; storeCode?: string; q?: string; queryField?: "platform_sku" | "system_sku" | "product_name"; page: number; pageSize: number }) =>
+    request<ProductPairingPage>(`/product-pairings${query({ account: params.account, store_code: params.storeCode, q: params.q, query_field: params.queryField, page: params.page, page_size: params.pageSize })}`),
+  createProductPairing: (payload: ProductPairingPayload) =>
+    request<ProductPairingMutationResult>("/product-pairings", { method: "POST", body: JSON.stringify(payload) }),
+  deleteProductPairing: (payload: Omit<ProductPairingPayload, "items">) =>
+    request<ProductPairingMutationResult>("/product-pairings/delete", { method: "POST", body: JSON.stringify(payload) }),
   pendingPlatformOrders: (params: { account: string; q?: string; page: number; pageSize: number }) =>
     request<PendingPlatformOrderPage>("/platform-orders/pending" + query({ account: params.account, q: params.q, page: params.page, page_size: params.pageSize })),
   platformOrderRoutingPreview: (platformOrderNos: string[], account: string) => request<PlatformOrderRoutingPreview>("/platform-orders/routing-preview", { method: "POST", body: JSON.stringify({ platform_order_nos: platformOrderNos, account }) }),

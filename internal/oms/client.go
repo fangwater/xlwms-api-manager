@@ -263,6 +263,8 @@ type loginPayload struct {
 
 type loginData struct {
 	Token                   string `json:"token"`
+	LoginAction             string `json:"loginAction"`
+	SecuritySessionToken    string `json:"securitySessionToken"`
 	NeedVerify              bool   `json:"needVerify"`
 	NeedSetupMFA            bool   `json:"needSetupMfa"`
 	NeedUpdatePassword      bool   `json:"needUpdatePassword"`
@@ -568,6 +570,8 @@ func AuthErrorMessage(err error) string {
 	}
 	message := err.Error()
 	switch {
+	case errors.Is(err, ErrPasswordUpdateRequired):
+		return "请更新登录密码"
 	case strings.Contains(message, "账号已锁定"):
 		return "账号已锁定，请联系超管修改或重置密码"
 	case strings.Contains(message, "请更新登录密码"):
@@ -620,6 +624,12 @@ func (c *Client) login(ctx context.Context) (string, error) {
 	envelope, status, err := postJSON[loginData](ctx, c, "/gateway/woms/auth/login", payload, headers)
 	if err != nil {
 		return "", fmt.Errorf("login to OMS: %w", err)
+	}
+	passwordUpdateRequired := envelope.Data.NeedUpdatePassword || envelope.Data.NeedForceUpdatePassword ||
+		strings.EqualFold(envelope.Data.LoginAction, "NEED_UPDATE_PASSWORD") || envelope.Code == 4011 ||
+		strings.Contains(envelope.Msg, "请更新登录密码")
+	if passwordUpdateRequired {
+		return "", &passwordUpdateRequiredError{securitySessionToken: envelope.Data.SecuritySessionToken}
 	}
 	if status == http.StatusUnauthorized || envelope.Code == http.StatusUnauthorized {
 		return "", ErrAuthentication

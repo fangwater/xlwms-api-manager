@@ -27,6 +27,9 @@ func TestCheckAccessReportsForcedPasswordUpdate(t *testing.T) {
 	if err == nil {
 		t.Fatal("forced password update was treated as available")
 	}
+	if !errors.Is(err, ErrPasswordUpdateRequired) {
+		t.Fatalf("CheckAccess error = %v, want ErrPasswordUpdateRequired", err)
+	}
 	if got := PublicAuthError(err); got != "请更新登录密码" {
 		t.Fatalf("PublicAuthError = %q", got)
 	}

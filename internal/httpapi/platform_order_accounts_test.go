@@ -3,6 +3,7 @@ package httpapi
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -64,6 +65,25 @@ type fakeSelectablePlatformAccounts struct {
 	warehouseOperators map[string]platformOrderOperator
 	options            []platformOrderAccountOption
 	selectedAccounts   []string
+}
+
+type fakeMutablePlatformAccounts struct {
+	*fakeSelectablePlatformAccounts
+	updateErr       error
+	updatedKey      string
+	upgradedKey     string
+	upgradeUsername string
+}
+
+func (f *fakeMutablePlatformAccounts) UpdateAccountCredentials(_ context.Context, key, _, _ string) error {
+	f.updatedKey = key
+	return f.updateErr
+}
+
+func (f *fakeMutablePlatformAccounts) UpgradeAccountPassword(_ context.Context, key, username, _, _ string) error {
+	f.upgradedKey = key
+	f.upgradeUsername = username
+	return nil
 }
 
 func (f *fakeSelectablePlatformAccounts) PlatformOrderAccounts(context.Context) ([]platformOrderAccountOption, error) {
@@ -153,7 +173,7 @@ func TestPlatformOrderAccountUpdateSavesVerifiedSharedLogin(t *testing.T) {
 	accountStore := &fakePlatformOrderAccountStore{}
 	resolver := &postgresPlatformOrderAccounts{
 		store: accountStore, baseURL: server.URL, timeout: time.Second,
-		shared: oms.NewClient(server.URL, "old-arp", "old-password", time.Second),
+		shared:         oms.NewClient(server.URL, "old-arp", "old-password", time.Second),
 		sharedUsername: "old-arp", sharedPassword: "old-password",
 	}
 	if err := resolver.UpdateAccountCredentials(context.Background(), "arp", "new-arp", "new-password"); err != nil {
@@ -169,6 +189,124 @@ func TestPlatformOrderAccountUpdateSavesVerifiedSharedLogin(t *testing.T) {
 	}
 	if account == resolver.shared && resolver.sharedUsername == "old-arp" {
 		t.Fatal("updated ARP account still uses the previous shared client")
+	}
+}
+
+func TestPlatformOrderAccountPasswordUpgradeSavesVerifiedSharedLogin(t *testing.T) {
+	const (
+		currentPassword = "Old!Password7Q"
+		newPassword     = "Fresh!Moon9Qz"
+	)
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/gateway/woms/auth/login":
+			var payload struct {
+				Password string `json:"password"`
+			}
+			if err := json.NewDecoder(request.Body).Decode(&payload); err != nil {
+				t.Error(err)
+				return
+			}
+			if payload.Password == currentPassword {
+				_, _ = writer.Write([]byte(`{"code":4011,"msg":"请更新登录密码","data":{"loginAction":"NEED_UPDATE_PASSWORD","securitySessionToken":"session-token"}}`))
+				return
+			}
+			if payload.Password != newPassword {
+				t.Errorf("unexpected login password")
+			}
+			_, _ = writer.Write([]byte(`{"code":200,"msg":"ok","data":{"token":"fresh-token"}}`))
+		case "/gateway/woms/auth/securityUpgrade/updatePassword":
+			var payload struct {
+				SecuritySessionToken string `json:"securitySessionToken"`
+				NewPassword          string `json:"newPassword"`
+				ConfirmPassword      string `json:"confirmPassword"`
+			}
+			if err := json.NewDecoder(request.Body).Decode(&payload); err != nil {
+				t.Error(err)
+				return
+			}
+			if payload.SecuritySessionToken != "session-token" || payload.NewPassword != newPassword || payload.ConfirmPassword != newPassword {
+				t.Errorf("unexpected password upgrade payload")
+			}
+			_, _ = writer.Write([]byte(`{"code":200,"msg":"ok","data":{}}`))
+		default:
+			http.NotFound(writer, request)
+		}
+	}))
+	defer server.Close()
+
+	accountStore := &fakePlatformOrderAccountStore{}
+	resolver := &postgresPlatformOrderAccounts{
+		store: accountStore, baseURL: server.URL, timeout: time.Second,
+		shared:         oms.NewClient(server.URL, "old-arp", currentPassword, time.Second),
+		sharedUsername: "old-arp", sharedPassword: currentPassword,
+	}
+	if err := resolver.UpgradeAccountPassword(context.Background(), "arp", "arp-user", currentPassword, newPassword); err != nil {
+		t.Fatal(err)
+	}
+	stored := accountStore.loginAccounts[defaultPlatformOrderAccountKey]
+	if stored.Username != "arp-user" || stored.Password != newPassword {
+		t.Fatalf("stored ARP credentials were not updated")
+	}
+	if resolver.sharedUsername != "arp-user" || resolver.sharedPassword != newPassword {
+		t.Fatal("shared OMS client was not replaced after password upgrade")
+	}
+}
+
+func TestPlatformOrderAccountPasswordUpgradeValidatesAccountBeforeRemoteChange(t *testing.T) {
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		requests++
+		http.NotFound(writer, request)
+	}))
+	defer server.Close()
+
+	accountStore := &fakePlatformOrderAccountStore{}
+	resolver := &postgresPlatformOrderAccounts{
+		store: accountStore, baseURL: server.URL, timeout: time.Second,
+		shared: readyPlatformOrderOperator(), sharedUsername: "arp-user", sharedPassword: "Old!Password7Q",
+	}
+	err := resolver.UpgradeAccountPassword(context.Background(), "warehouse:UNKNOWN", "arp-user", "Old!Password7Q", "Fresh!Moon9Qz")
+	if !errors.Is(err, errPlatformOrderAccountNotFound) {
+		t.Fatalf("error = %v, want errPlatformOrderAccountNotFound", err)
+	}
+	if requests != 0 {
+		t.Fatalf("remote OMS received %d requests for an invalid account", requests)
+	}
+}
+
+func TestPlatformOrderAccountUpdateReturnsPasswordUpgradeCode(t *testing.T) {
+	accounts := &fakeMutablePlatformAccounts{
+		fakeSelectablePlatformAccounts: &fakeSelectablePlatformAccounts{
+			options: []platformOrderAccountOption{{Key: defaultPlatformOrderAccountKey, Label: "ARP 账户"}},
+		},
+		updateErr: oms.ErrPasswordUpdateRequired,
+	}
+	handler := newWithPlatformOrderAccountOperations(nil, nil, nil, nil, nil, nil, accounts, time.Second, slog.Default())
+	request := httptest.NewRequest(http.MethodPatch, "/v1/platform-orders/accounts/arp", strings.NewReader(`{"username":"arp-user","password":"current-password"}`))
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusConflict || !strings.Contains(recorder.Body.String(), `"code":"OMS_PASSWORD_UPDATE_REQUIRED"`) {
+		t.Fatalf("unexpected response %d: %s", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestPlatformOrderAccountPasswordUpgradeEndpoint(t *testing.T) {
+	accounts := &fakeMutablePlatformAccounts{
+		fakeSelectablePlatformAccounts: &fakeSelectablePlatformAccounts{
+			options: []platformOrderAccountOption{{Key: defaultPlatformOrderAccountKey, Label: "ARP 账户"}},
+		},
+	}
+	handler := newWithPlatformOrderAccountOperations(nil, nil, nil, nil, nil, nil, accounts, time.Second, slog.Default())
+	request := httptest.NewRequest(http.MethodPost, "/v1/platform-orders/accounts/arp/password-upgrade", strings.NewReader(
+		`{"username":"arp-user","current_password":"current-password","new_password":"new-password","confirm_new_password":"new-password"}`,
+	))
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK || accounts.upgradedKey != "arp" || accounts.upgradeUsername != "arp-user" {
+		t.Fatalf("unexpected response %d: %s", recorder.Code, recorder.Body.String())
 	}
 }
 
@@ -377,8 +515,8 @@ func TestPlatformOrderAccountsMarksOfflineLogins(t *testing.T) {
 		t.Fatalf("status = %d body=%s", recorder.Code, recorder.Body.String())
 	}
 	var payload struct {
-		Success bool                          `json:"success"`
-		Data    []platformOrderAccountOption  `json:"data"`
+		Success bool                         `json:"success"`
+		Data    []platformOrderAccountOption `json:"data"`
 	}
 	if err := json.NewDecoder(recorder.Body).Decode(&payload); err != nil {
 		t.Fatal(err)

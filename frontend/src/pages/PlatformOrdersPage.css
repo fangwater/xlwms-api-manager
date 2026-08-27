@@ -19,6 +19,21 @@
 }
 .platform-order-account-alert strong { color: #8d2f38; font-size: 12px; }
 .platform-order-account-alert span { color: #aa3842; font-size: 11px; line-height: 16px; overflow-wrap: anywhere; }
+.password-upgrade-notice {
+  min-height: 46px;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-bottom: 14px;
+  padding: 8px 11px;
+  border: 1px solid #ead9b7;
+  border-radius: 6px;
+  background: #fdf9f1;
+  color: #855d1c;
+  font-size: 11px;
+  line-height: 17px;
+}
+.password-upgrade-notice svg { flex: none; }
 .platform-order-overview {
   min-height: 78px;
   display: flex;

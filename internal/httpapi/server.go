@@ -34,12 +34,14 @@ type Server struct {
 	platformFulfillment  platformOrderFulfillmentSource
 	platformAccounts     platformOrderAccountSource
 	platformOrderMu      sync.Mutex
+	productPairingMu     sync.Mutex
 }
 
 type response struct {
 	Success bool   `json:"success"`
 	Data    any    `json:"data,omitempty"`
 	Error   string `json:"error,omitempty"`
+	Code    string `json:"code,omitempty"`
 }
 
 func New(destination *store.Postgres, service *syncer.Service, fulfillmentAuditor *auditor.Service, requestTimeout time.Duration, logger *slog.Logger) http.Handler {
@@ -94,12 +96,18 @@ func newWithPlatformOrderAccountOperations(destination *store.Postgres, service 
 	mux.HandleFunc("GET /v1/dashboard/summary", server.dashboard)
 	mux.HandleFunc("GET /v1/platform-orders/accounts", server.listPlatformOrderAccounts)
 	mux.HandleFunc("PATCH /v1/platform-orders/accounts/{accountKey}", server.updatePlatformOrderAccount)
+	mux.HandleFunc("POST /v1/platform-orders/accounts/{accountKey}/password-upgrade", server.upgradePlatformOrderAccountPassword)
 	mux.HandleFunc("GET /v1/platform-orders/pending", server.pendingPlatformOrders)
 	mux.HandleFunc("GET /v1/platform-orders/{platformOrderNo}", server.platformOrder)
 	mux.HandleFunc("GET /v1/temu/platform-orders/{platformOrderNo}", server.temuPlatformOrder)
 	mux.HandleFunc("POST /v1/platform-orders/routing-preview", server.platformOrderRoutingPreview)
 	mux.HandleFunc("POST /v1/platform-orders/warehouse-assignments", server.assignAndApprovePlatformOrdersAuto)
 	mux.HandleFunc("POST /v1/platform-orders/assign-and-approve", server.assignAndApprovePlatformOrdersAuto)
+	mux.HandleFunc("GET /v1/product-pairings", server.listProductPairings)
+	mux.HandleFunc("POST /v1/product-pairings", server.createProductPairing)
+	mux.HandleFunc("POST /v1/product-pairings/validate", server.validateProductPairing)
+	mux.HandleFunc("POST /v1/product-pairings/delete", server.deleteProductPairing)
+	mux.HandleFunc("DELETE /v1/product-pairings", server.deleteProductPairing)
 	mux.HandleFunc("GET /v1/warehouses", server.listWarehouses)
 	mux.HandleFunc("POST /v1/warehouses", server.upsertWarehouse)
 	mux.HandleFunc("PATCH /v1/warehouses/{code}/status", server.warehouseStatus)

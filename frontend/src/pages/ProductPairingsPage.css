@@ -1,0 +1,72 @@
+.pairing-account-alert {
+  min-height: 48px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+  padding: 8px 13px;
+  border: 1px solid #efd0d3;
+  border-radius: 7px;
+  background: #fcf2f3;
+  color: #aa3842;
+  font-size: 11px;
+}
+.pairing-account-alert strong { font-size: 12px; }
+.pairing-toolbar {
+  display: grid;
+  grid-template-columns: minmax(160px, .75fr) minmax(140px, .65fr) minmax(140px, .65fr) minmax(240px, 1.4fr) auto;
+  align-items: end;
+  gap: 10px;
+  margin-bottom: 12px;
+  padding: 13px;
+  border: 1px solid #e0e3e5;
+  border-radius: 8px;
+  background: #fff;
+}
+.pairing-toolbar label { min-width: 0; display: flex; flex-direction: column; gap: 5px; color: #697178; font-size: 10px; font-weight: 650; }
+.pairing-toolbar input, .pairing-toolbar select { width: 100%; height: 36px; padding: 0 9px; border: 1px solid #d9dddf; border-radius: 6px; outline: 0; background: #fff; color: #30363a; font-size: 11px; }
+.pairing-toolbar input:focus, .pairing-toolbar select:focus { border-color: #4c8b75; box-shadow: 0 0 0 3px rgba(44,126,99,.09); }
+.pairing-query > div { position: relative; }
+.pairing-query svg { position: absolute; top: 10px; left: 10px; color: #8c9398; }
+.pairing-query input { padding-left: 32px; }
+.pairing-toolbar > button { height: 36px; }
+.pairing-table th:nth-child(1) { min-width: 160px; }
+.pairing-table th:nth-child(2) { min-width: 150px; }
+.pairing-table th:nth-child(3) { min-width: 330px; }
+.pairing-members { display: flex; flex-wrap: wrap; gap: 6px; padding: 7px 0; white-space: normal; }
+.pairing-members > span { min-height: 28px; display: inline-flex; align-items: center; gap: 5px; padding: 4px 7px; border: 1px solid #dce4e1; border-radius: 5px; background: #f7faf9; }
+.pairing-members b { color: #2e3935; font-size: 10px; }
+.pairing-members em { color: #2c7b62; font-size: 10px; font-style: normal; font-weight: 700; }
+.pairing-members small { max-width: 180px; overflow: hidden; color: #8a9297; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+.pairing-status { min-width: 50px; height: 24px; display: inline-flex; align-items: center; justify-content: center; padding: 0 7px; border-radius: 5px; font-size: 10px; font-weight: 700; }
+.pairing-status-list { display: flex; flex-wrap: wrap; gap: 4px; }
+.pairing-status.new { background: #f0eafa; color: #6d4e9d; }
+.pairing-status.reviewing { background: #eaf1f6; color: #39739d; }
+.pairing-status.approved { background: #e5f3ed; color: #28745d; }
+.pairing-status.rejected { background: #fce8e6; color: #a63b32; }
+.pairing-status.discarded, .pairing-status.unknown { background: #eef0f1; color: #5f676d; }
+.pairing-editor { width: min(680px, 100%); }
+.pairing-item-heading { min-height: 40px; display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 18px; }
+.pairing-item-heading > div { display: flex; align-items: center; gap: 8px; }
+.pairing-item-heading strong { color: #30363a; font-size: 12px; }
+.pairing-item-heading span { color: #8d9499; font-size: 10px; }
+.pairing-item-heading .secondary-button { min-height: 32px; padding: 0 10px; }
+.pairing-item-list { display: flex; flex-direction: column; gap: 7px; }
+.pairing-item-row { display: grid; grid-template-columns: 22px minmax(0,1fr) 110px 36px; align-items: end; gap: 8px; padding: 9px; border: 1px solid #e1e5e6; border-radius: 7px; background: #fafbfb; }
+.pairing-item-row > span { align-self: center; color: #8d9499; font-size: 10px; text-align: center; }
+.pairing-item-row label { min-width: 0; display: flex; flex-direction: column; gap: 5px; color: #697178; font-size: 10px; font-weight: 650; }
+.pairing-item-row input { width: 100%; height: 34px; padding: 0 9px; border: 1px solid #d9dddf; border-radius: 5px; outline: 0; background: #fff; color: #30363a; font-size: 11px; }
+.pairing-item-row input:focus { border-color: #4c8b75; box-shadow: 0 0 0 3px rgba(44,126,99,.09); }
+.pairing-item-row .icon-button { width: 34px; height: 34px; }
+@media (max-width: 900px) {
+  .pairing-toolbar { grid-template-columns: 1fr 1fr; }
+  .pairing-query { grid-column: 1/-1; }
+  .pairing-toolbar > button { grid-column: 1/-1; }
+}
+@media (max-width: 620px) {
+  .pairing-toolbar { grid-template-columns: 1fr; padding: 11px; }
+  .pairing-query, .pairing-toolbar > button { grid-column: auto; }
+  .pairing-item-row { grid-template-columns: 20px minmax(0,1fr) 80px 34px; gap: 6px; padding: 7px; }
+  .pairing-item-heading { align-items: flex-start; }
+  .pairing-members small { display: none; }
+}

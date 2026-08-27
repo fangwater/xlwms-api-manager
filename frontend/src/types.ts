@@ -447,6 +447,41 @@ export type PlatformOrderAccountOption = {
   error?: string;
 };
 
+export type ProductPairingItem = {
+  system_sku: string;
+  product_name?: string;
+  quantity: number;
+  approve_status: number;
+};
+
+export type ProductPairing = {
+  id?: string;
+  platform_sku: string;
+  store_code: string;
+  store_name?: string;
+  items: ProductPairingItem[];
+  created_at?: string;
+};
+
+export type ProductPairingPage = PageData<ProductPairing> & {
+  account: string;
+  queried_at: string;
+};
+
+export type ProductPairingPayload = {
+  account: string;
+  store_code: string;
+  platform_sku: string;
+  items: Array<{ system_sku: string; quantity: number }>;
+};
+
+export type ProductPairingMutationResult = {
+  account: string;
+  store_code: string;
+  platform_sku: string;
+  items?: ProductPairingItem[];
+};
+
 export type PlatformOrderProduct = {
   sku: string;
   qty: number;

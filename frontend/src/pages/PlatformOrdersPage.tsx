@@ -1,7 +1,7 @@
 import { AlertTriangle, CheckCircle2, Clock3, Eye, KeyRound, ListTodo, PackageSearch, RefreshCw, Search, ShieldCheck, Store, Truck, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
-import { api } from "../api";
+import { APIError, api } from "../api";
 import { EmptyState, ErrorState, LoadingState, PageHeader, Pagination, dateTime, number } from "../components/Common";
 import type { PendingPlatformOrder, PlatformOrderAccountOption, PlatformOrderAssignmentResult, PlatformOrderProduct, PendingPlatformOrderPage, PlatformOrderRoutingPreview } from "../types";
 import "./PlatformOrdersPage.css";
@@ -25,8 +25,9 @@ export default function PlatformOrdersPage() {
   const [routingOpen, setRoutingOpen] = useState(false);
   const [assignmentResult, setAssignmentResult] = useState<PlatformOrderAssignmentResult | null>(null);
   const [accountEditorOpen, setAccountEditorOpen] = useState(false);
-  const [accountForm, setAccountForm] = useState({ username: "", password: "" });
+  const [accountForm, setAccountForm] = useState({ username: "", password: "", newPassword: "", confirmNewPassword: "" });
   const [accountFormError, setAccountFormError] = useState("");
+  const [passwordUpgradeRequired, setPasswordUpgradeRequired] = useState(false);
   const [savingAccount, setSavingAccount] = useState(false);
   const loadSequence = useRef(0);
 
@@ -120,8 +121,9 @@ export default function PlatformOrdersPage() {
   }
 
   function openAccountEditor() {
-    setAccountForm({ username: "", password: "" });
+    setAccountForm({ username: "", password: "", newPassword: "", confirmNewPassword: "" });
     setAccountFormError("");
+    setPasswordUpgradeRequired(false);
     setAccountEditorOpen(true);
   }
 
@@ -130,13 +132,28 @@ export default function PlatformOrdersPage() {
     setSavingAccount(true);
     setAccountFormError("");
     try {
-      applyAccounts(await api.updatePlatformOrderAccount(account, accountForm));
+      const nextAccounts = passwordUpgradeRequired
+        ? await api.upgradePlatformOrderAccountPassword(account, {
+          username: accountForm.username,
+          current_password: accountForm.password,
+          new_password: accountForm.newPassword,
+          confirm_new_password: accountForm.confirmNewPassword
+        })
+        : await api.updatePlatformOrderAccount(account, { username: accountForm.username, password: accountForm.password });
+      applyAccounts(nextAccounts);
       setAccountEditorOpen(false);
-      setAccountForm({ username: "", password: "" });
+      setAccountForm({ username: "", password: "", newPassword: "", confirmNewPassword: "" });
+      setPasswordUpgradeRequired(false);
       setPage(1);
       setData(null);
       void load();
     } catch (reason) {
+      if (reason instanceof APIError && reason.code === "OMS_PASSWORD_UPDATE_REQUIRED") {
+        setPasswordUpgradeRequired(true);
+        setAccountForm((current) => ({ ...current, newPassword: "", confirmNewPassword: "" }));
+        setAccountFormError("");
+        return;
+      }
       setAccountFormError(reason instanceof Error ? reason.message : "无法更新 OMS 账户");
     } finally {
       setSavingAccount(false);
@@ -180,7 +197,7 @@ export default function PlatformOrdersPage() {
           {accounts.map((item) => <option key={item.key} value={item.key}>{item.available === false ? item.label + "（已掉线）" : item.label}</option>)}
         </select>
       </label>
-      <button className="secondary-button platform-order-account-edit" type="button" onClick={openAccountEditor} title="更新当前 OMS 账号和密码"><KeyRound size={15} /><span>更新账号</span></button>
+      <button className="secondary-button platform-order-account-edit" type="button" onClick={openAccountEditor} title="重新登录当前 OMS 账户"><KeyRound size={15} /><span>重新登录</span></button>
       <label className="search-field"><Search size={17} /><input aria-label="平台单号搜索" value={searchInput} onChange={(event) => setSearchInput(event.target.value)} placeholder="输入平台单号精确查询" /></label>
       <button className="secondary-button" type="submit" disabled={loading}>查询</button>
       {query && <button className="icon-button bordered" type="button" onClick={clearSearch} title="清除搜索" aria-label="清除搜索"><X size={16} /></button>}
@@ -220,17 +237,22 @@ export default function PlatformOrdersPage() {
     {detail && <OrderDetail order={detail} onClose={() => setDetail(null)} />}
     {accountEditorOpen && <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (!savingAccount && event.target === event.currentTarget) setAccountEditorOpen(false); }}>
       <section className="modal account-modal" role="dialog" aria-modal="true" aria-labelledby="platform-account-modal-title">
-        <header><div><h2 id="platform-account-modal-title">更新 OMS 账号</h2><p>{selectedAccountLabel}{selectedAccount?.username_hint ? " · 当前 " + selectedAccount.username_hint : ""}</p></div><button className="icon-button" type="button" disabled={savingAccount} onClick={() => setAccountEditorOpen(false)} title="关闭"><X size={19} /></button></header>
+        <header><div><h2 id="platform-account-modal-title">{passwordUpgradeRequired ? "更新领星密码" : "重新登录 OMS"}</h2><p>{selectedAccountLabel}{selectedAccount?.username_hint ? " · 当前 " + selectedAccount.username_hint : ""}</p></div><button className="icon-button" type="button" disabled={savingAccount} onClick={() => setAccountEditorOpen(false)} title="关闭"><X size={19} /></button></header>
         <form onSubmit={(event) => void saveAccount(event)}>
           {accountFormError && <div className="error-banner"><span>{accountFormError}</span></div>}
+          {passwordUpgradeRequired && <div className="password-upgrade-notice" role="status"><AlertTriangle size={17} /><span>领星要求更新登录密码。设置新密码后，中台会重新验证并保存。</span></div>}
           <div className="form-grid">
-            <label className="full"><span>OMS 账号</span><input required autoComplete="off" value={accountForm.username} onChange={(event) => setAccountForm({ ...accountForm, username: event.target.value })} placeholder="输入新的登录账号" /></label>
-            <label className="full"><span>OMS 密码</span><input required type="password" autoComplete="new-password" value={accountForm.password} onChange={(event) => setAccountForm({ ...accountForm, password: event.target.value })} placeholder="输入新的登录密码" /></label>
+            <label className="full"><span>OMS 账号</span><input required disabled={passwordUpgradeRequired} autoComplete="username" value={accountForm.username} onChange={(event) => setAccountForm({ ...accountForm, username: event.target.value })} placeholder="输入登录账号" /></label>
+            <label className="full"><span>{passwordUpgradeRequired ? "当前密码" : "OMS 密码"}</span><input required disabled={passwordUpgradeRequired} type="password" autoComplete="current-password" value={accountForm.password} onChange={(event) => setAccountForm({ ...accountForm, password: event.target.value })} placeholder="输入当前登录密码" /></label>
+            {passwordUpgradeRequired && <>
+              <label className="full"><span>新密码</span><input required minLength={12} maxLength={20} type="password" autoComplete="new-password" value={accountForm.newPassword} onChange={(event) => setAccountForm({ ...accountForm, newPassword: event.target.value })} placeholder="12-20 位，含大小写字母、数字和特殊字符" /></label>
+              <label className="full"><span>确认新密码</span><input required minLength={12} maxLength={20} type="password" autoComplete="new-password" value={accountForm.confirmNewPassword} onChange={(event) => setAccountForm({ ...accountForm, confirmNewPassword: event.target.value })} placeholder="再次输入新密码" /></label>
+            </>}
           </div>
-          <div className="security-note"><ShieldCheck size={17} /><span>账号和密码会一起更新，并在保存前验证领星登录</span></div>
+          <div className="security-note"><ShieldCheck size={17} /><span>{passwordUpgradeRequired ? "更新成功后会重新登录，并加密保存新密码" : "登录验证成功后才会加密保存账号和密码"}</span></div>
           <footer>
             <button type="button" className="secondary-button" disabled={savingAccount} onClick={() => setAccountEditorOpen(false)}>取消</button>
-            <button type="submit" className="primary-button" disabled={savingAccount}>{savingAccount ? "正在验证" : "保存账号和密码"}</button>
+            <button type="submit" className="primary-button" disabled={savingAccount}>{savingAccount ? (passwordUpgradeRequired ? "正在更新" : "正在验证") : (passwordUpgradeRequired ? "更新密码并登录" : "验证并重新登录")}</button>
           </footer>
         </form>
       </section>
