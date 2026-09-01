@@ -54,12 +54,25 @@ func (s *Service) checkFulfillmentTracking(ctx context.Context, now time.Time) (
 	if limit < 1 || limit > 5000 {
 		limit = 500
 	}
+	manualStats, manualErr := s.checkManualFulfillmentTracking(ctx, now, limit)
 	exceptionStats, exceptionErr := s.checkFulfillmentTrackingQueue(ctx, now, store.FulfillmentTrackingQueuePickupException, limit)
 	regularStats, regularErr := s.checkFulfillmentTrackingQueue(ctx, now, store.FulfillmentTrackingQueueRegular, limit)
-	stats.checked = exceptionStats.checked + regularStats.checked
-	stats.failed = exceptionStats.failed + regularStats.failed
-	stats.exceptions = exceptionStats.exceptions + regularStats.exceptions
-	return stats, errors.Join(exceptionErr, regularErr)
+	stats.checked = manualStats.checked + exceptionStats.checked + regularStats.checked
+	stats.failed = manualStats.failed + exceptionStats.failed + regularStats.failed
+	stats.exceptions = manualStats.exceptions + exceptionStats.exceptions + regularStats.exceptions
+	return stats, errors.Join(manualErr, exceptionErr, regularErr)
+}
+
+func (s *Service) checkManualFulfillmentTracking(ctx context.Context, now time.Time, limit int) (trackingCheckStats, error) {
+	items, err := s.store.FulfillmentManualTrackingCandidates(ctx, limit)
+	if err != nil || len(items) == 0 {
+		return trackingCheckStats{}, err
+	}
+	stats, updateErrors := s.checkFulfillmentTrackingItems(ctx, now, items)
+	if stats.failed > 0 {
+		updateErrors = append(updateErrors, fmt.Errorf("%d manual Temu tracking queries failed", stats.failed))
+	}
+	return stats, errors.Join(updateErrors...)
 }
 
 func (s *Service) checkFulfillmentTrackingQueue(ctx context.Context, now time.Time, queueName string, limit int) (trackingCheckStats, error) {
@@ -68,6 +81,21 @@ func (s *Service) checkFulfillmentTrackingQueue(ctx context.Context, now time.Ti
 	if err != nil || len(batch.Items) == 0 {
 		return stats, err
 	}
+	stats, updateErrors := s.checkFulfillmentTrackingItems(ctx, now, batch.Items)
+	watermarkCanAdvance := len(updateErrors) == 0
+	if stats.failed > 0 {
+		updateErrors = append(updateErrors, fmt.Errorf("%d Temu tracking queries failed", stats.failed))
+	}
+	if watermarkCanAdvance {
+		if err := s.store.AdvanceFulfillmentTrackingWatermark(ctx, batch, stats.failed); err != nil {
+			updateErrors = append(updateErrors, err)
+		}
+	}
+	return stats, errors.Join(updateErrors...)
+}
+
+func (s *Service) checkFulfillmentTrackingItems(ctx context.Context, now time.Time, items []model.FulfillmentAudit) (trackingCheckStats, []error) {
+	var stats trackingCheckStats
 	workers := s.trackingWorkers
 	if workers < 1 {
 		workers = 1
@@ -75,13 +103,13 @@ func (s *Service) checkFulfillmentTrackingQueue(ctx context.Context, now time.Ti
 	if workers > 32 {
 		workers = 32
 	}
-	if workers > len(batch.Items) {
-		workers = len(batch.Items)
+	if workers > len(items) {
+		workers = len(items)
 	}
 
-	jobs := make(chan model.FulfillmentAudit, len(batch.Items))
-	results := make(chan trackingCheckResult, len(batch.Items))
-	for _, item := range batch.Items {
+	jobs := make(chan model.FulfillmentAudit, len(items))
+	results := make(chan trackingCheckResult, len(items))
+	for _, item := range items {
 		jobs <- item
 	}
 	close(jobs)
@@ -119,16 +147,7 @@ func (s *Service) checkFulfillmentTrackingQueue(ctx context.Context, now time.Ti
 			updateErrors = append(updateErrors, result.err)
 		}
 	}
-	watermarkCanAdvance := len(updateErrors) == 0
-	if stats.failed > 0 {
-		updateErrors = append(updateErrors, fmt.Errorf("%d Temu tracking queries failed", stats.failed))
-	}
-	if watermarkCanAdvance {
-		if err := s.store.AdvanceFulfillmentTrackingWatermark(ctx, batch, stats.failed); err != nil {
-			updateErrors = append(updateErrors, err)
-		}
-	}
-	return stats, errors.Join(updateErrors...)
+	return stats, updateErrors
 }
 
 func trackingResolution(item model.FulfillmentAudit, tracking temutracking.OrderTracking, queryErr error, now time.Time) model.FulfillmentTrackingResolution {

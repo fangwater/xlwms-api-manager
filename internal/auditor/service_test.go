@@ -52,6 +52,33 @@ func TestMatchIndexedOutboundRecordsPrefersOutboundSibling(t *testing.T) {
 	}
 }
 
+func TestMatchIndexedOutboundRecordsUsesTrackingNumberForRecreatedOrder(t *testing.T) {
+	items := []model.FulfillmentAudit{{
+		ID: 1, PlatformOrderNo: "PO-1", TrackingNumber: "TRACK-1", WarehouseCode: "HYTX30",
+	}}
+	records := []model.OutboundOrderIndex{
+		{PlatformOrderNo: "PO-1", TrackingNumber: "TRACK-1", WarehouseCode: "HYTX30", OutboundOrderNo: "OBS-CANCELED", Status: 4},
+		{TrackingNumber: " track-1 ", WarehouseCode: "OTHER", OutboundOrderNo: "OBS-RECREATED", Status: 3},
+	}
+
+	matches := matchIndexedOutboundRecords(items, records)
+
+	if matches[1].OutboundOrderNo != "OBS-RECREATED" {
+		t.Fatalf("expected outbound tracking-number match, got %#v", matches[1])
+	}
+}
+
+func TestMatchIndexedOutboundRecordsDoesNotUseUnrelatedTrackingNumber(t *testing.T) {
+	items := []model.FulfillmentAudit{{ID: 1, PlatformOrderNo: "PO-1", TrackingNumber: "TRACK-1"}}
+	records := []model.OutboundOrderIndex{{
+		PlatformOrderNo: "OTHER", TrackingNumber: "TRACK-2", OutboundOrderNo: "OBS-OTHER", Status: 3,
+	}}
+
+	if matches := matchIndexedOutboundRecords(items, records); len(matches) != 0 {
+		t.Fatalf("unexpected tracking-number match: %#v", matches)
+	}
+}
+
 func TestMatchIndexedOutboundRecordsKeepsWarehousePriority(t *testing.T) {
 	items := []model.FulfillmentAudit{{ID: 1, PlatformOrderNo: "PO-1", WarehouseCode: "HYTX30"}}
 	records := []model.OutboundOrderIndex{

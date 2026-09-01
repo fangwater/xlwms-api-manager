@@ -90,7 +90,7 @@ func (s *Service) Check(ctx context.Context, limit int) (CheckStats, error) {
 	for _, item := range candidates {
 		references = append(references, item.PlatformOrderNo)
 	}
-	records, err := s.store.OutboundOrdersByReferences(ctx, references)
+	records, err := s.store.OutboundOrdersByReferencesAndTrackingNumbers(ctx, references, fulfillmentTrackingNumbers(candidates))
 	if err != nil {
 		return stats, errors.Join(syncErr, err)
 	}
@@ -141,6 +141,16 @@ func mergeFulfillmentCandidates(groups ...[]model.FulfillmentAudit) []model.Fulf
 		}
 	}
 	return merged
+}
+
+func fulfillmentTrackingNumbers(items []model.FulfillmentAudit) []string {
+	numbers := make([]string, 0, len(items))
+	for _, item := range items {
+		if number := strings.TrimSpace(item.TrackingNumber); number != "" {
+			numbers = append(numbers, number)
+		}
+	}
+	return numbers
 }
 
 func (s *Service) refreshMatchedOutboundStatuses(ctx context.Context, items []model.FulfillmentAudit, credentials []model.WarehouseCredentials) (int, error) {
@@ -285,7 +295,7 @@ func (s *Service) ReconcileReferences(ctx context.Context, references []string) 
 	if err != nil || len(items) == 0 {
 		return 0, err
 	}
-	records, err := s.store.OutboundOrdersByReferences(ctx, references)
+	records, err := s.store.OutboundOrdersByReferencesAndTrackingNumbers(ctx, references, fulfillmentTrackingNumbers(items))
 	if err != nil {
 		return 0, err
 	}
@@ -477,6 +487,7 @@ func indexedOutboundOrder(record xlwms.OutboundOrderRecord) model.OutboundOrderI
 
 func matchIndexedOutboundRecords(items []model.FulfillmentAudit, records []model.OutboundOrderIndex) map[int64]model.OutboundOrderIndex {
 	byReference := make(map[string][]model.OutboundOrderIndex)
+	byTrackingNumber := make(map[string][]model.OutboundOrderIndex)
 	for _, record := range records {
 		for _, reference := range []string{record.PlatformOrderNo, record.ThirdOrderNo, record.ReferOrderNo, record.OutboundOrderNo} {
 			reference = strings.ToUpper(strings.TrimSpace(reference))
@@ -484,23 +495,59 @@ func matchIndexedOutboundRecords(items []model.FulfillmentAudit, records []model
 				byReference[reference] = append(byReference[reference], record)
 			}
 		}
+		if trackingNumber := strings.ToUpper(strings.TrimSpace(record.TrackingNumber)); trackingNumber != "" {
+			byTrackingNumber[trackingNumber] = append(byTrackingNumber[trackingNumber], record)
+		}
 	}
 	matches := make(map[int64]model.OutboundOrderIndex, len(items))
 	for _, item := range items {
-		candidates := byReference[strings.ToUpper(strings.TrimSpace(item.PlatformOrderNo))]
-		if len(candidates) == 0 {
+		warehouse := strings.ToUpper(strings.TrimSpace(item.WarehouseCode))
+		referenceMatch, hasReferenceMatch := preferredOutboundRecord(
+			byReference[strings.ToUpper(strings.TrimSpace(item.PlatformOrderNo))], warehouse,
+		)
+		trackingMatch, hasTrackingMatch := preferredTrackingOutboundRecord(
+			byTrackingNumber[strings.ToUpper(strings.TrimSpace(item.TrackingNumber))], warehouse,
+		)
+		if !hasReferenceMatch && !hasTrackingMatch {
 			continue
 		}
-		selected := candidates[0]
-		warehouse := strings.ToUpper(strings.TrimSpace(item.WarehouseCode))
-		for _, candidate := range candidates[1:] {
-			if preferOutboundRecord(candidate, selected, warehouse) {
-				selected = candidate
-			}
+		selected := referenceMatch
+		if !hasReferenceMatch || (hasTrackingMatch && outboundStatusPriority(trackingMatch.Status) > outboundStatusPriority(referenceMatch.Status)) {
+			selected = trackingMatch
+		} else if hasTrackingMatch && outboundStatusPriority(trackingMatch.Status) == outboundStatusPriority(referenceMatch.Status) && preferOutboundRecord(trackingMatch, referenceMatch, warehouse) {
+			selected = trackingMatch
 		}
 		matches[item.ID] = selected
 	}
 	return matches
+}
+
+func preferredOutboundRecord(candidates []model.OutboundOrderIndex, warehouse string) (model.OutboundOrderIndex, bool) {
+	if len(candidates) == 0 {
+		return model.OutboundOrderIndex{}, false
+	}
+	selected := candidates[0]
+	for _, candidate := range candidates[1:] {
+		if preferOutboundRecord(candidate, selected, warehouse) {
+			selected = candidate
+		}
+	}
+	return selected, true
+}
+
+func preferredTrackingOutboundRecord(candidates []model.OutboundOrderIndex, warehouse string) (model.OutboundOrderIndex, bool) {
+	if len(candidates) == 0 {
+		return model.OutboundOrderIndex{}, false
+	}
+	selected := candidates[0]
+	for _, candidate := range candidates[1:] {
+		candidatePriority := outboundStatusPriority(candidate.Status)
+		selectedPriority := outboundStatusPriority(selected.Status)
+		if candidatePriority > selectedPriority || (candidatePriority == selectedPriority && preferOutboundRecord(candidate, selected, warehouse)) {
+			selected = candidate
+		}
+	}
+	return selected, true
 }
 
 func preferOutboundRecord(candidate, selected model.OutboundOrderIndex, warehouse string) bool {

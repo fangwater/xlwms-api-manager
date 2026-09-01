@@ -159,15 +159,31 @@ func (p *Postgres) LatestOutboundQueryEvent(ctx context.Context) (*time.Time, er
 
 func (p *Postgres) OutboundOrdersByReferences(ctx context.Context, references []string) ([]model.OutboundOrderIndex, error) {
 	normalized := normalizedOrderReferences(references)
-	if len(normalized) == 0 {
+	return p.OutboundOrdersByReferencesAndTrackingNumbers(ctx, normalized, nil)
+}
+
+func (p *Postgres) OutboundOrdersByReferencesAndTrackingNumbers(ctx context.Context, references, trackingNumbers []string) ([]model.OutboundOrderIndex, error) {
+	references = normalizedOrderReferences(references)
+	trackingNumbers = normalizedOrderReferences(trackingNumbers)
+	if len(references) == 0 && len(trackingNumbers) == 0 {
 		return nil, nil
 	}
+	where := make([]string, 0, 2)
+	args := make([]any, 0, 2)
+	if len(references) > 0 {
+		args = append(args, references)
+		placeholder := fmt.Sprintf("$%d", len(args))
+		where = append(where, "(upper(platform_order_no)=ANY("+placeholder+") OR upper(third_order_no)=ANY("+placeholder+") OR upper(refer_order_no)=ANY("+placeholder+") OR upper(outbound_order_no)=ANY("+placeholder+"))")
+	}
+	if len(trackingNumbers) > 0 {
+		args = append(args, trackingNumbers)
+		where = append(where, "upper(tracking_number)=ANY("+fmt.Sprintf("$%d", len(args))+")")
+	}
 	rows, err := p.pool.Query(ctx, outboundOrderIndexSelect+`
-WHERE upper(platform_order_no)=ANY($1) OR upper(third_order_no)=ANY($1)
-   OR upper(refer_order_no)=ANY($1) OR upper(outbound_order_no)=ANY($1)
-ORDER BY order_created_at DESC NULLS LAST,updated_at DESC`, normalized)
+WHERE `+strings.Join(where, " OR ")+`
+ORDER BY order_created_at DESC NULLS LAST,updated_at DESC`, args...)
 	if err != nil {
-		return nil, fmt.Errorf("find outbound orders by reference: %w", err)
+		return nil, fmt.Errorf("find outbound orders by reference or tracking number: %w", err)
 	}
 	defer rows.Close()
 	return scanOutboundOrderIndex(rows)

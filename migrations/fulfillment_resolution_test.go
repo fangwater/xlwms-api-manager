@@ -12,6 +12,8 @@ func TestInitSQLStoresManualFulfillmentAuditResolutions(t *testing.T) {
 		"manual_resolved_at timestamptz",
 		"xlwms_fulfillment_audits_terminal_status_check",
 		"manually_fulfilled', 'cancelled', 'not_required', 'other'",
+		"idx_xlwms_outbound_order_index_tracking",
+		"upper(tracking_number)",
 	} {
 		if !strings.Contains(InitSQL, fragment) {
 			t.Fatalf("InitSQL missing %q", fragment)

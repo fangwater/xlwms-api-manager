@@ -138,6 +138,8 @@ wh_code=coalesce(nullif(EXCLUDED.wh_code,''),xlwms_fulfillment_audits.wh_code),
 	THEN xlwms_fulfillment_audits.oms_status
 	WHEN xlwms_fulfillment_audits.oms_status='outbound'
 	THEN xlwms_fulfillment_audits.oms_status
+	WHEN xlwms_fulfillment_audits.tracking_category='picked_up'
+	THEN xlwms_fulfillment_audits.oms_status
 WHEN nullif(EXCLUDED.wh_code,'') IS NOT NULL
  AND nullif(EXCLUDED.wh_code,'') IS DISTINCT FROM nullif(xlwms_fulfillment_audits.wh_code,'')
 THEN 'pending_query' ELSE xlwms_fulfillment_audits.oms_status END,
@@ -146,19 +148,26 @@ THEN 'pending_query' ELSE xlwms_fulfillment_audits.oms_status END,
 	THEN xlwms_fulfillment_audits.last_checked_at
 	WHEN xlwms_fulfillment_audits.oms_status='outbound'
 	THEN xlwms_fulfillment_audits.last_checked_at
+	WHEN xlwms_fulfillment_audits.tracking_category='picked_up'
+	THEN xlwms_fulfillment_audits.last_checked_at
 WHEN nullif(EXCLUDED.wh_code,'') IS NOT NULL
  AND nullif(EXCLUDED.wh_code,'') IS DISTINCT FROM nullif(xlwms_fulfillment_audits.wh_code,'')
 THEN NULL ELSE xlwms_fulfillment_audits.last_checked_at END,
 	exception_category=CASE
 	WHEN xlwms_fulfillment_audits.terminal_status<>'' THEN xlwms_fulfillment_audits.exception_category
 	WHEN xlwms_fulfillment_audits.oms_status='outbound' THEN 'archived'
+	WHEN xlwms_fulfillment_audits.tracking_category='picked_up' THEN 'platform_picked_up'
 WHEN nullif(EXCLUDED.wh_code,'') IS NOT NULL
  AND nullif(EXCLUDED.wh_code,'') IS DISTINCT FROM nullif(xlwms_fulfillment_audits.wh_code,'')
 THEN 'pending_query' ELSE xlwms_fulfillment_audits.exception_category END,
-	active=xlwms_fulfillment_audits.terminal_status='' AND xlwms_fulfillment_audits.oms_status<>'outbound',
+	active=xlwms_fulfillment_audits.terminal_status=''
+		AND xlwms_fulfillment_audits.oms_status<>'outbound'
+		AND xlwms_fulfillment_audits.tracking_category<>'picked_up',
 	resolved_at=CASE WHEN xlwms_fulfillment_audits.terminal_status<>''
 	THEN xlwms_fulfillment_audits.resolved_at
 	WHEN xlwms_fulfillment_audits.oms_status='outbound'
+	THEN coalesce(xlwms_fulfillment_audits.resolved_at,now())
+	WHEN xlwms_fulfillment_audits.tracking_category='picked_up'
 	THEN coalesce(xlwms_fulfillment_audits.resolved_at,now()) ELSE NULL END,
 last_seen_at=now(),updated_at=now()
 `, platform, shopCode, shopName, item.PlatformOrderNo, item.PlatformStatus,
@@ -206,6 +215,22 @@ WHERE active AND outbound_order_no<>'' AND oms_status<>'outbound'
 ORDER BY coalesce(last_checked_at,first_seen_at),id LIMIT $1`, limit)
 	if err != nil {
 		return nil, fmt.Errorf("list fulfillment status candidates: %w", err)
+	}
+	defer rows.Close()
+	return scanFulfillmentAudits(rows)
+}
+
+func (p *Postgres) FulfillmentManualTrackingCandidates(ctx context.Context, limit int) ([]model.FulfillmentAudit, error) {
+	if limit < 1 || limit > 5000 {
+		limit = 500
+	}
+	rows, err := p.pool.Query(ctx, fulfillmentAuditSelect+`
+WHERE active AND platform='temu' AND exception_category='manual_required'
+  AND oms_status IN ('not_found','exception','unknown')
+  AND (tracking_checked_at IS NULL OR tracking_checked_at < now()-interval '1 hour')
+ORDER BY tracking_checked_at NULLS FIRST,updated_at,id LIMIT $1`, limit)
+	if err != nil {
+		return nil, fmt.Errorf("list manual fulfillment tracking candidates: %w", err)
 	}
 	defer rows.Close()
 	return scanFulfillmentAudits(rows)
@@ -308,8 +333,12 @@ UPDATE xlwms_fulfillment_audits SET
 last_mile_tracking_number=$2,tracking_status=$3,tracking_status_text=$4,
 tracking_updated_at=$5,tracking_checked_at=now(),tracking_error=$6,tracking_category=$7,
 tracking_package_count=$8,picked_up_package_count=$9,pickup_exception_reason=$10,
-pickup_confirmed_at=$11,updated_at=now()
-WHERE id=$1 AND oms_status='outbound'
+pickup_confirmed_at=$11,
+exception_category=CASE WHEN active AND $7='picked_up' THEN 'platform_picked_up' ELSE exception_category END,
+active=CASE WHEN active AND $7='picked_up' THEN false ELSE active END,
+resolved_at=CASE WHEN active AND $7='picked_up' THEN coalesce(resolved_at,now()) ELSE resolved_at END,
+updated_at=now()
+WHERE id=$1 AND terminal_status='' AND (active OR oms_status='outbound')
 `, id, strings.TrimSpace(resolution.LastMileTrackingNumber), strings.TrimSpace(resolution.TrackingStatus),
 		strings.TrimSpace(resolution.TrackingStatusText), resolution.TrackingUpdatedAt,
 		strings.TrimSpace(resolution.TrackingError), strings.TrimSpace(resolution.TrackingCategory),
@@ -486,9 +515,10 @@ WHERE id=$1 AND active AND terminal_status=''
 func (p *Postgres) RefreshFulfillmentAuditCategories(ctx context.Context) error {
 	_, err := p.pool.Exec(ctx, `
 WITH classified AS (
-SELECT id,oms_status='outbound' AS archive,CASE
-WHEN oms_status='outbound' THEN 'archived'
-WHEN oms_status='pending_query' THEN 'pending_query'
+SELECT id,(oms_status='outbound' OR tracking_category='picked_up') AS archive,CASE
+	WHEN oms_status='outbound' THEN 'archived'
+	WHEN tracking_category='picked_up' THEN 'platform_picked_up'
+	WHEN oms_status='pending_query' THEN 'pending_query'
 WHEN oms_status='query_error' THEN 'sync_error'
 WHEN oms_status IN ('not_found','exception','unknown') THEN 'manual_required'
 WHEN oms_status='processing'
@@ -496,7 +526,10 @@ WHEN oms_status='processing'
 THEN 'warehouse_overdue'
 ELSE 'monitoring' END AS category
 FROM xlwms_fulfillment_audits
-WHERE active OR (oms_status='outbound' AND exception_category<>'archived')
+WHERE terminal_status='' AND (
+  active OR (oms_status='outbound' AND exception_category<>'archived')
+  OR (tracking_category='picked_up' AND exception_category<>'platform_picked_up')
+)
 )
 UPDATE xlwms_fulfillment_audits audit SET
 exception_category=classified.category,

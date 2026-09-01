@@ -491,6 +491,8 @@ CREATE INDEX IF NOT EXISTS idx_xlwms_outbound_order_index_third
     ON xlwms_outbound_order_index (upper(third_order_no));
 CREATE INDEX IF NOT EXISTS idx_xlwms_outbound_order_index_refer
     ON xlwms_outbound_order_index (upper(refer_order_no));
+CREATE INDEX IF NOT EXISTS idx_xlwms_outbound_order_index_tracking
+    ON xlwms_outbound_order_index (upper(tracking_number));
 CREATE INDEX IF NOT EXISTS idx_xlwms_outbound_order_index_warehouse_created
     ON xlwms_outbound_order_index (wh_code, order_created_at DESC);
 
