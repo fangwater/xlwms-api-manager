@@ -58,7 +58,11 @@ export const api = {
   platformOrderAccounts: () => request<PlatformOrderAccountOption[]>("/platform-orders/accounts"),
   updatePlatformOrderAccount: (account: string, payload: { username: string; password: string }) =>
     request<PlatformOrderAccountOption[]>(`/platform-orders/accounts/${encodeURIComponent(account)}`, { method: "PATCH", body: JSON.stringify(payload) }),
-  fulfillmentAccounts: () => request<OMSAccountSummary[]>("/fulfillment-policies/accounts"),
+  fulfillmentAccounts: (includeDisabled = false) => request<OMSAccountSummary[]>(`/fulfillment-policies/accounts${query({ include_disabled: includeDisabled ? "true" : undefined })}`),
+  createFulfillmentAccount: (payload: { key: string; label: string; username: string; password: string; warehouse_codes: string[] }) =>
+    request<OMSAccountSummary>("/fulfillment-policies/accounts", { method: "POST", body: JSON.stringify(payload) }),
+  updateFulfillmentAccount: (account: string, payload: { label?: string; enabled?: boolean }) =>
+    request<OMSAccountSummary>(`/fulfillment-policies/accounts/${encodeURIComponent(account)}`, { method: "PATCH", body: JSON.stringify(payload) }),
   updateFulfillmentAccountWarehouses: (account: string, warehouseCodes: string[]) =>
     request<OMSAccountSummary>(`/fulfillment-policies/accounts/${encodeURIComponent(account)}/warehouses`, { method: "PATCH", body: JSON.stringify({ warehouse_codes: warehouseCodes }) }),
   platformSKUOMSAccounts: (params: { platform: string; q?: string; page: number; pageSize: number }) =>

@@ -51,6 +51,29 @@ ORDER BY account.account_key
 	return items, rows.Err()
 }
 
+func (p *Postgres) OMSAccountSummary(ctx context.Context, accountKey string) (model.OMSAccountSummary, error) {
+	accountKey = normalizeOMSAccountKey(accountKey)
+	var item model.OMSAccountSummary
+	err := p.pool.QueryRow(ctx, `
+SELECT account.account_key,account.account_label,account.account_hint,account.enabled,
+       coalesce(array_agg(DISTINCT relation.wh_code ORDER BY relation.wh_code)
+           FILTER (WHERE relation.wh_code IS NOT NULL),'{}'::text[]),
+       count(DISTINCT route.platform || ':' || route.warehouse_sku),account.updated_at
+FROM xlwms_oms_accounts account
+LEFT JOIN xlwms_oms_account_warehouses relation ON relation.account_key=account.account_key
+LEFT JOIN xlwms_platform_sku_oms_accounts route ON route.account_key=account.account_key
+WHERE account.account_key=$1
+GROUP BY account.account_key,account.account_label,account.account_hint,account.enabled,account.updated_at
+`, accountKey).Scan(&item.Key, &item.Label, &item.UsernameHint, &item.Enabled, &item.WarehouseCodes, &item.RouteCount, &item.UpdatedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return model.OMSAccountSummary{}, ErrOMSAccountNotFound
+	}
+	if err != nil {
+		return model.OMSAccountSummary{}, fmt.Errorf("get OMS account summary: %w", err)
+	}
+	return item, nil
+}
+
 func (p *Postgres) OMSAccountWarehouseCodes(ctx context.Context, accountKey string) ([]string, error) {
 	accountKey = normalizeOMSAccountKey(accountKey)
 	if accountKey == "" {
@@ -90,7 +113,7 @@ func (p *Postgres) ReplaceOMSAccountWarehouses(ctx context.Context, accountKey s
 	}
 	defer tx.Rollback(ctx)
 	var accountExists bool
-	if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM xlwms_oms_accounts WHERE account_key=$1 AND enabled)`, accountKey).Scan(&accountExists); err != nil {
+	if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM xlwms_oms_accounts WHERE account_key=$1)`, accountKey).Scan(&accountExists); err != nil {
 		return model.OMSAccountSummary{}, fmt.Errorf("check OMS account: %w", err)
 	}
 	if !accountExists {

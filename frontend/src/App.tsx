@@ -26,7 +26,8 @@ const shippingPolicyViews = {
   "/shipping-policies/base-rules": "base-rules",
   "/shipping-policies/selection": "selection",
   "/shipping-policies/sku-rules": "sku-rules",
-  "/shipping-policies/accounts": "accounts"
+  "/shipping-policies/accounts": "account-management",
+  "/shipping-policies/account-routes": "account-routes"
 } as const;
 const validPaths = new Set(["/", "/inventory", "/outbound", "/platform-orders", "/product-pairings", "/fulfillment-audits", "/fulfilled-orders", "/delivery-evaluation", "/costs", "/warehouses", "/inventory-alerts", "/sku-specs", "/packing", "/inventory-thresholds", "/shipping-policies", ...Object.keys(shippingPolicyViews), "/sync", "/settings"]);
 

@@ -35,10 +35,21 @@ async function mockPolicyAPI(page: Page) {
       { wh_code: "DPSCA004", name: "DPS 美西", region: "west", active: true },
       { wh_code: "HYTX30", name: "ARP 美东", region: "east", active: true }
     ]);
-    if (path.endsWith("/fulfillment-policies/accounts")) return fulfill(route, [
-      { key: "arp", label: "ARP 账户", username_hint: "FH***RP", enabled: true, warehouse_codes: ["HYTX30", "DPSNY002"], route_count: 1, updated_at: "2026-09-03T08:00:00Z" },
-      { key: "dps", label: "DPS 账户", username_hint: "FH***PS", enabled: true, warehouse_codes: ["DPSNY002", "DPSCA004"], route_count: 0, updated_at: "2026-09-03T08:00:00Z" }
-    ]);
+    if (path.endsWith("/fulfillment-policies/accounts")) {
+      if (route.request().method() === "POST") {
+        const payload = route.request().postDataJSON();
+        return fulfill(route, { key: payload.key, label: payload.label, username_hint: "NE***ER", enabled: true, warehouse_codes: payload.warehouse_codes, route_count: 0, updated_at: "2026-09-03T08:00:00Z" });
+      }
+      return fulfill(route, [
+        { key: "arp", label: "ARP 账户", username_hint: "FH***RP", enabled: true, warehouse_codes: ["HYTX30", "DPSNY002"], route_count: 1, updated_at: "2026-09-03T08:00:00Z" },
+        { key: "dps", label: "DPS 账户", username_hint: "FH***PS", enabled: true, warehouse_codes: ["DPSNY002", "DPSCA004"], route_count: 0, updated_at: "2026-09-03T08:00:00Z" }
+      ]);
+    }
+    if (/\/fulfillment-policies\/accounts\/[^/]+$/.test(path)) {
+      const accountKey = decodeURIComponent(path.split("/").at(-1) || "");
+      const payload = route.request().postDataJSON();
+      return fulfill(route, { key: accountKey, label: payload.label || `${accountKey.toUpperCase()} 账户`, username_hint: "FH***NT", enabled: payload.enabled ?? true, warehouse_codes: ["HYTX30"], route_count: 0, updated_at: "2026-09-03T08:00:00Z" });
+    }
     if (path.endsWith("/fulfillment-policies/account-routes")) return fulfill(route, {
       platform: url.searchParams.get("platform") || "temu",
       records: [
@@ -103,17 +114,33 @@ test("policy subdirectories isolate selection and SKU settings", async ({ page }
   await page.screenshot({ path: "/tmp/xlwms-policy-sku-dialog-desktop.png", fullPage: true });
 });
 
-test("account routing supports overlapping warehouses and per-SKU ownership", async ({ page }) => {
+test("account management creates accounts and supports overlapping warehouses", async ({ page }) => {
   await mockPolicyAPI(page);
   await page.goto("./shipping-policies/accounts");
-  await expect(page.getByRole("heading", { name: "OMS 账户路由", level: 1 })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "OMS 账号管理", level: 1 })).toBeVisible();
   await expect(page.locator(".account-policy-card")).toHaveCount(2);
-  await expect(page.getByText("DPSNY002")).toHaveCount(3);
+  await expect(page.getByText("DPSNY002")).toHaveCount(2);
+  await page.getByRole("button", { name: "新建账户" }).click();
+  await page.getByLabel("账户标识").fill("backup");
+  await page.getByLabel("显示名称").fill("备用账户");
+  await page.getByLabel("OMS 账号").fill("new-user");
+  await page.getByLabel("OMS 密码").fill("new-password");
+  await page.locator(".account-create-warehouses label").first().click();
+  await page.getByRole("button", { name: "验证并新建" }).click();
+  await expect(page.locator(".account-policy-card")).toHaveCount(3);
+  await expect(page.getByRole("heading", { name: "备用账户", level: 3 })).toBeVisible();
+  await page.screenshot({ path: "/tmp/xlwms-account-management-desktop.png", fullPage: true });
+});
+
+test("account routing assigns per-SKU ownership", async ({ page }) => {
+  await mockPolicyAPI(page);
+  await page.goto("./shipping-policies/account-routes");
+  await expect(page.getByRole("heading", { name: "OMS 账户路由", level: 1 })).toBeVisible();
   await expect(page.getByText("DEMO-SKU-02")).toBeVisible();
   await page.getByLabel("DEMO-SKU-02 OMS 发货账户").selectOption("dps");
   await expect(page.getByLabel("DEMO-SKU-02 OMS 发货账户")).toHaveValue("dps");
   await expect(page.locator(".account-route-table .status-badge", { hasText: "已配置" })).toHaveCount(2);
-  await page.screenshot({ path: "/tmp/xlwms-policy-accounts-desktop.png", fullPage: true });
+  await page.screenshot({ path: "/tmp/xlwms-account-routes-desktop.png", fullPage: true });
 });
 
 test("mobile policy directory remains usable without horizontal overflow", async ({ page }) => {
@@ -121,7 +148,7 @@ test("mobile policy directory remains usable without horizontal overflow", async
   await mockPolicyAPI(page);
   await page.goto("./shipping-policies/selection");
   await page.getByTitle("打开导航").click();
-  await expect(page.locator(".nav-submenu").getByRole("button")).toHaveCount(4);
+  await expect(page.locator(".nav-submenu").getByRole("button")).toHaveCount(5);
   await page.screenshot({ path: "/tmp/xlwms-policy-directory-mobile.png" });
   await page.locator(".nav-submenu").getByRole("button", { name: "基础快递限制" }).click();
   await expect(page.getByRole("heading", { name: "基础快递限制", level: 1 })).toBeVisible();
@@ -129,12 +156,12 @@ test("mobile policy directory remains usable without horizontal overflow", async
   expect(sizes.scrollWidth).toBeLessThanOrEqual(sizes.viewport);
 });
 
-test("mobile account routing remains usable without horizontal overflow", async ({ page }) => {
+test("mobile account management remains usable without horizontal overflow", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await mockPolicyAPI(page);
   await page.goto("./shipping-policies/accounts");
   await expect(page.locator(".account-policy-card")).toHaveCount(2);
-  await page.screenshot({ path: "/tmp/xlwms-policy-accounts-mobile.png", fullPage: true });
+  await page.screenshot({ path: "/tmp/xlwms-account-management-mobile.png", fullPage: true });
   const sizes = await page.evaluate(() => ({ viewport: document.documentElement.clientWidth, scrollWidth: document.documentElement.scrollWidth }));
   expect(sizes.scrollWidth).toBeLessThanOrEqual(sizes.viewport);
 });

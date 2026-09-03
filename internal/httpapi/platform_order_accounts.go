@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"errors"
+	"fmt"
 	"net/http"
 	"reflect"
 	"strings"
@@ -19,6 +20,7 @@ type platformOrderAccountStore interface {
 	ListOMSAccountSummaries(context.Context, bool) ([]model.OMSAccountSummary, error)
 	OMSAccount(context.Context, string) (model.OMSLoginAccount, error)
 	SetOMSAccount(context.Context, string, string, string) (model.OMSLoginAccount, error)
+	CreateOMSAccount(context.Context, string, string, string, string, []string) (model.OMSAccountSummary, error)
 }
 
 type platformOrderAccountSource interface {
@@ -123,7 +125,7 @@ func (p *postgresPlatformOrderAccounts) OperatorForAccount(ctx context.Context, 
 		return account, err
 	}
 	account, err := p.store.OMSAccount(ctx, key)
-	if errors.Is(err, store.ErrOMSAccountNotFound) {
+	if errors.Is(err, store.ErrOMSAccountNotFound) || errors.Is(err, store.ErrOMSAccountDisabled) {
 		return nil, errPlatformOrderAccountNotFound
 	}
 	if err != nil {
@@ -138,6 +140,9 @@ func (p *postgresPlatformOrderAccounts) resolveShared(ctx context.Context) (plat
 		return p.clientForCredentials(stored.Username, stored.Password), stored.Username, stored.Password, nil
 	}
 	if !errors.Is(err, store.ErrOMSAccountNotFound) {
+		if errors.Is(err, store.ErrOMSAccountDisabled) {
+			return nil, "", "", errPlatformOrderAccountUnavailable
+		}
 		return nil, "", "", err
 	}
 	if p.shared == nil {
@@ -379,6 +384,40 @@ type platformOrderAccountPasswordUpgrader interface {
 	UpgradeAccountPassword(context.Context, string, string, string, string) error
 }
 
+type platformOrderAccountCreator interface {
+	CreateAccount(context.Context, string, string, string, string, []string) (model.OMSAccountSummary, error)
+}
+
+func (p *postgresPlatformOrderAccounts) CreateAccount(ctx context.Context, key, label, username, password string, warehouseCodes []string) (model.OMSAccountSummary, error) {
+	key, label, err := store.NormalizeOMSAccountIdentity(key, label)
+	if err != nil {
+		return model.OMSAccountSummary{}, err
+	}
+	username = strings.TrimSpace(username)
+	if username == "" || password == "" {
+		return model.OMSAccountSummary{}, fmt.Errorf("%w: OMS username and password are required", store.ErrInvalidFulfillmentAccount)
+	}
+	accounts, err := p.store.ListOMSAccountSummaries(ctx, true)
+	if err != nil {
+		return model.OMSAccountSummary{}, err
+	}
+	for _, account := range accounts {
+		if account.Key == key {
+			return model.OMSAccountSummary{}, store.ErrOMSAccountExists
+		}
+	}
+	probe := oms.NewClient(p.baseURL, username, password, p.timeout)
+	if err := probe.CheckAccess(ctx); err != nil {
+		return model.OMSAccountSummary{}, err
+	}
+	item, err := p.store.CreateOMSAccount(ctx, key, label, username, password, warehouseCodes)
+	if err != nil {
+		return model.OMSAccountSummary{}, err
+	}
+	p.forgetClients()
+	return item, nil
+}
+
 func (p *postgresPlatformOrderAccounts) UpdateAccountCredentials(ctx context.Context, key, username, password string) error {
 	username = strings.TrimSpace(username)
 	if username == "" || password == "" {
@@ -412,7 +451,7 @@ func (p *postgresPlatformOrderAccounts) validateAccountKey(ctx context.Context, 
 		key = defaultPlatformOrderAccountKey
 	}
 	if _, err := p.store.OMSAccount(ctx, key); err != nil {
-		if errors.Is(err, store.ErrOMSAccountNotFound) {
+		if errors.Is(err, store.ErrOMSAccountNotFound) || errors.Is(err, store.ErrOMSAccountDisabled) {
 			return errPlatformOrderAccountNotFound
 		}
 		return err

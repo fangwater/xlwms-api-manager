@@ -20,6 +20,7 @@ import (
 type fakePlatformOrderAccountStore struct {
 	summaries     []model.OMSAccountSummary
 	loginAccounts map[string]model.OMSLoginAccount
+	accountErrors map[string]error
 }
 
 func (f *fakePlatformOrderAccountStore) ListOMSAccountSummaries(context.Context, bool) ([]model.OMSAccountSummary, error) {
@@ -27,6 +28,9 @@ func (f *fakePlatformOrderAccountStore) ListOMSAccountSummaries(context.Context,
 }
 
 func (f *fakePlatformOrderAccountStore) OMSAccount(_ context.Context, key string) (model.OMSLoginAccount, error) {
+	if err := f.accountErrors[key]; err != nil {
+		return model.OMSLoginAccount{}, err
+	}
 	account, exists := f.loginAccounts[key]
 	if !exists {
 		return model.OMSLoginAccount{}, store.ErrOMSAccountNotFound
@@ -43,6 +47,19 @@ func (f *fakePlatformOrderAccountStore) SetOMSAccount(_ context.Context, key, us
 	return account, nil
 }
 
+func (f *fakePlatformOrderAccountStore) CreateOMSAccount(_ context.Context, key, label, username, password string, warehouseCodes []string) (model.OMSAccountSummary, error) {
+	if f.loginAccounts == nil {
+		f.loginAccounts = map[string]model.OMSLoginAccount{}
+	}
+	if _, exists := f.loginAccounts[key]; exists {
+		return model.OMSAccountSummary{}, store.ErrOMSAccountExists
+	}
+	f.loginAccounts[key] = model.OMSLoginAccount{Key: key, Label: label, Username: username, Password: password, Enabled: true}
+	item := model.OMSAccountSummary{Key: key, Label: label, UsernameHint: username, Enabled: true, WarehouseCodes: warehouseCodes}
+	f.summaries = append(f.summaries, item)
+	return item, nil
+}
+
 type fakeSelectablePlatformAccounts struct {
 	accountOperators map[string]platformOrderAccount
 	options          []platformOrderAccountOption
@@ -53,6 +70,8 @@ type fakeMutablePlatformAccounts struct {
 	*fakeSelectablePlatformAccounts
 	updateErr       error
 	updatedKey      string
+	createdKey      string
+	createdLabel    string
 	upgradedKey     string
 	upgradeUsername string
 }
@@ -60,6 +79,12 @@ type fakeMutablePlatformAccounts struct {
 func (f *fakeMutablePlatformAccounts) UpdateAccountCredentials(_ context.Context, key, _, _ string) error {
 	f.updatedKey = key
 	return f.updateErr
+}
+
+func (f *fakeMutablePlatformAccounts) CreateAccount(_ context.Context, key, label, _, _ string, warehouseCodes []string) (model.OMSAccountSummary, error) {
+	f.createdKey = key
+	f.createdLabel = label
+	return model.OMSAccountSummary{Key: key, Label: label, Enabled: true, WarehouseCodes: warehouseCodes}, nil
 }
 
 func (f *fakeMutablePlatformAccounts) UpgradeAccountPassword(_ context.Context, key, username, _, _ string) error {
@@ -121,6 +146,44 @@ func TestPlatformOrderAccountUpdateSavesVerifiedExplicitLogin(t *testing.T) {
 	}
 }
 
+func TestPlatformOrderAccountCreateValidatesLoginAndPersists(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != "/gateway/woms/auth/login" {
+			http.NotFound(writer, request)
+			return
+		}
+		_, _ = writer.Write([]byte(`{"code":200,"msg":"ok","data":{"token":"new-token"}}`))
+	}))
+	defer server.Close()
+
+	accountStore := &fakePlatformOrderAccountStore{}
+	resolver := &postgresPlatformOrderAccounts{store: accountStore, baseURL: server.URL, timeout: time.Second}
+	item, err := resolver.CreateAccount(context.Background(), "backup", "备用账户", "backup-user", "password", []string{"HYTX30"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if item.Key != "backup" || item.Label != "备用账户" || len(item.WarehouseCodes) != 1 {
+		t.Fatalf("created account = %#v", item)
+	}
+	if accountStore.loginAccounts["backup"].Username != "backup-user" {
+		t.Fatal("verified account credentials were not persisted")
+	}
+}
+
+func TestFulfillmentAccountCreateEndpoint(t *testing.T) {
+	accounts := &fakeMutablePlatformAccounts{fakeSelectablePlatformAccounts: &fakeSelectablePlatformAccounts{}}
+	handler := newWithPlatformOrderAccountOperations(nil, nil, nil, nil, nil, nil, accounts, time.Second, slog.Default())
+	request := httptest.NewRequest(http.MethodPost, "/v1/fulfillment-policies/accounts", strings.NewReader(
+		`{"key":"backup","label":"备用账户","username":"backup-user","password":"password","warehouse_codes":["HYTX30"]}`,
+	))
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusCreated || accounts.createdKey != "backup" || accounts.createdLabel != "备用账户" {
+		t.Fatalf("unexpected response %d: %s", recorder.Code, recorder.Body.String())
+	}
+}
+
 func TestPlatformOrderAccountUpdateSavesVerifiedSharedLogin(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		if request.URL.Path != "/gateway/woms/auth/login" {
@@ -152,6 +215,19 @@ func TestPlatformOrderAccountUpdateSavesVerifiedSharedLogin(t *testing.T) {
 	}
 	if account == resolver.shared && resolver.sharedUsername == "old-arp" {
 		t.Fatal("updated ARP account still uses the previous shared client")
+	}
+}
+
+func TestDisabledSharedAccountDoesNotFallBackToEnvironmentCredentials(t *testing.T) {
+	accountStore := &fakePlatformOrderAccountStore{accountErrors: map[string]error{
+		defaultPlatformOrderAccountKey: store.ErrOMSAccountDisabled,
+	}}
+	resolver := &postgresPlatformOrderAccounts{
+		store:  accountStore,
+		shared: readyPlatformOrderOperator(), sharedUsername: "legacy-user", sharedPassword: "legacy-password",
+	}
+	if _, err := resolver.OperatorForAccount(context.Background(), defaultPlatformOrderAccountKey); !errors.Is(err, errPlatformOrderAccountUnavailable) {
+		t.Fatalf("disabled shared account error = %v", err)
 	}
 }
 

@@ -125,11 +125,14 @@
 .account-section-heading p { margin: 3px 0 0; color: #858e94; font-size: 10px; line-height: 15px; }
 .account-policy-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
 .account-policy-card { overflow: hidden; border: 1px solid #dfe3e5; border-radius: 8px; background: #fff; }
+.account-policy-card.disabled { border-color: #e3e5e6; background: #f7f8f8; opacity: .76; }
 .account-policy-card > header { min-height: 64px; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 13px; border-bottom: 1px solid #e5e8e9; background: #fafbfb; }
 .account-identity { min-width: 0; display: flex; align-items: center; gap: 10px; }
 .account-identity > span { width: 34px; height: 34px; display: grid; place-items: center; flex: none; border-radius: 6px; background: #303a42; color: #fff; font-size: 13px; font-weight: 750; }
 .account-identity h3 { margin: 0; color: #2c3236; font-size: 13px; }
 .account-identity p { margin: 2px 0 0; color: #8e969b; font-size: 9px; }
+.account-card-actions { display: flex; align-items: center; gap: 6px; }
+.account-card-actions .policy-toggle { margin-right: 3px; }
 .account-card-summary { display: flex; align-items: center; gap: 14px; padding: 10px 13px 0; color: #778087; font-size: 9px; }
 .account-card-summary span { display: inline-flex; align-items: center; gap: 5px; }
 .account-warehouse-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 7px; padding: 11px 13px 13px; }
@@ -143,8 +146,14 @@
 .account-warehouse-grid strong { color: #343a3e; font-size: 9px; }
 .account-warehouse-grid small { margin-top: 2px; color: #949ba0; font-size: 8px; }
 .account-policy-card > footer { min-height: 54px; display: flex; align-items: center; justify-content: flex-end; padding: 8px 13px; border-top: 1px solid #e6e9ea; background: #fafbfb; }
+.account-management-toolbar { min-height: 54px; display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-bottom: 12px; padding: 8px 11px; border: 1px solid #dfe3e5; border-radius: 8px; background: #fff; }
+.account-management-toolbar > div { display: flex; align-items: center; gap: 8px; }
+.account-management-toolbar > div:first-child { color: #7a8389; font-size: 10px; }
+.account-management-toolbar > div:first-child strong { color: #293136; font-size: 18px; }
 .account-route-section { padding-top: 2px; border-top: 1px solid #dfe3e5; }
 .account-route-section > .account-section-heading { margin-top: 14px; }
+.account-route-section.standalone { padding-top: 0; border-top: 0; }
+.account-route-section.standalone > .account-section-heading { margin-top: 0; }
 .account-route-table th:nth-child(1) { width: 27%; }
 .account-route-table th:nth-child(2) { width: 19%; }
 .account-route-table th:nth-child(3) { width: 34%; }
@@ -152,6 +161,11 @@
 .route-saving { color: #2d8064; }
 .muted-action { color: #a2a9ad; }
 .account-credential-modal { width: min(500px, calc(100vw - 24px)); }
+.account-create-modal { width: min(680px, calc(100vw - 24px)); }
+.account-label-modal { width: min(460px, calc(100vw - 24px)); }
+.account-create-warehouses { margin-top: 16px; border: 1px solid #e1e5e7; border-radius: 7px; }
+.account-create-warehouses > span { display: block; padding: 10px 13px 0; color: #697178; font-size: 10px; font-weight: 650; }
+.account-create-warehouses .account-warehouse-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 @media (max-width: 1050px) {
   .warehouse-policy-grid, .sku-carrier-grid, .account-policy-grid { grid-template-columns: 1fr; }
   .carrier-allow-grid { grid-template-columns: repeat(4, minmax(84px, 1fr)); }
@@ -179,6 +193,11 @@
   .sku-policy-toolbar > div { justify-content: space-between; }
   .warehouse-toggle-grid { grid-template-columns: 1fr; }
   .account-warehouse-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .account-management-toolbar { align-items: stretch; flex-direction: column; }
+  .account-management-toolbar > div:last-child .primary-button { flex: 1; }
+  .account-policy-card > header { align-items: flex-start; }
+  .account-card-actions { flex-wrap: wrap; justify-content: flex-end; }
+  .account-create-warehouses .account-warehouse-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .policy-section-title { align-items: flex-start; flex-direction: column; }
   .policy-section-title .primary-button { width: 100%; }
   .sku-carrier-card > header { align-items: flex-start; flex-direction: column; }

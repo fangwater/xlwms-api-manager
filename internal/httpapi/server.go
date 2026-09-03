@@ -151,6 +151,8 @@ func newWithPlatformOrderAccountOperations(destination *store.Postgres, service 
 	mux.HandleFunc("PATCH /v1/fulfillment-policies/skus/{warehouseSKU}", server.updateSKUFulfillmentPolicy)
 	mux.HandleFunc("POST /v1/fulfillment-policies/skus/query", server.querySKUFulfillmentPolicies)
 	mux.HandleFunc("GET /v1/fulfillment-policies/accounts", server.listFulfillmentAccounts)
+	mux.HandleFunc("POST /v1/fulfillment-policies/accounts", server.createFulfillmentAccount)
+	mux.HandleFunc("PATCH /v1/fulfillment-policies/accounts/{accountKey}", server.updateFulfillmentAccount)
 	mux.HandleFunc("PUT /v1/fulfillment-policies/accounts/{accountKey}/warehouses", server.updateFulfillmentAccountWarehouses)
 	mux.HandleFunc("PATCH /v1/fulfillment-policies/accounts/{accountKey}/warehouses", server.updateFulfillmentAccountWarehouses)
 	mux.HandleFunc("GET /v1/fulfillment-policies/account-routes", server.listPlatformSKUOMSAccounts)
