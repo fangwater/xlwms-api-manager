@@ -139,8 +139,8 @@ func (p *Postgres) ListPlatformSKUOMSAccounts(ctx context.Context, platform stri
 	var total int
 	if err := p.pool.QueryRow(ctx, `
 SELECT count(*) FROM xlwms_warehouse_sku_specs spec
-WHERE spec.enabled AND ($2='' OR spec.warehouse_sku ILIKE $3 OR spec.product_name ILIKE $3)
-`, platform, filter.Query, search).Scan(&total); err != nil {
+WHERE spec.enabled AND ($1='' OR spec.warehouse_sku ILIKE $2 OR spec.product_name ILIKE $2)
+`, filter.Query, search).Scan(&total); err != nil {
 		return nil, 0, fmt.Errorf("count platform SKU OMS accounts: %w", err)
 	}
 	rows, err := p.pool.Query(ctx, `
