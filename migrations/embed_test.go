@@ -55,6 +55,13 @@ func TestInitSQLDefinesPlatformSKUWarehousePoliciesWithoutShopScope(t *testing.T
 	for _, fragment := range []string{
 		"CREATE TABLE IF NOT EXISTS xlwms_platform_carrier_policies",
 		"PRIMARY KEY (platform, warehouse_key, carrier_code)",
+		"CREATE TABLE IF NOT EXISTS xlwms_platform_warehouse_carrier_rules",
+		"allowed_carrier_codes text[] NOT NULL",
+		"allowed_currency_codes text[] NOT NULL",
+		"selection_mode text NOT NULL",
+		"max_price_delta numeric NOT NULL",
+		"warehouse_tie_priority integer NOT NULL",
+		"CASE WHEN platform='temu' THEN 0.50 ELSE 0 END",
 		"CREATE TABLE IF NOT EXISTS xlwms_platform_sku_carrier_policies",
 		"PRIMARY KEY (platform, warehouse_sku, warehouse_key, carrier_code)",
 		"CREATE TABLE IF NOT EXISTS xlwms_platform_sku_disabled_warehouses",

@@ -9,7 +9,8 @@ import (
 )
 
 type carrierPolicyRequest struct {
-	Carriers []model.CarrierPolicy `json:"carriers"`
+	BaseRules *model.WarehouseCarrierRules `json:"base_rules,omitempty"`
+	Carriers  []model.CarrierPolicy        `json:"carriers"`
 }
 
 type skuFulfillmentPolicyRequest struct {
@@ -47,7 +48,7 @@ func (s *Server) updateCarrierPolicies(writer http.ResponseWriter, request *http
 	}
 	ctx, cancel := context.WithTimeout(request.Context(), s.requestTimeout)
 	defer cancel()
-	item, err := s.store.ReplaceCarrierPolicies(ctx, platform, request.URL.Query().Get("warehouse_sku"), request.PathValue("warehouseKey"), payload.Carriers)
+	item, err := s.store.ReplaceCarrierPolicies(ctx, platform, request.URL.Query().Get("warehouse_sku"), request.PathValue("warehouseKey"), payload.BaseRules, payload.Carriers)
 	if err != nil {
 		writeJSON(writer, http.StatusBadRequest, response{Success: false, Error: err.Error()})
 		return

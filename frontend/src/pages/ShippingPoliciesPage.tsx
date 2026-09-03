@@ -2,17 +2,19 @@ import { ArrowDown, ArrowUp, Pencil, RefreshCw, RotateCcw, Save, Search, X } fro
 import { useEffect, useState } from "react";
 import { api } from "../api";
 import { EmptyState, ErrorState, LoadingState, PageHeader, Pagination } from "../components/Common";
-import type { CarrierPolicy, PlatformSKUFulfillmentPolicy, PlatformSKUFulfillmentPolicyPage, WarehouseCarrierPolicies } from "../types";
+import type { CarrierPolicy, PlatformSKUFulfillmentPolicy, PlatformSKUFulfillmentPolicyPage, WarehouseCarrierPolicies, WarehouseCarrierRules } from "../types";
 import "./ShippingPoliciesPage.css";
 
 const platforms = ["temu", "shein"];
 const warehouses = ["DPS002", "ARP_EAST", "DPS004", "ARP_WEST"];
+const knownCarriers = ["GOFO", "SWIFTX", "SPEEDX", "YANWEN", "UPS", "USPS", "FEDEX", "UNIUNI"];
 const platformLabel = (value: string) => value === "shein" ? "SHEIN" : "Temu";
 
-function CarrierEditor({ group, saving, onChange, onSave, onReset }: {
+function CarrierEditor({ group, saving, onChange, onRulesChange, onSave, onReset }: {
   group: WarehouseCarrierPolicies;
   saving: boolean;
   onChange: (carriers: CarrierPolicy[]) => void;
+  onRulesChange?: (rules: WarehouseCarrierRules) => void;
   onSave: () => void;
   onReset?: () => void;
 }) {
@@ -31,6 +33,20 @@ function CarrierEditor({ group, saving, onChange, onSave, onReset }: {
         <button className="icon-button bordered" type="button" title="保存快递策略" disabled={saving} onClick={onSave}><Save size={15}/></button>
       </div>
     </header>
+    {onRulesChange && <div className="base-rule-editor">
+      <div className="base-rule-heading"><strong>基础限制</strong><small>平台 + 仓库生效，SKU 不可绕过</small></div>
+      <div className="base-carrier-toggles">{knownCarriers.map((code) => {
+        const allowed = group.base_rules.allowed_carrier_codes.includes(code);
+        return <label key={code}><input type="checkbox" checked={allowed} onChange={(event) => onRulesChange({ ...group.base_rules, allowed_carrier_codes: event.target.checked ? [...group.base_rules.allowed_carrier_codes, code] : group.base_rules.allowed_carrier_codes.filter((item) => item !== code) })}/><span>{code}</span></label>;
+      })}</div>
+      <div className="base-rule-grid">
+        <label><span>签名服务</span><select value={group.base_rules.allow_signature ? "allow" : "deny"} onChange={(event) => onRulesChange({ ...group.base_rules, allow_signature: event.target.value === "allow" })}><option value="deny">禁止</option><option value="allow">允许</option></select></label>
+        <label><span>允许报价币种</span><input value={group.base_rules.allowed_currency_codes.join(", ")} placeholder="留空表示不限" onChange={(event) => onRulesChange({ ...group.base_rules, allowed_currency_codes: event.target.value.split(",").map((item) => item.trim().toUpperCase()).filter(Boolean) })}/></label>
+        <label><span>选价算法</span><select value={group.base_rules.selection_mode} onChange={(event) => onRulesChange({ ...group.base_rules, selection_mode: event.target.value as WarehouseCarrierRules["selection_mode"] })}><option value="lowest_price">严格最低价</option><option value="carrier_priority_within_delta">价差内按快递优先级</option></select></label>
+        <label><span>最高价差（报价币种）</span><input type="number" min="0" step="0.01" disabled={group.base_rules.selection_mode === "lowest_price"} value={group.base_rules.max_price_delta} onChange={(event) => onRulesChange({ ...group.base_rules, max_price_delta: Number(event.target.value) })}/></label>
+        <label><span>同价仓库优先级</span><input type="number" min="1" max="100" step="1" value={group.base_rules.warehouse_tie_priority} onChange={(event) => onRulesChange({ ...group.base_rules, warehouse_tie_priority: Number(event.target.value) })}/></label>
+      </div>
+    </div>}
     <div className="carrier-list">{group.carriers.map((carrier, index) => <div className="carrier-row" key={carrier.carrier_code}>
       <span className="carrier-rank">{carrier.priority}</span><strong>{carrier.carrier_code}</strong>
       <label className="switch-line"><input type="checkbox" checked={carrier.enabled} onChange={(event) => onChange(group.carriers.map((item) => item.carrier_code === carrier.carrier_code ? { ...item, enabled: event.target.checked } : item))}/><span>{carrier.enabled ? "启用" : "禁用"}</span></label>
@@ -75,10 +91,11 @@ export default function ShippingPoliciesPage() {
     setPlatform(value); setPage(1); setEditing(null); localStorage.setItem("xlwms-policy-platform", value);
   };
   const updateGroup = (groups: WarehouseCarrierPolicies[], key: string, carriers: CarrierPolicy[]) => groups.map((group) => group.warehouse_key === key ? { ...group, carriers } : group);
+  const updateRules = (groups: WarehouseCarrierPolicies[], key: string, baseRules: WarehouseCarrierRules) => groups.map((group) => group.warehouse_key === key ? { ...group, base_rules: baseRules } : group);
   const saveDefault = async (group: WarehouseCarrierPolicies) => {
     setSavingKey(`default-${group.warehouse_key}`); setError("");
     try {
-      const saved = await api.updateCarrierPolicies(platform, group.warehouse_key, group.carriers);
+      const saved = await api.updateCarrierPolicies(platform, group.warehouse_key, group.carriers, undefined, group.base_rules);
       setDefaults((items) => items.map((item) => item.warehouse_key === saved.warehouse_key ? saved : item));
     } catch (reason) { setError(reason instanceof Error ? reason.message : "平台默认快递策略保存失败"); }
     finally { setSavingKey(""); }
@@ -119,11 +136,11 @@ export default function ShippingPoliciesPage() {
   };
 
   return <>
-    <PageHeader title="发货策略" subtitle="按平台和仓库 SKU 维护可发仓与快递优先级" />
+    <PageHeader title="发货策略" subtitle="按平台、仓库和 SKU 维护发货限制与快递选择" />
     <div className="filter-bar policy-platform-bar"><div className="segmented-control" aria-label="选择平台">{platforms.map((item) => <button key={item} className={platform === item ? "active" : ""} onClick={() => choosePlatform(item)}>{platformLabel(item)}</button>)}</div><span className="table-note">规则对 {platformLabel(platform)} 全部店铺生效</span></div>
     {error && <ErrorState message={error} onRetry={() => void load()} />}
-    <div className="policy-section-title"><div><h2>平台默认快递策略</h2><p>SKU 未单独覆盖时使用</p></div></div>
-    {loading ? <LoadingState label="正在加载发货策略" /> : <div className="carrier-grid">{defaults.map((group) => <CarrierEditor key={group.warehouse_key} group={group} saving={savingKey === `default-${group.warehouse_key}`} onChange={(carriers) => setDefaults((items) => updateGroup(items, group.warehouse_key, carriers))} onSave={() => void saveDefault(group)} />)}</div>}
+    <div className="policy-section-title"><div><h2>平台 + 仓库基础快递规则</h2><p>控制基础白名单、签名/币种限制和自动选价算法；SKU 可覆盖优先级，但不能绕过基础限制</p></div></div>
+    {loading ? <LoadingState label="正在加载发货策略" /> : <div className="carrier-grid">{defaults.map((group) => <CarrierEditor key={group.warehouse_key} group={group} saving={savingKey === `default-${group.warehouse_key}`} onChange={(carriers) => setDefaults((items) => updateGroup(items, group.warehouse_key, carriers))} onRulesChange={(rules) => setDefaults((items) => updateRules(items, group.warehouse_key, rules))} onSave={() => void saveDefault(group)} />)}</div>}
     <div className="policy-section-title sku-policy-heading"><div><h2>SKU 发货策略</h2><p>设置可发仓，并按仓覆盖快递策略</p></div></div>
     <div className="filter-bar"><label className="search-field"><Search size={16}/><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索仓库 SKU 或产品名称"/></label><button className="icon-button bordered" title="刷新" onClick={() => void load()}><RefreshCw size={17}/></button></div>
     {!loading && data?.records.length ? <div className="table-panel"><div className="table-scroll"><table className="data-table"><thead><tr><th>仓库 SKU / 产品</th><th>可发仓</th><th>规则状态</th><th>操作</th></tr></thead><tbody>{data.records.map((item) => {

@@ -347,6 +347,39 @@ CROSS JOIN (VALUES
 ) carriers(carrier_code, priority)
 ON CONFLICT (platform, warehouse_key, carrier_code) DO NOTHING;
 
+CREATE TABLE IF NOT EXISTS xlwms_platform_warehouse_carrier_rules (
+    platform text NOT NULL CHECK (platform IN ('temu', 'shein')),
+    warehouse_key text NOT NULL CHECK (warehouse_key IN ('DPS002', 'ARP_EAST', 'DPS004', 'ARP_WEST')),
+    allowed_carrier_codes text[] NOT NULL DEFAULT '{}',
+    allow_signature boolean NOT NULL DEFAULT true,
+    allowed_currency_codes text[] NOT NULL DEFAULT '{}',
+    selection_mode text NOT NULL CHECK (selection_mode IN ('lowest_price', 'carrier_priority_within_delta')),
+    max_price_delta numeric NOT NULL DEFAULT 0 CHECK (max_price_delta >= 0),
+    warehouse_tie_priority integer NOT NULL CHECK (warehouse_tie_priority > 0),
+    updated_at timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (platform, warehouse_key)
+);
+
+INSERT INTO xlwms_platform_warehouse_carrier_rules (
+    platform, warehouse_key, allowed_carrier_codes, allow_signature,
+    allowed_currency_codes, selection_mode, max_price_delta, warehouse_tie_priority
+)
+SELECT platform, warehouse_key,
+       ARRAY['GOFO','SWIFTX','SPEEDX','YANWEN','UPS','USPS','FEDEX']::text[],
+       platform='shein',
+       CASE WHEN platform='temu' THEN ARRAY['USD']::text[] ELSE ARRAY[]::text[] END,
+       CASE WHEN platform='temu' THEN 'carrier_priority_within_delta' ELSE 'lowest_price' END,
+       CASE WHEN platform='temu' THEN 0.50 ELSE 0 END,
+       CASE
+           WHEN platform='temu' AND warehouse_key LIKE 'DPS%' THEN 1
+           WHEN platform='temu' THEN 2
+           WHEN platform='shein' AND warehouse_key LIKE 'ARP%' THEN 1
+           ELSE 2
+       END
+FROM (VALUES ('temu'), ('shein')) platforms(platform)
+CROSS JOIN (VALUES ('DPS002'), ('ARP_EAST'), ('DPS004'), ('ARP_WEST')) warehouses(warehouse_key)
+ON CONFLICT (platform, warehouse_key) DO NOTHING;
+
 CREATE TABLE IF NOT EXISTS xlwms_platform_sku_carrier_policies (
     platform text NOT NULL CHECK (platform IN ('temu', 'shein')),
     warehouse_sku text NOT NULL,

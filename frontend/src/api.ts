@@ -1,4 +1,4 @@
-import type { CarrierPolicy, CostDetail, DashboardData, FulfilledOrderPage, FulfillmentAuditPage, FundsFlow, InventoryAlertPage, InventoryCorrection, InventoryKind, InventoryRecord, InventoryThresholdPage, InventoryThresholds, PackingPlan, PackingPlanRequest, PageData, PendingPlatformOrderPage, PlatformInventoryThresholds, PlatformOrderAccountOption, PlatformOrderAssignmentResult, PlatformOrderRoutingPreview, PlatformSKUFulfillmentPolicy, PlatformSKUFulfillmentPolicyPage, ProductPairingMutationResult, ProductPairingPage, ProductPairingPayload, SKUCombination, SKUCombinationPayload, SKUInventoryThreshold, SKUStockLevelPage, SyncRun, Warehouse, WarehouseCarrierPolicies, WarehouseSKUInventoryAlertThreshold, WarehouseSKUSpec } from "./types";
+import type { CarrierPolicy, CostDetail, DashboardData, FulfilledOrderPage, FulfillmentAuditPage, FundsFlow, InventoryAlertPage, InventoryCorrection, InventoryKind, InventoryRecord, InventoryThresholdPage, InventoryThresholds, PackingPlan, PackingPlanRequest, PageData, PendingPlatformOrderPage, PlatformInventoryThresholds, PlatformOrderAccountOption, PlatformOrderAssignmentResult, PlatformOrderRoutingPreview, PlatformSKUFulfillmentPolicy, PlatformSKUFulfillmentPolicyPage, ProductPairingMutationResult, ProductPairingPage, ProductPairingPayload, SKUCombination, SKUCombinationPayload, SKUInventoryThreshold, SKUStockLevelPage, SyncRun, Warehouse, WarehouseCarrierPolicies, WarehouseCarrierRules, WarehouseSKUInventoryAlertThreshold, WarehouseSKUSpec } from "./types";
 
 type Envelope<T> = { success: boolean; data?: T; error?: string; code?: string };
 const apiBase = `${import.meta.env.BASE_URL}api`;
@@ -114,8 +114,8 @@ export const api = {
     request<{ deleted: boolean }>(`/inventory-thresholds/${encodeURIComponent(warehouseSKU)}/reset${query({ platform })}`, { method: "POST" }),
   carrierPolicies: (platform: string, warehouseSKU?: string) =>
     request<WarehouseCarrierPolicies[]>(`/fulfillment-policies/carriers${query({ platform, warehouse_sku: warehouseSKU })}`),
-  updateCarrierPolicies: (platform: string, warehouseKey: string, carriers: CarrierPolicy[], warehouseSKU?: string) =>
-    request<WarehouseCarrierPolicies>(`/fulfillment-policies/carriers/${encodeURIComponent(warehouseKey)}${query({ platform, warehouse_sku: warehouseSKU })}`, { method: "PATCH", body: JSON.stringify({ carriers }) }),
+  updateCarrierPolicies: (platform: string, warehouseKey: string, carriers: CarrierPolicy[], warehouseSKU?: string, baseRules?: WarehouseCarrierRules) =>
+    request<WarehouseCarrierPolicies>(`/fulfillment-policies/carriers/${encodeURIComponent(warehouseKey)}${query({ platform, warehouse_sku: warehouseSKU })}`, { method: "PATCH", body: JSON.stringify({ carriers, base_rules: baseRules }) }),
   resetSKUCarrierPolicies: (platform: string, warehouseKey: string, warehouseSKU: string) =>
     request<{ deleted: boolean }>(`/fulfillment-policies/carriers/${encodeURIComponent(warehouseKey)}/reset${query({ platform, warehouse_sku: warehouseSKU })}`, { method: "POST" }),
   skuFulfillmentPolicies: (params: { platform: string; q?: string; page: number; pageSize: number }) =>

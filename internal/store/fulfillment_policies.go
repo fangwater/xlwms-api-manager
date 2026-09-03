@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"sort"
 	"strings"
 
@@ -13,6 +14,7 @@ import (
 var (
 	SupportedFulfillmentWarehouseKeys = []string{"DPS002", "ARP_EAST", "DPS004", "ARP_WEST"}
 	SupportedAutomaticCarrierCodes    = []string{"GOFO", "SWIFTX", "SPEEDX", "YANWEN", "UPS", "USPS", "FEDEX"}
+	KnownAutomaticCarrierCodes        = []string{"GOFO", "SWIFTX", "SPEEDX", "YANWEN", "UPS", "USPS", "FEDEX", "UNIUNI"}
 )
 
 func NormalizeFulfillmentWarehouseKey(value string) (string, error) {
@@ -66,12 +68,101 @@ func ValidateCarrierPolicies(warehouseKey string, policies []model.CarrierPolicy
 	return normalized, nil
 }
 
+func ValidateWarehouseCarrierRules(warehouseKey string, rules model.WarehouseCarrierRules) (model.WarehouseCarrierRules, error) {
+	warehouseKey, err := NormalizeFulfillmentWarehouseKey(warehouseKey)
+	if err != nil {
+		return model.WarehouseCarrierRules{}, err
+	}
+	known := make(map[string]bool, len(KnownAutomaticCarrierCodes))
+	for _, code := range KnownAutomaticCarrierCodes {
+		known[code] = true
+	}
+	seenCarriers := make(map[string]bool, len(rules.AllowedCarrierCodes))
+	carriers := make([]string, 0, len(rules.AllowedCarrierCodes))
+	for _, raw := range rules.AllowedCarrierCodes {
+		code := strings.ToUpper(strings.TrimSpace(raw))
+		if !known[code] {
+			return model.WarehouseCarrierRules{}, fmt.Errorf("unsupported carrier %q", raw)
+		}
+		if seenCarriers[code] {
+			return model.WarehouseCarrierRules{}, fmt.Errorf("duplicate allowed carrier %q", raw)
+		}
+		seenCarriers[code] = true
+		carriers = append(carriers, code)
+	}
+	seenCurrencies := make(map[string]bool, len(rules.AllowedCurrencyCodes))
+	currencies := make([]string, 0, len(rules.AllowedCurrencyCodes))
+	for _, raw := range rules.AllowedCurrencyCodes {
+		code := strings.ToUpper(strings.TrimSpace(raw))
+		if len(code) != 3 {
+			return model.WarehouseCarrierRules{}, fmt.Errorf("currency code %q must contain 3 letters", raw)
+		}
+		for _, character := range code {
+			if character < 'A' || character > 'Z' {
+				return model.WarehouseCarrierRules{}, fmt.Errorf("currency code %q must contain 3 letters", raw)
+			}
+		}
+		if seenCurrencies[code] {
+			return model.WarehouseCarrierRules{}, fmt.Errorf("duplicate allowed currency %q", raw)
+		}
+		seenCurrencies[code] = true
+		currencies = append(currencies, code)
+	}
+	mode := strings.ToLower(strings.TrimSpace(rules.SelectionMode))
+	if mode != "lowest_price" && mode != "carrier_priority_within_delta" {
+		return model.WarehouseCarrierRules{}, errors.New("selection_mode must be lowest_price or carrier_priority_within_delta")
+	}
+	if rules.MaxPriceDelta < 0 || rules.MaxPriceDelta > 1000 || math.IsNaN(rules.MaxPriceDelta) || math.IsInf(rules.MaxPriceDelta, 0) {
+		return model.WarehouseCarrierRules{}, errors.New("max_price_delta must be between 0 and 1000")
+	}
+	if rules.WarehouseTiePriority < 1 || rules.WarehouseTiePriority > 100 {
+		return model.WarehouseCarrierRules{}, errors.New("warehouse_tie_priority must be between 1 and 100")
+	}
+	sort.Strings(carriers)
+	sort.Strings(currencies)
+	rules.WarehouseKey = warehouseKey
+	rules.AllowedCarrierCodes = carriers
+	rules.AllowedCurrencyCodes = currencies
+	rules.SelectionMode = mode
+	return rules, nil
+}
+
 func (p *Postgres) CarrierPolicies(ctx context.Context, platform, warehouseSKU string) ([]model.WarehouseCarrierPolicies, error) {
 	platform, err := NormalizeFulfillmentPlatform(platform)
 	if err != nil {
 		return nil, err
 	}
 	warehouseSKU = strings.TrimSpace(warehouseSKU)
+	ruleRows, err := p.pool.Query(ctx, `
+SELECT warehouse_key,allowed_carrier_codes,allow_signature,allowed_currency_codes,
+       selection_mode,max_price_delta,warehouse_tie_priority
+FROM xlwms_platform_warehouse_carrier_rules
+WHERE platform=$1
+`, platform)
+	if err != nil {
+		return nil, fmt.Errorf("list warehouse carrier rules: %w", err)
+	}
+	rulesByWarehouse := make(map[string]model.WarehouseCarrierRules, len(SupportedFulfillmentWarehouseKeys))
+	for ruleRows.Next() {
+		var rules model.WarehouseCarrierRules
+		if err := ruleRows.Scan(&rules.WarehouseKey, &rules.AllowedCarrierCodes, &rules.AllowSignature,
+			&rules.AllowedCurrencyCodes, &rules.SelectionMode, &rules.MaxPriceDelta, &rules.WarehouseTiePriority); err != nil {
+			ruleRows.Close()
+			return nil, fmt.Errorf("scan warehouse carrier rules: %w", err)
+		}
+		rulesByWarehouse[rules.WarehouseKey] = rules
+	}
+	if err := ruleRows.Err(); err != nil {
+		ruleRows.Close()
+		return nil, err
+	}
+	ruleRows.Close()
+	for _, key := range SupportedFulfillmentWarehouseKeys {
+		if _, ok := rulesByWarehouse[key]; !ok {
+			return nil, fmt.Errorf("platform %s warehouse %s has no base carrier rules", platform, key)
+		}
+	}
+
 	rows, err := p.pool.Query(ctx, `
 SELECT defaults.warehouse_key,defaults.carrier_code,
        coalesce(overrides.priority,defaults.priority),coalesce(overrides.enabled,defaults.enabled),
@@ -109,13 +200,13 @@ ORDER BY defaults.warehouse_key,coalesce(overrides.priority,defaults.priority),d
 		}
 		result = append(result, model.WarehouseCarrierPolicies{
 			WarehouseKey: warehouseKey, WarehouseSKU: warehouseSKU, Customized: customized[warehouseKey],
-			Source: source, Carriers: byWarehouse[warehouseKey],
+			Source: source, BaseRules: rulesByWarehouse[warehouseKey], Carriers: byWarehouse[warehouseKey],
 		})
 	}
 	return result, nil
 }
 
-func (p *Postgres) ReplaceCarrierPolicies(ctx context.Context, platform, warehouseSKU, warehouseKey string, policies []model.CarrierPolicy) (model.WarehouseCarrierPolicies, error) {
+func (p *Postgres) ReplaceCarrierPolicies(ctx context.Context, platform, warehouseSKU, warehouseKey string, baseRules *model.WarehouseCarrierRules, policies []model.CarrierPolicy) (model.WarehouseCarrierPolicies, error) {
 	platform, err := NormalizeFulfillmentPlatform(platform)
 	if err != nil {
 		return model.WarehouseCarrierPolicies{}, err
@@ -129,6 +220,16 @@ func (p *Postgres) ReplaceCarrierPolicies(ctx context.Context, platform, warehou
 		return model.WarehouseCarrierPolicies{}, err
 	}
 	warehouseSKU = strings.TrimSpace(warehouseSKU)
+	if warehouseSKU != "" && baseRules != nil {
+		return model.WarehouseCarrierPolicies{}, errors.New("base_rules can only be changed at platform and warehouse scope")
+	}
+	var normalizedRules model.WarehouseCarrierRules
+	if baseRules != nil {
+		normalizedRules, err = ValidateWarehouseCarrierRules(warehouseKey, *baseRules)
+		if err != nil {
+			return model.WarehouseCarrierPolicies{}, err
+		}
+	}
 	tx, err := p.pool.Begin(ctx)
 	if err != nil {
 		return model.WarehouseCarrierPolicies{}, err
@@ -148,6 +249,27 @@ func (p *Postgres) ReplaceCarrierPolicies(ctx context.Context, platform, warehou
 	}
 	if err != nil {
 		return model.WarehouseCarrierPolicies{}, fmt.Errorf("clear carrier policies: %w", err)
+	}
+	if baseRules != nil {
+		_, err = tx.Exec(ctx, `
+INSERT INTO xlwms_platform_warehouse_carrier_rules(
+    platform,warehouse_key,allowed_carrier_codes,allow_signature,allowed_currency_codes,
+    selection_mode,max_price_delta,warehouse_tie_priority,updated_at
+) VALUES($1,$2,$3,$4,$5,$6,$7,$8,now())
+ON CONFLICT(platform,warehouse_key) DO UPDATE SET
+    allowed_carrier_codes=EXCLUDED.allowed_carrier_codes,
+    allow_signature=EXCLUDED.allow_signature,
+    allowed_currency_codes=EXCLUDED.allowed_currency_codes,
+    selection_mode=EXCLUDED.selection_mode,
+    max_price_delta=EXCLUDED.max_price_delta,
+    warehouse_tie_priority=EXCLUDED.warehouse_tie_priority,
+    updated_at=now()
+`, platform, warehouseKey, normalizedRules.AllowedCarrierCodes, normalizedRules.AllowSignature,
+			normalizedRules.AllowedCurrencyCodes, normalizedRules.SelectionMode, normalizedRules.MaxPriceDelta,
+			normalizedRules.WarehouseTiePriority)
+		if err != nil {
+			return model.WarehouseCarrierPolicies{}, fmt.Errorf("save warehouse carrier rules: %w", err)
+		}
 	}
 	for _, policy := range policies {
 		if warehouseSKU == "" {

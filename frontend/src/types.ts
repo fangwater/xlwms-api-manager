@@ -341,11 +341,22 @@ export type CarrierPolicy = {
   enabled: boolean;
 };
 
+export type WarehouseCarrierRules = {
+  warehouse_key: string;
+  allowed_carrier_codes: string[];
+  allow_signature: boolean;
+  allowed_currency_codes: string[];
+  selection_mode: "lowest_price" | "carrier_priority_within_delta";
+  max_price_delta: number;
+  warehouse_tie_priority: number;
+};
+
 export type WarehouseCarrierPolicies = {
   warehouse_key: string;
   warehouse_sku?: string;
   customized: boolean;
   source: "platform_default" | "platform_sku";
+  base_rules: WarehouseCarrierRules;
   carriers: CarrierPolicy[];
 };
 
