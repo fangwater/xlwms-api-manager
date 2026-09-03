@@ -72,3 +72,19 @@ func TestInitSQLDefinesPlatformSKUWarehousePoliciesWithoutShopScope(t *testing.T
 		}
 	}
 }
+
+func TestInitSQLMigratesWarehouseAccountsToPlatformSKURoutes(t *testing.T) {
+	for _, fragment := range []string{
+		"CREATE TABLE IF NOT EXISTS xlwms_oms_account_warehouses",
+		"PRIMARY KEY (account_key, wh_code)",
+		"CREATE TABLE IF NOT EXISTS xlwms_platform_sku_oms_accounts",
+		"PRIMARY KEY (platform, warehouse_sku)",
+		"DROP COLUMN oms_username_ciphertext",
+		"DROP COLUMN oms_password_ciphertext",
+		"DROP COLUMN oms_account_hint",
+	} {
+		if !strings.Contains(InitSQL, fragment) {
+			t.Fatalf("InitSQL missing fulfillment account migration fragment %q", fragment)
+		}
+	}
+}

@@ -111,9 +111,6 @@ func newWithPlatformOrderAccountOperations(destination *store.Postgres, service 
 	mux.HandleFunc("GET /v1/warehouses", server.listWarehouses)
 	mux.HandleFunc("POST /v1/warehouses", server.upsertWarehouse)
 	mux.HandleFunc("PATCH /v1/warehouses/{code}/status", server.warehouseStatus)
-	mux.HandleFunc("PATCH /v1/warehouses/{code}/oms-account", server.setWarehouseOMSAccount)
-	mux.HandleFunc("PUT /v1/warehouses/{code}/oms-account", server.setWarehouseOMSAccount)
-	mux.HandleFunc("DELETE /v1/warehouses/{code}/oms-account", server.clearWarehouseOMSAccount)
 	mux.HandleFunc("GET /v1/funds-flows", server.fundsFlows)
 	mux.HandleFunc("GET /v1/cost-details", server.costDetails)
 	mux.HandleFunc("GET /v1/cost-details/{warehouse}/{costNo}/items", server.costItems)
@@ -153,6 +150,13 @@ func newWithPlatformOrderAccountOperations(destination *store.Postgres, service 
 	mux.HandleFunc("PUT /v1/fulfillment-policies/skus/{warehouseSKU}", server.updateSKUFulfillmentPolicy)
 	mux.HandleFunc("PATCH /v1/fulfillment-policies/skus/{warehouseSKU}", server.updateSKUFulfillmentPolicy)
 	mux.HandleFunc("POST /v1/fulfillment-policies/skus/query", server.querySKUFulfillmentPolicies)
+	mux.HandleFunc("GET /v1/fulfillment-policies/accounts", server.listFulfillmentAccounts)
+	mux.HandleFunc("PUT /v1/fulfillment-policies/accounts/{accountKey}/warehouses", server.updateFulfillmentAccountWarehouses)
+	mux.HandleFunc("PATCH /v1/fulfillment-policies/accounts/{accountKey}/warehouses", server.updateFulfillmentAccountWarehouses)
+	mux.HandleFunc("GET /v1/fulfillment-policies/account-routes", server.listPlatformSKUOMSAccounts)
+	mux.HandleFunc("PUT /v1/fulfillment-policies/account-routes/{warehouseSKU}", server.updatePlatformSKUOMSAccount)
+	mux.HandleFunc("PATCH /v1/fulfillment-policies/account-routes/{warehouseSKU}", server.updatePlatformSKUOMSAccount)
+	mux.HandleFunc("POST /v1/fulfillment-policies/account-routes/{warehouseSKU}/reset", server.resetPlatformSKUOMSAccount)
 	mux.HandleFunc("POST /v1/temu/warehouse-availability/query", server.temuWarehouseAvailability)
 	mux.HandleFunc("GET /v1/fulfillment-audits", server.listFulfillmentAudits)
 	mux.HandleFunc("GET /v1/fulfillment-audits/archived", server.listArchivedFulfillmentAudits)
@@ -193,7 +197,7 @@ func (s *Server) dashboard(writer http.ResponseWriter, request *http.Request) {
 func (s *Server) listWarehouses(writer http.ResponseWriter, request *http.Request) {
 	ctx, cancel := context.WithTimeout(request.Context(), s.requestTimeout)
 	defer cancel()
-	warehouses, err := s.store.ListWarehousesWithOMS(ctx, request.URL.Query().Get("active_only") == "true")
+	warehouses, err := s.store.ListWarehouses(ctx, request.URL.Query().Get("active_only") == "true")
 	if err != nil {
 		s.internalError(writer, "list warehouses", err)
 		return

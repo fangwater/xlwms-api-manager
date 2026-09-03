@@ -559,26 +559,15 @@ test("outbound tracking classifies pickup exceptions and combines filters", asyn
   await page.screenshot({ path: "/tmp/xlwms-outbound-tracking-mobile.png", fullPage: true });
 });
 
-test("warehouse page configures an encrypted OMS shipping account", async ({ page }) => {
+test("warehouse page only manages warehouse OpenAPI connections", async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 860 });
   await mockAPI(page);
   await page.goto("./warehouses");
 
   await expect(page.getByRole("heading", { name: "仓库管理" })).toBeVisible();
-  await expect(page.getByText("op***01")).toBeVisible();
-  await expect(page.getByText("未绑定发货账号")).toBeVisible();
-  await page.getByTitle("更换 OMS 发货账号").click();
-
-  const dialog = page.getByRole("dialog", { name: "OMS 发货账号" });
-  await expect(dialog).toBeVisible();
-  await expect(dialog.getByText("华东一号仓 · EAST-01")).toBeVisible();
-  await dialog.getByLabel("OMS 用户名").fill("warehouse-operator");
-  await dialog.getByLabel("OMS 密码").fill("test-password");
-
-  const saveRequest = page.waitForRequest(request => request.method() === "PATCH" && request.url().endsWith("/warehouses/EAST-01/oms-account"));
-  await page.screenshot({ path: "/tmp/xlwms-warehouse-account-desktop.png", fullPage: true });
-  await dialog.getByRole("button", { name: "保存账号和密码" }).click();
-  expect((await saveRequest).postDataJSON()).toEqual({ username: "warehouse-operator", password: "test-password" });
-  await expect(dialog).toHaveCount(0);
+  await expect(page.getByText("仓库 OpenAPI 连接与同步状态")).toBeVisible();
+  await expect(page.getByText("demo...key")).toHaveCount(2);
+  await expect(page.getByText("OMS 发货账号")).toHaveCount(0);
+  await page.screenshot({ path: "/tmp/xlwms-warehouse-connections-desktop.png", fullPage: true });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBeTruthy();
 });

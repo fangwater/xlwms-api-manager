@@ -119,8 +119,41 @@
 .policy-source-badge { min-height: 21px; display: inline-flex; align-items: center; padding: 0 6px; border-radius: 4px; background: #eef0f1; color: #747c82; font-size: 8px; font-weight: 650; }
 .policy-source-badge.custom { background: #e8f1f6; color: #39729a; }
 .sku-carrier-card .carrier-priority-list { border: 0; border-radius: 0; }
+.account-policy-section, .account-route-section { margin-bottom: 18px; }
+.account-section-heading { min-height: 48px; display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 10px; }
+.account-section-heading h2 { margin: 0; color: #2d3337; font-size: 15px; line-height: 21px; }
+.account-section-heading p { margin: 3px 0 0; color: #858e94; font-size: 10px; line-height: 15px; }
+.account-policy-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.account-policy-card { overflow: hidden; border: 1px solid #dfe3e5; border-radius: 8px; background: #fff; }
+.account-policy-card > header { min-height: 64px; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 13px; border-bottom: 1px solid #e5e8e9; background: #fafbfb; }
+.account-identity { min-width: 0; display: flex; align-items: center; gap: 10px; }
+.account-identity > span { width: 34px; height: 34px; display: grid; place-items: center; flex: none; border-radius: 6px; background: #303a42; color: #fff; font-size: 13px; font-weight: 750; }
+.account-identity h3 { margin: 0; color: #2c3236; font-size: 13px; }
+.account-identity p { margin: 2px 0 0; color: #8e969b; font-size: 9px; }
+.account-card-summary { display: flex; align-items: center; gap: 14px; padding: 10px 13px 0; color: #778087; font-size: 9px; }
+.account-card-summary span { display: inline-flex; align-items: center; gap: 5px; }
+.account-warehouse-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 7px; padding: 11px 13px 13px; }
+.account-warehouse-grid label { min-width: 0; min-height: 50px; display: grid; grid-template-columns: 18px minmax(0, 1fr); align-items: center; gap: 7px; padding: 7px; border: 1px solid #e0e4e6; border-radius: 6px; background: #fafbfb; cursor: pointer; }
+.account-warehouse-grid label.active { border-color: #82ad9d; background: #edf5f1; }
+.account-warehouse-grid input { position: absolute; opacity: 0; pointer-events: none; }
+.account-warehouse-grid label > span { width: 17px; height: 17px; display: grid; place-items: center; border: 1px solid #bdc5c9; border-radius: 4px; background: #fff; }
+.account-warehouse-grid label.active > span { border-color: #2d8064; background: #2d8064; color: #fff; }
+.account-warehouse-grid label > div { min-width: 0; }
+.account-warehouse-grid strong, .account-warehouse-grid small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.account-warehouse-grid strong { color: #343a3e; font-size: 9px; }
+.account-warehouse-grid small { margin-top: 2px; color: #949ba0; font-size: 8px; }
+.account-policy-card > footer { min-height: 54px; display: flex; align-items: center; justify-content: flex-end; padding: 8px 13px; border-top: 1px solid #e6e9ea; background: #fafbfb; }
+.account-route-section { padding-top: 2px; border-top: 1px solid #dfe3e5; }
+.account-route-section > .account-section-heading { margin-top: 14px; }
+.account-route-table th:nth-child(1) { width: 27%; }
+.account-route-table th:nth-child(2) { width: 19%; }
+.account-route-table th:nth-child(3) { width: 34%; }
+.account-route-table select { width: 100%; min-width: 112px; height: 34px; padding: 0 28px 0 9px; border: 1px solid #d9dee0; border-radius: 6px; background: #fff; color: #343a3f; font-size: 10px; }
+.route-saving { color: #2d8064; }
+.muted-action { color: #a2a9ad; }
+.account-credential-modal { width: min(500px, calc(100vw - 24px)); }
 @media (max-width: 1050px) {
-  .warehouse-policy-grid, .sku-carrier-grid { grid-template-columns: 1fr; }
+  .warehouse-policy-grid, .sku-carrier-grid, .account-policy-grid { grid-template-columns: 1fr; }
   .carrier-allow-grid { grid-template-columns: repeat(4, minmax(84px, 1fr)); }
 }
 @media (max-width: 760px) {
@@ -129,6 +162,7 @@
   .policy-view-nav { width: 100%; }
   .policy-view-nav button { flex: 1 0 auto; justify-content: center; }
   .warehouse-toggle-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .account-warehouse-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
   .policy-modal { width: calc(100vw - 16px); max-height: calc(100vh - 16px); }
   .policy-modal-body { max-height: calc(100vh - 98px); padding: 0 12px 18px; }
 }
@@ -144,6 +178,7 @@
   .sku-policy-toolbar .search-field { width: 100%; }
   .sku-policy-toolbar > div { justify-content: space-between; }
   .warehouse-toggle-grid { grid-template-columns: 1fr; }
+  .account-warehouse-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .policy-section-title { align-items: flex-start; flex-direction: column; }
   .policy-section-title .primary-button { width: 100%; }
   .sku-carrier-card > header { align-items: flex-start; flex-direction: column; }

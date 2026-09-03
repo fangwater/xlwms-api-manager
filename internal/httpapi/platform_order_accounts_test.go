@@ -18,29 +18,12 @@ import (
 )
 
 type fakePlatformOrderAccountStore struct {
-	warehouses    []model.WarehouseSummary
-	accounts      map[string]model.WarehouseOMSAccount
+	summaries     []model.OMSAccountSummary
 	loginAccounts map[string]model.OMSLoginAccount
 }
 
-func (f *fakePlatformOrderAccountStore) ListWarehousesWithOMS(context.Context, bool) ([]model.WarehouseSummary, error) {
-	return f.warehouses, nil
-}
-
-func (f *fakePlatformOrderAccountStore) WarehouseOMSAccount(_ context.Context, code string, _ bool) (model.WarehouseOMSAccount, error) {
-	account, exists := f.accounts[code]
-	if !exists {
-		return model.WarehouseOMSAccount{}, errPlatformOrderAccountNotFound
-	}
-	return account, nil
-}
-
-func (f *fakePlatformOrderAccountStore) SetWarehouseOMSAccount(_ context.Context, code, username, password string) (model.WarehouseSummary, error) {
-	if f.accounts == nil {
-		f.accounts = map[string]model.WarehouseOMSAccount{}
-	}
-	f.accounts[code] = model.WarehouseOMSAccount{WarehouseCode: code, Username: username, Password: password}
-	return model.WarehouseSummary{Code: code, OMSAccountConfigured: true}, nil
+func (f *fakePlatformOrderAccountStore) ListOMSAccountSummaries(context.Context, bool) ([]model.OMSAccountSummary, error) {
+	return f.summaries, nil
 }
 
 func (f *fakePlatformOrderAccountStore) OMSAccount(_ context.Context, key string) (model.OMSLoginAccount, error) {
@@ -55,16 +38,15 @@ func (f *fakePlatformOrderAccountStore) SetOMSAccount(_ context.Context, key, us
 	if f.loginAccounts == nil {
 		f.loginAccounts = map[string]model.OMSLoginAccount{}
 	}
-	account := model.OMSLoginAccount{Key: key, Username: username, Password: password, Hint: username}
+	account := model.OMSLoginAccount{Key: key, Label: strings.ToUpper(key) + " 账户", Username: username, Password: password, Hint: username, Enabled: true}
 	f.loginAccounts[key] = account
 	return account, nil
 }
 
 type fakeSelectablePlatformAccounts struct {
-	accountOperators   map[string]platformOrderAccount
-	warehouseOperators map[string]platformOrderOperator
-	options            []platformOrderAccountOption
-	selectedAccounts   []string
+	accountOperators map[string]platformOrderAccount
+	options          []platformOrderAccountOption
+	selectedAccounts []string
 }
 
 type fakeMutablePlatformAccounts struct {
@@ -102,21 +84,7 @@ func (f *fakeSelectablePlatformAccounts) OperatorForAccount(_ context.Context, k
 	return operator, nil
 }
 
-func (f *fakeSelectablePlatformAccounts) OperatorForWarehouse(_ context.Context, warehouseCode string) (platformOrderOperator, error) {
-	return f.warehouseOperators[warehouseCode], nil
-}
-
-type fakeWarehousePlatformAccounts struct {
-	operators map[string]platformOrderOperator
-	requested []string
-}
-
-func (f *fakeWarehousePlatformAccounts) OperatorForWarehouse(_ context.Context, warehouseCode string) (platformOrderOperator, error) {
-	f.requested = append(f.requested, warehouseCode)
-	return f.operators[warehouseCode], nil
-}
-
-func TestPlatformOrderAccountUpdateSavesVerifiedWarehouseLogin(t *testing.T) {
+func TestPlatformOrderAccountUpdateSavesVerifiedExplicitLogin(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		if request.URL.Path != "/gateway/woms/auth/login" {
 			http.NotFound(writer, request)
@@ -137,26 +105,19 @@ func TestPlatformOrderAccountUpdateSavesVerifiedWarehouseLogin(t *testing.T) {
 	defer server.Close()
 
 	accountStore := &fakePlatformOrderAccountStore{
-		warehouses: []model.WarehouseSummary{
-			{Code: "DPSCA004", OMSAccountConfigured: true},
-			{Code: "DPSNY002", OMSAccountConfigured: true},
-		},
-		accounts: map[string]model.WarehouseOMSAccount{
-			"DPSCA004": {WarehouseCode: "DPSCA004", Username: "old-dps", Password: "old-password"},
-			"DPSNY002": {WarehouseCode: "DPSNY002", Username: "old-dps", Password: "old-password"},
+		loginAccounts: map[string]model.OMSLoginAccount{
+			"dps": {Key: "dps", Username: "old-dps", Password: "old-password", Enabled: true},
 		},
 	}
 	resolver := &postgresPlatformOrderAccounts{
 		store: accountStore, baseURL: server.URL, timeout: time.Second,
 	}
-	if err := resolver.UpdateAccountCredentials(context.Background(), "warehouse:DPSNY002", "new-dps", "new-password"); err != nil {
+	if err := resolver.UpdateAccountCredentials(context.Background(), "dps", "new-dps", "new-password"); err != nil {
 		t.Fatal(err)
 	}
-	for _, code := range []string{"DPSCA004", "DPSNY002"} {
-		account := accountStore.accounts[code]
-		if account.Username != "new-dps" || account.Password != "new-password" {
-			t.Fatalf("%s account = %#v", code, account)
-		}
+	account := accountStore.loginAccounts["dps"]
+	if account.Username != "new-dps" || account.Password != "new-password" {
+		t.Fatalf("DPS account = %#v", account)
 	}
 }
 
@@ -170,7 +131,9 @@ func TestPlatformOrderAccountUpdateSavesVerifiedSharedLogin(t *testing.T) {
 	}))
 	defer server.Close()
 
-	accountStore := &fakePlatformOrderAccountStore{}
+	accountStore := &fakePlatformOrderAccountStore{loginAccounts: map[string]model.OMSLoginAccount{
+		"arp": {Key: "arp", Username: "old-arp", Password: "old-password", Enabled: true},
+	}}
 	resolver := &postgresPlatformOrderAccounts{
 		store: accountStore, baseURL: server.URL, timeout: time.Second,
 		shared:         oms.NewClient(server.URL, "old-arp", "old-password", time.Second),
@@ -235,7 +198,9 @@ func TestPlatformOrderAccountPasswordUpgradeSavesVerifiedSharedLogin(t *testing.
 	}))
 	defer server.Close()
 
-	accountStore := &fakePlatformOrderAccountStore{}
+	accountStore := &fakePlatformOrderAccountStore{loginAccounts: map[string]model.OMSLoginAccount{
+		"arp": {Key: "arp", Username: "old-arp", Password: currentPassword, Enabled: true},
+	}}
 	resolver := &postgresPlatformOrderAccounts{
 		store: accountStore, baseURL: server.URL, timeout: time.Second,
 		shared:         oms.NewClient(server.URL, "old-arp", currentPassword, time.Second),
@@ -266,7 +231,7 @@ func TestPlatformOrderAccountPasswordUpgradeValidatesAccountBeforeRemoteChange(t
 		store: accountStore, baseURL: server.URL, timeout: time.Second,
 		shared: readyPlatformOrderOperator(), sharedUsername: "arp-user", sharedPassword: "Old!Password7Q",
 	}
-	err := resolver.UpgradeAccountPassword(context.Background(), "warehouse:UNKNOWN", "arp-user", "Old!Password7Q", "Fresh!Moon9Qz")
+	err := resolver.UpgradeAccountPassword(context.Background(), "unknown", "arp-user", "Old!Password7Q", "Fresh!Moon9Qz")
 	if !errors.Is(err, errPlatformOrderAccountNotFound) {
 		t.Fatalf("error = %v, want errPlatformOrderAccountNotFound", err)
 	}
@@ -310,25 +275,14 @@ func TestPlatformOrderAccountPasswordUpgradeEndpoint(t *testing.T) {
 	}
 }
 
-func TestPlatformOrderAccountsDeduplicatesCredentials(t *testing.T) {
-	shared := readyPlatformOrderOperator()
+func TestPlatformOrderAccountsListsExplicitAccountsAndWarehouses(t *testing.T) {
 	accountStore := &fakePlatformOrderAccountStore{
-		warehouses: []model.WarehouseSummary{
-			{Code: "ARPCA01", OMSAccountConfigured: true},
-			{Code: "ARPGA", OMSAccountConfigured: true},
-			{Code: "DPSCA004", OMSAccountConfigured: true},
-			{Code: "DPSNY002", OMSAccountConfigured: true},
-		},
-		accounts: map[string]model.WarehouseOMSAccount{
-			"ARPCA01":  {WarehouseCode: "ARPCA01", Username: "arp-user", Password: "arp-password"},
-			"ARPGA":    {WarehouseCode: "ARPGA", Username: "arp-user", Password: "arp-password"},
-			"DPSCA004": {WarehouseCode: "DPSCA004", Username: "dps-user", Password: "dps-password"},
-			"DPSNY002": {WarehouseCode: "DPSNY002", Username: "dps-user", Password: "dps-password"},
+		summaries: []model.OMSAccountSummary{
+			{Key: "arp", Label: "ARP 账户", UsernameHint: "AR***NT", WarehouseCodes: []string{"ARPCA01", "HYTX30"}},
+			{Key: "dps", Label: "DPS 账户", UsernameHint: "DP***NT", WarehouseCodes: []string{"DPSCA004", "DPSNY002"}},
 		},
 	}
-	resolver := &postgresPlatformOrderAccounts{
-		store: accountStore, shared: shared, sharedUsername: "arp-user", sharedPassword: "arp-password",
-	}
+	resolver := &postgresPlatformOrderAccounts{store: accountStore}
 	options, err := resolver.PlatformOrderAccounts(context.Background())
 	if err != nil {
 		t.Fatal(err)
@@ -340,74 +294,33 @@ func TestPlatformOrderAccountsDeduplicatesCredentials(t *testing.T) {
 		len(options[0].WarehouseCodes) != 2 {
 		t.Fatalf("ARP option = %#v", options[0])
 	}
-	if options[1].Key != "warehouse:DPSCA004" || options[1].Label != "DPS 账户" ||
+	if options[1].Key != "dps" || options[1].Label != "DPS 账户" ||
 		len(options[1].WarehouseCodes) != 2 {
 		t.Fatalf("DPS option = %#v", options[1])
 	}
 }
 
-func TestPlatformOrderAccountAcceptsAnyWarehouseCodeInCredentialGroup(t *testing.T) {
+func TestPlatformOrderAccountUsesExplicitKeyAndRejectsWarehouseAlias(t *testing.T) {
 	shared := readyPlatformOrderOperator()
 	accountStore := &fakePlatformOrderAccountStore{
-		warehouses: []model.WarehouseSummary{
-			{Code: "ARPCA01", OMSAccountConfigured: true},
-			{Code: "HYTX30", OMSAccountConfigured: true},
-			{Code: "DPSCA004", OMSAccountConfigured: true},
-			{Code: "DPSNY002", OMSAccountConfigured: true},
-		},
-		accounts: map[string]model.WarehouseOMSAccount{
-			"ARPCA01":  {WarehouseCode: "ARPCA01", Username: "arp-user", Password: "arp-password"},
-			"HYTX30":   {WarehouseCode: "HYTX30", Username: "arp-user", Password: "arp-password"},
-			"DPSCA004": {WarehouseCode: "DPSCA004", Username: "dps-user", Password: "dps-password"},
-			"DPSNY002": {WarehouseCode: "DPSNY002", Username: "dps-user", Password: "dps-password"},
+		loginAccounts: map[string]model.OMSLoginAccount{
+			"arp": {Key: "arp", Username: "arp-user", Password: "arp-password", Enabled: true},
+			"dps": {Key: "dps", Username: "dps-user", Password: "dps-password", Enabled: true},
 		},
 	}
 	resolver := &postgresPlatformOrderAccounts{
 		store: accountStore, baseURL: "https://oms.example.test", timeout: time.Second,
 		shared: shared, sharedUsername: "arp-user", sharedPassword: "arp-password",
 	}
-	arp, err := resolver.OperatorForAccount(context.Background(), "warehouse:HYTX30")
-	if err != nil || arp != shared {
-		t.Fatalf("ARP warehouse alias = %#v, err=%v", arp, err)
-	}
-	dpsEast, err := resolver.OperatorForAccount(context.Background(), "warehouse:DPSNY002")
-	if err != nil {
-		t.Fatal(err)
-	}
-	dpsWest, err := resolver.OperatorForAccount(context.Background(), "warehouse:DPSCA004")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if dpsEast != dpsWest {
-		t.Fatal("DPS warehouse aliases must resolve to the same OMS client")
-	}
 	dpsAccount, err := resolver.OperatorForAccount(context.Background(), dpsPlatformOrderAccountKey)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if dpsAccount != dpsEast {
-		t.Fatal("DPS account alias must resolve to the DPS OMS client")
+	if dpsAccount == shared {
+		t.Fatal("DPS account unexpectedly resolved to shared ARP client")
 	}
-}
-
-func TestPlatformOrderAccountReusesWarehouseClient(t *testing.T) {
-	accountStore := &fakePlatformOrderAccountStore{
-		accounts: map[string]model.WarehouseOMSAccount{
-			"DPSCA004": {WarehouseCode: "DPSCA004", Username: "dps-user", Password: "dps-password"},
-			"DPSNY002": {WarehouseCode: "DPSNY002", Username: "dps-user", Password: "dps-password"},
-		},
-	}
-	resolver := &postgresPlatformOrderAccounts{store: accountStore, baseURL: "https://oms.example.test", timeout: time.Second}
-	first, err := resolver.OperatorForWarehouse(context.Background(), "DPSCA004")
-	if err != nil {
-		t.Fatal(err)
-	}
-	second, err := resolver.OperatorForWarehouse(context.Background(), "DPSNY002")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if first != second {
-		t.Fatalf("expected warehouses sharing credentials to reuse one OMS client")
+	if _, err := resolver.OperatorForAccount(context.Background(), "warehouse:DPSNY002"); !errors.Is(err, errPlatformOrderAccountNotFound) {
+		t.Fatalf("warehouse alias error = %v", err)
 	}
 }
 
@@ -417,16 +330,16 @@ func TestPendingPlatformOrdersUsesSelectedAccount(t *testing.T) {
 	accounts := &fakeSelectablePlatformAccounts{
 		accountOperators: map[string]platformOrderAccount{
 			defaultPlatformOrderAccountKey: arp,
-			"warehouse:DPSCA004":           dps,
+			dpsPlatformOrderAccountKey:     dps,
 		},
 		options: []platformOrderAccountOption{
 			{Key: defaultPlatformOrderAccountKey, Label: "ARP 账户"},
-			{Key: "warehouse:DPSCA004", Label: "DPS 账户", WarehouseCodes: []string{"DPSCA004", "DPSNY002"}},
+			{Key: dpsPlatformOrderAccountKey, Label: "DPS 账户", WarehouseCodes: []string{"DPSCA004", "DPSNY002"}},
 		},
 	}
 	handler := newWithPlatformOrderAccountOperations(nil, nil, nil, arp, nil, nil, accounts, time.Second, slog.Default())
 
-	request := httptest.NewRequest(http.MethodGet, "/v1/platform-orders/pending?account=warehouse%3ADPSCA004&page=3&page_size=40", nil)
+	request := httptest.NewRequest(http.MethodGet, "/v1/platform-orders/pending?account=dps&page=3&page_size=40", nil)
 	recorder := httptest.NewRecorder()
 	handler.ServeHTTP(recorder, request)
 
@@ -436,7 +349,7 @@ func TestPendingPlatformOrdersUsesSelectedAccount(t *testing.T) {
 	if arp.page != 0 || dps.page != 3 || dps.pageSize != 40 {
 		t.Fatalf("pending queries ARP=(%d,%d), DPS=(%d,%d)", arp.page, arp.pageSize, dps.page, dps.pageSize)
 	}
-	if len(accounts.selectedAccounts) != 1 || accounts.selectedAccounts[0] != "warehouse:DPSCA004" {
+	if len(accounts.selectedAccounts) != 1 || accounts.selectedAccounts[0] != dpsPlatformOrderAccountKey {
 		t.Fatalf("selected accounts = %#v", accounts.selectedAccounts)
 	}
 }
@@ -451,12 +364,12 @@ func TestPlatformOrderLookupUsesSelectedAccountHeader(t *testing.T) {
 	accounts := &fakeSelectablePlatformAccounts{
 		accountOperators: map[string]platformOrderAccount{
 			defaultPlatformOrderAccountKey: arp,
-			"warehouse:DPSCA004":           dps,
+			dpsPlatformOrderAccountKey:     dps,
 		},
 	}
 	handler := newWithPlatformOrderAccountOperations(nil, nil, nil, arp, nil, nil, accounts, time.Second, slog.Default())
 	request := httptest.NewRequest(http.MethodGet, "/v1/platform-orders/PO-A", nil)
-	request.Header.Set(platformOrderAccountHeader, "warehouse:DPSCA004")
+	request.Header.Set(platformOrderAccountHeader, dpsPlatformOrderAccountKey)
 	recorder := httptest.NewRecorder()
 	handler.ServeHTTP(recorder, request)
 
@@ -466,7 +379,7 @@ func TestPlatformOrderLookupUsesSelectedAccountHeader(t *testing.T) {
 	if arp.allStatusLookup != "" || dps.allStatusLookup != "PO-A" {
 		t.Fatalf("all-status lookups ARP=%q DPS=%q", arp.allStatusLookup, dps.allStatusLookup)
 	}
-	if len(accounts.selectedAccounts) != 1 || accounts.selectedAccounts[0] != "warehouse:DPSCA004" {
+	if len(accounts.selectedAccounts) != 1 || accounts.selectedAccounts[0] != dpsPlatformOrderAccountKey {
 		t.Fatalf("selected accounts = %#v", accounts.selectedAccounts)
 	}
 	if !strings.Contains(recorder.Body.String(), `"status":2`) ||
@@ -500,11 +413,11 @@ func TestPlatformOrderAccountsMarksOfflineLogins(t *testing.T) {
 	accounts := &fakeSelectablePlatformAccounts{
 		accountOperators: map[string]platformOrderAccount{
 			defaultPlatformOrderAccountKey: arp,
-			"warehouse:DPSCA004":           dps,
+			dpsPlatformOrderAccountKey:     dps,
 		},
 		options: []platformOrderAccountOption{
 			{Key: defaultPlatformOrderAccountKey, Label: "ARP 账户"},
-			{Key: "warehouse:DPSCA004", Label: "DPS 账户", WarehouseCodes: []string{"DPSCA004", "DPSNY002"}},
+			{Key: dpsPlatformOrderAccountKey, Label: "DPS 账户", WarehouseCodes: []string{"DPSCA004", "DPSNY002"}},
 		},
 	}
 	handler := newWithPlatformOrderAccountOperations(nil, nil, nil, arp, nil, nil, accounts, time.Second, slog.Default())
@@ -537,7 +450,7 @@ func TestPlatformOrderAccountsListsSelectableAccounts(t *testing.T) {
 		accountOperators: map[string]platformOrderAccount{defaultPlatformOrderAccountKey: arp},
 		options: []platformOrderAccountOption{
 			{Key: defaultPlatformOrderAccountKey, Label: "ARP 账户"},
-			{Key: "warehouse:DPSCA004", Label: "DPS 账户", WarehouseCodes: []string{"DPSCA004", "DPSNY002"}},
+			{Key: dpsPlatformOrderAccountKey, Label: "DPS 账户", WarehouseCodes: []string{"DPSCA004", "DPSNY002"}},
 		},
 	}
 	handler := newWithPlatformOrderAccountOperations(nil, nil, nil, arp, nil, nil, accounts, time.Second, slog.Default())
@@ -549,25 +462,24 @@ func TestPlatformOrderAccountsListsSelectableAccounts(t *testing.T) {
 	}
 }
 
-func TestAssignAndApproveRefreshesWithARPAndUsesWarehouseAccountOrderNumber(t *testing.T) {
-	shared := readyPlatformOrderOperator()
-	shared.resolved = shared.resolved[:1]
-
-	warehouseAccount := readyPlatformOrderOperator()
-	warehouseAccount.warehouses = []oms.WarehouseOption{{WarehouseCode: "WH-2", WarehouseName: "DPS warehouse"}}
-	warehouseAccount.resolved = []oms.PendingOrder{{OrderNo: "DPS-OMS-A", PlatformOrderNo: "PO-A", Status: 0}}
-	warehouseAccount.assignmentResult = oms.AssignmentResult{TotalQuantity: 1, SuccessQuantity: 1}
-
-	accounts := &fakeWarehousePlatformAccounts{operators: map[string]platformOrderOperator{"WH-2": warehouseAccount}}
+func TestAssignAndApproveUsesSelectedAccountForWarehouseAssignment(t *testing.T) {
+	arp := readyPlatformOrderOperator()
+	dps := readyPlatformOrderOperator()
+	dps.warehouses = []oms.WarehouseOption{{WarehouseCode: "WH-2", WarehouseName: "DPS warehouse"}}
+	dps.resolved = []oms.PendingOrder{{OrderNo: "DPS-OMS-A", PlatformOrderNo: "PO-A", Status: 0}}
+	dps.assignmentResult = oms.AssignmentResult{TotalQuantity: 1, SuccessQuantity: 1}
+	accounts := &fakeSelectablePlatformAccounts{accountOperators: map[string]platformOrderAccount{
+		defaultPlatformOrderAccountKey: arp, dpsPlatformOrderAccountKey: dps,
+	}}
 	mappings := &fakePlatformMappings{mappings: []temutracking.WarehouseMapping{{
 		OMSKey: "DPS", OMSWarehouseCode: "WH-2", TemuWarehouseID: "PLATFORM-DPS", TemuName: "DPS",
 	}}}
 	fulfillment := &fakePlatformFulfillment{audits: []model.FulfillmentAudit{{
 		Platform: "temu", PlatformOrderNo: "PO-A", Active: true, WarehouseKey: "DPS", WarehouseCode: "WH-2",
 	}}}
-	handler := newWithPlatformOrderAccountOperations(nil, nil, nil, shared, mappings, fulfillment, accounts, time.Second, slog.Default())
+	handler := newWithPlatformOrderAccountOperations(nil, nil, nil, arp, mappings, fulfillment, accounts, time.Second, slog.Default())
 	request := httptest.NewRequest(http.MethodPost, "/v1/platform-orders/assign-and-approve", strings.NewReader(
-		`{"platform_order_nos":["PO-A"],"logistics_carrier":"other","confirmation":"CONFIRM_AND_APPROVE"}`,
+		`{"platform_order_nos":["PO-A"],"account":"dps","logistics_carrier":"other","confirmation":"CONFIRM_AND_APPROVE"}`,
 	))
 	recorder := httptest.NewRecorder()
 	handler.ServeHTTP(recorder, request)
@@ -575,23 +487,17 @@ func TestAssignAndApproveRefreshesWithARPAndUsesWarehouseAccountOrderNumber(t *t
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("got status %d: %s", recorder.Code, recorder.Body.String())
 	}
-	if len(shared.lookupOrderNos) != 1 || shared.lookupOrderNos[0] != "PO-A" {
-		t.Fatalf("ARP shared lookup did not resolve the order: %#v", shared.lookupOrderNos)
+	if arp.assignCalls != 0 || dps.assignCalls != 1 {
+		t.Fatalf("assignment calls ARP=%d DPS=%d", arp.assignCalls, dps.assignCalls)
 	}
-	if shared.assignCalls != 0 || warehouseAccount.assignCalls != 1 {
-		t.Fatalf("assignment calls ARP=%d warehouse=%d", shared.assignCalls, warehouseAccount.assignCalls)
+	if dps.assignment.WarehouseCode != "WH-2" {
+		t.Fatalf("selected account assignment = %#v", dps.assignment)
 	}
-	if warehouseAccount.assignment.WarehouseCode != "WH-2" {
-		t.Fatalf("warehouse account assignment = %#v", warehouseAccount.assignment)
+	if len(dps.lookupOrderNos) == 0 || dps.lookupOrderNos[0] != "PO-A" {
+		t.Fatalf("selected account did not resolve its OMS order number: %#v", dps.lookupOrderNos)
 	}
-	if len(warehouseAccount.lookupOrderNos) != 1 || warehouseAccount.lookupOrderNos[0] != "PO-A" {
-		t.Fatalf("warehouse account did not resolve its OMS order number: %#v", warehouseAccount.lookupOrderNos)
-	}
-	if len(warehouseAccount.assignment.Orders) != 1 || warehouseAccount.assignment.Orders[0] != "DPS-OMS-A" {
-		t.Fatalf("warehouse account assignment used the wrong OMS order number: %#v", warehouseAccount.assignment.Orders)
-	}
-	if len(accounts.requested) != 1 || accounts.requested[0] != "WH-2" {
-		t.Fatalf("requested warehouse accounts = %#v", accounts.requested)
+	if len(dps.assignment.Orders) != 1 || dps.assignment.Orders[0] != "DPS-OMS-A" {
+		t.Fatalf("selected account assignment used the wrong OMS order number: %#v", dps.assignment.Orders)
 	}
 }
 
@@ -604,7 +510,6 @@ func TestWarehouseAssignmentsUsesHeaderSelectedAccount(t *testing.T) {
 			defaultPlatformOrderAccountKey: arp,
 			dpsPlatformOrderAccountKey:     dps,
 		},
-		warehouseOperators: map[string]platformOrderOperator{"WH-1": dps},
 	}
 	handler := newWithPlatformOrderAccountOperations(
 		nil, nil, nil, arp, readyPlatformMappings(), readyPlatformFulfillment("PO-A"), accounts, time.Second, slog.Default(),
@@ -639,7 +544,6 @@ func TestWarehouseAssignmentsRejectsConflictingAccountSelectors(t *testing.T) {
 			defaultPlatformOrderAccountKey: arp,
 			dpsPlatformOrderAccountKey:     dps,
 		},
-		warehouseOperators: map[string]platformOrderOperator{"WH-1": dps},
 	}
 	handler := newWithPlatformOrderAccountOperations(
 		nil, nil, nil, arp, readyPlatformMappings(), readyPlatformFulfillment("PO-A"), accounts, time.Second, slog.Default(),
@@ -668,14 +572,13 @@ func TestRoutingPreviewChecksPendingStateWithSelectedAccount(t *testing.T) {
 	accounts := &fakeSelectablePlatformAccounts{
 		accountOperators: map[string]platformOrderAccount{
 			defaultPlatformOrderAccountKey: arp,
-			"warehouse:DPSCA004":           dps,
+			dpsPlatformOrderAccountKey:     dps,
 		},
-		warehouseOperators: map[string]platformOrderOperator{"WH-1": dps},
 	}
 	fulfillment := readyPlatformFulfillment("PO-A")
 	handler := newWithPlatformOrderAccountOperations(nil, nil, nil, arp, readyPlatformMappings(), fulfillment, accounts, time.Second, slog.Default())
 	request := httptest.NewRequest(http.MethodPost, "/v1/platform-orders/routing-preview", strings.NewReader(
-		`{"platform_order_nos":["PO-A"],"account":"warehouse:DPSCA004"}`,
+		`{"platform_order_nos":["PO-A"],"account":"dps"}`,
 	))
 	recorder := httptest.NewRecorder()
 	handler.ServeHTTP(recorder, request)
@@ -705,11 +608,5 @@ func TestPendingPlatformOrdersRejectsUnknownAccount(t *testing.T) {
 	}
 	if arp.page != 0 {
 		t.Fatalf("ARP queried for invalid account: page=%d", arp.page)
-	}
-}
-
-func TestPlatformOrderAccountLabelUsesCommonWarehousePrefix(t *testing.T) {
-	if got := platformOrderAccountLabel([]string{"DPSCA004", "DPSNY002"}); got != "DPS 账户" {
-		t.Fatalf("label = %q", got)
 	}
 }

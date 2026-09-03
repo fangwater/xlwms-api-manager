@@ -118,6 +118,38 @@ func TestApplyPlatformSKUWarehouseRestrictionsBlocksFullyDisabledRegions(t *test
 	}
 }
 
+func TestApplyOMSAccountWarehouseRestrictionsAllowsOverlappingAccountScope(t *testing.T) {
+	decision := BuildSKUDecision("SKU-1", completeInventory(30, 30, 35, 25), defaultThresholds())
+	ApplyOMSAccountWarehouseRestrictions(&decision, model.FulfillmentAccountDecision{
+		Platform: "temu", AccountKey: "dps", Configured: true,
+		WarehouseCodes: []string{"DPSNY002", "DPSCA004", "HYTX30"},
+	})
+	if !decision.RegionDecisions[0].Warehouses[0].Selectable || !decision.RegionDecisions[0].Warehouses[1].Selectable {
+		t.Fatalf("one account should be allowed to operate both east warehouses: %#v", decision.RegionDecisions[0].Warehouses)
+	}
+	if !decision.RegionDecisions[1].Warehouses[0].Selectable || decision.RegionDecisions[1].Warehouses[1].Selectable {
+		t.Fatalf("west account scope was not applied: %#v", decision.RegionDecisions[1].Warehouses)
+	}
+}
+
+func TestApplyOMSAccountWarehouseRestrictionsRequiresManualWhenRouteMissing(t *testing.T) {
+	decision := BuildSKUDecision("SKU-1", completeInventory(30, 30, 35, 25), defaultThresholds())
+	ApplyOMSAccountWarehouseRestrictions(&decision, model.FulfillmentAccountDecision{
+		Platform: "shein", WarehouseSKUs: []string{"SKU-1"}, RequiresManual: true,
+		DecisionCode: "MANUAL_OMS_ACCOUNT_NOT_CONFIGURED", Reason: "SKU account is missing",
+	})
+	if !decision.RequiresManual || decision.DecisionCode != "MANUAL_OMS_ACCOUNT_NOT_CONFIGURED" {
+		t.Fatalf("missing account route must require manual fulfillment: %#v", decision)
+	}
+	for _, region := range decision.RegionDecisions {
+		for _, warehouse := range region.Warehouses {
+			if warehouse.Selectable || !warehouse.OMSAccountDisabled {
+				t.Fatalf("warehouse must be blocked without account route: %#v", warehouse)
+			}
+		}
+	}
+}
+
 func defaultThresholds() model.InventoryThresholds {
 	return model.InventoryThresholds{TotalThreshold: 50}
 }

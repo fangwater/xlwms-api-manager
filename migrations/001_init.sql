@@ -11,18 +11,76 @@ CREATE TABLE IF NOT EXISTS xlwms_warehouses (
     updated_at timestamptz NOT NULL DEFAULT now()
 );
 
-ALTER TABLE xlwms_warehouses
-    ADD COLUMN IF NOT EXISTS oms_username_ciphertext text,
-    ADD COLUMN IF NOT EXISTS oms_password_ciphertext text,
-    ADD COLUMN IF NOT EXISTS oms_account_hint text;
-
 CREATE TABLE IF NOT EXISTS xlwms_oms_accounts (
     account_key text PRIMARY KEY,
     username_ciphertext text NOT NULL,
     password_ciphertext text NOT NULL,
     account_hint text NOT NULL,
+    account_label text NOT NULL DEFAULT '',
+    enabled boolean NOT NULL DEFAULT true,
+    created_at timestamptz NOT NULL DEFAULT now(),
     updated_at timestamptz NOT NULL DEFAULT now()
 );
+
+ALTER TABLE xlwms_oms_accounts
+    ADD COLUMN IF NOT EXISTS account_label text NOT NULL DEFAULT '',
+    ADD COLUMN IF NOT EXISTS enabled boolean NOT NULL DEFAULT true,
+    ADD COLUMN IF NOT EXISTS created_at timestamptz NOT NULL DEFAULT now();
+
+UPDATE xlwms_oms_accounts
+SET account_label=CASE lower(account_key)
+    WHEN 'arp' THEN 'ARP 账户'
+    WHEN 'dps' THEN 'DPS 账户'
+    ELSE account_key
+END
+WHERE btrim(account_label)='';
+
+CREATE TABLE IF NOT EXISTS xlwms_oms_account_warehouses (
+    account_key text NOT NULL REFERENCES xlwms_oms_accounts(account_key) ON DELETE CASCADE,
+    wh_code text NOT NULL REFERENCES xlwms_warehouses(wh_code) ON DELETE CASCADE,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (account_key, wh_code)
+);
+
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema=current_schema() AND table_name='xlwms_warehouses'
+          AND column_name='oms_username_ciphertext'
+    ) THEN
+        INSERT INTO xlwms_oms_accounts (
+            account_key, username_ciphertext, password_ciphertext, account_hint, account_label
+        )
+        SELECT account_key, username_ciphertext, password_ciphertext, account_hint,
+               CASE account_key WHEN 'dps' THEN 'DPS 账户' ELSE 'ARP 账户' END
+        FROM (
+            SELECT CASE WHEN upper(wh_code) LIKE 'DPS%' THEN 'dps' ELSE 'arp' END AS account_key,
+                   oms_username_ciphertext AS username_ciphertext,
+                   oms_password_ciphertext AS password_ciphertext,
+                   coalesce(oms_account_hint, '') AS account_hint,
+                   row_number() OVER (
+                       PARTITION BY CASE WHEN upper(wh_code) LIKE 'DPS%' THEN 'dps' ELSE 'arp' END
+                       ORDER BY wh_code
+                   ) AS position
+            FROM xlwms_warehouses
+            WHERE oms_username_ciphertext IS NOT NULL AND oms_password_ciphertext IS NOT NULL
+        ) legacy
+        WHERE position=1
+        ON CONFLICT (account_key) DO NOTHING;
+
+        INSERT INTO xlwms_oms_account_warehouses(account_key, wh_code)
+        SELECT CASE WHEN upper(wh_code) LIKE 'DPS%' THEN 'dps' ELSE 'arp' END, wh_code
+        FROM xlwms_warehouses
+        WHERE oms_username_ciphertext IS NOT NULL AND oms_password_ciphertext IS NOT NULL
+        ON CONFLICT DO NOTHING;
+
+        ALTER TABLE xlwms_warehouses
+            DROP COLUMN oms_username_ciphertext,
+            DROP COLUMN oms_password_ciphertext,
+            DROP COLUMN oms_account_hint;
+    END IF;
+END $$;
 
 CREATE INDEX IF NOT EXISTS idx_xlwms_warehouses_active
     ON xlwms_warehouses (wh_code) WHERE is_active;
@@ -402,6 +460,17 @@ CREATE TABLE IF NOT EXISTS xlwms_platform_sku_disabled_warehouses (
     updated_at timestamptz NOT NULL DEFAULT now(),
     PRIMARY KEY (platform, warehouse_sku, warehouse_key)
 );
+
+CREATE TABLE IF NOT EXISTS xlwms_platform_sku_oms_accounts (
+    platform text NOT NULL CHECK (platform IN ('temu', 'shein')),
+    warehouse_sku text NOT NULL REFERENCES xlwms_warehouse_sku_specs(warehouse_sku) ON DELETE CASCADE,
+    account_key text NOT NULL REFERENCES xlwms_oms_accounts(account_key) ON DELETE RESTRICT,
+    updated_at timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (platform, warehouse_sku)
+);
+
+CREATE INDEX IF NOT EXISTS idx_xlwms_platform_sku_oms_accounts_account
+    ON xlwms_platform_sku_oms_accounts(account_key, platform, warehouse_sku);
 
 CREATE INDEX IF NOT EXISTS xlwms_platform_sku_disabled_warehouse_lookup_idx
     ON xlwms_platform_sku_disabled_warehouses(platform, warehouse_sku);

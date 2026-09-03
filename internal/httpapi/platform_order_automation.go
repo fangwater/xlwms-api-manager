@@ -2,7 +2,6 @@ package httpapi
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"net/http"
 	"sort"
@@ -12,7 +11,6 @@ import (
 	"xlwms-api-manager/internal/model"
 	"xlwms-api-manager/internal/oms"
 	"xlwms-api-manager/internal/sheinfulfillment"
-	"xlwms-api-manager/internal/store"
 	"xlwms-api-manager/internal/temutracking"
 )
 
@@ -338,38 +336,30 @@ func (s *Server) resolveAutomaticPlatformOrderRoutes(ctx context.Context, operat
 			break
 		}
 		if _, checked := operatorCache[warehouseCode]; !checked && accountReasons[warehouseCode] == "" {
-			warehouseOperator, accountErr := s.platformAccounts.OperatorForWarehouse(ctx, warehouseCode)
-			if accountErr != nil {
-				if errors.Is(accountErr, store.ErrWarehouseOMSAccountNotConfigured) {
-					accountReasons[warehouseCode] = "购面单仓库 " + warehouseCode + " 尚未配置 OMS 发货账号"
-				} else {
-					accountReasons[warehouseCode] = "购面单仓库 " + warehouseCode + " 的 OMS 发货账号不可用"
-				}
+			warehouseOperator := operator
+			warehouses, warehouseErr := warehouseOperator.WarehouseOptions(ctx)
+			if warehouseErr != nil {
+				accountReasons[warehouseCode] = "所选 OMS 发货账号不可用"
 			} else {
-				warehouses, warehouseErr := warehouseOperator.WarehouseOptions(ctx)
-				if warehouseErr != nil {
-					accountReasons[warehouseCode] = "购面单仓库 " + warehouseCode + " 的 OMS 发货账号不可用"
-				} else {
-					for _, option := range warehouses {
-						if strings.EqualFold(strings.TrimSpace(option.WarehouseCode), warehouseCode) {
-							operatorCache[warehouseCode] = warehouseOperator
-							warehouseCache[warehouseCode] = option
-							break
-						}
+				for _, option := range warehouses {
+					if strings.EqualFold(strings.TrimSpace(option.WarehouseCode), warehouseCode) {
+						operatorCache[warehouseCode] = warehouseOperator
+						warehouseCache[warehouseCode] = option
+						break
 					}
-					if operatorCache[warehouseCode] == nil {
-						accountReasons[warehouseCode] = "配置的 OMS 发货账号无权使用购面单仓库 " + warehouseCode
+				}
+				if operatorCache[warehouseCode] == nil {
+					accountReasons[warehouseCode] = "所选 OMS 发货账号无权使用购面单仓库 " + warehouseCode
+				} else {
+					accountOrders, lookupErr := warehouseOperator.PendingOrdersByPlatformOrderNos(ctx, accountOrderNosByWarehouse[warehouseCode])
+					if lookupErr != nil {
+						accountReasons[warehouseCode] = "无法使用所选 OMS 发货账号查询待处理订单"
 					} else {
-						accountOrders, lookupErr := warehouseOperator.PendingOrdersByPlatformOrderNos(ctx, accountOrderNosByWarehouse[warehouseCode])
-						if lookupErr != nil {
-							accountReasons[warehouseCode] = "无法使用购面单仓库的 OMS 发货账号查询待处理订单"
-						} else {
-							accountOrdersByWarehouse[warehouseCode] = make(map[string]oms.PendingOrder, len(accountOrders))
-							for _, accountOrder := range accountOrders {
-								orderNo := strings.ToUpper(strings.TrimSpace(accountOrder.PlatformOrderNo))
-								if orderNo != "" {
-									accountOrdersByWarehouse[warehouseCode][orderNo] = accountOrder
-								}
+						accountOrdersByWarehouse[warehouseCode] = make(map[string]oms.PendingOrder, len(accountOrders))
+						for _, accountOrder := range accountOrders {
+							orderNo := strings.ToUpper(strings.TrimSpace(accountOrder.PlatformOrderNo))
+							if orderNo != "" {
+								accountOrdersByWarehouse[warehouseCode][orderNo] = accountOrder
 							}
 						}
 					}

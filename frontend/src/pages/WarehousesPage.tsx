@@ -1,4 +1,4 @@
-import { KeyRound, Plus, ShieldCheck, Trash2, Warehouse as WarehouseIcon, X } from "lucide-react";
+import { KeyRound, Plus, ShieldCheck, Warehouse as WarehouseIcon, X } from "lucide-react";
 import { useState, type FormEvent } from "react";
 import { api } from "../api";
 import { EmptyState, ErrorState, PageHeader, dateTime } from "../components/Common";
@@ -18,10 +18,6 @@ export default function WarehousesPage({ warehouses, onChanged }: { warehouses: 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [form, setForm] = useState(emptyWarehouseForm);
-  const [accountWarehouse, setAccountWarehouse] = useState<Warehouse | null>(null);
-  const [accountForm, setAccountForm] = useState({ username: "", password: "" });
-  const [accountError, setAccountError] = useState("");
-  const [savingAccount, setSavingAccount] = useState(false);
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
@@ -49,63 +45,19 @@ export default function WarehousesPage({ warehouses, onChanged }: { warehouses: 
     }
   };
 
-  const openAccount = (item: Warehouse) => {
-    setAccountWarehouse(item);
-    setAccountForm({ username: "", password: "" });
-    setAccountError("");
-  };
-
-  const closeAccount = () => {
-    setAccountWarehouse(null);
-    setAccountForm({ username: "", password: "" });
-    setAccountError("");
-  };
-
-  const saveAccount = async (event: FormEvent) => {
-    event.preventDefault();
-    if (!accountWarehouse) return;
-    setSavingAccount(true);
-    setAccountError("");
-    try {
-      await api.setWarehouseOMSAccount(accountWarehouse.wh_code, accountForm);
-      await onChanged();
-      closeAccount();
-    } catch (reason) {
-      setAccountError(reason instanceof Error ? reason.message : "保存失败");
-    } finally {
-      setSavingAccount(false);
-    }
-  };
-
-  const clearAccount = async () => {
-    if (!accountWarehouse || !window.confirm(`确认清除 ${accountWarehouse.wh_code} 的 OMS 发货账号？`)) return;
-    setSavingAccount(true);
-    setAccountError("");
-    try {
-      await api.clearWarehouseOMSAccount(accountWarehouse.wh_code);
-      await onChanged();
-      closeAccount();
-    } catch (reason) {
-      setAccountError(reason instanceof Error ? reason.message : "清除失败");
-    } finally {
-      setSavingAccount(false);
-    }
-  };
-
   return <>
     <PageHeader
       title="仓库管理"
-      subtitle="仓库连接、发货账号与同步状态"
+      subtitle="仓库 OpenAPI 连接与同步状态"
       actions={<button className="primary-button" onClick={() => setOpen(true)}><Plus size={17} />添加仓库</button>}
     />
     {error && <ErrorState message={error} />}
     {warehouses.length ? <div className="table-panel"><div className="table-scroll"><table className="data-table warehouse-table">
-      <thead><tr><th>仓库</th><th>连接地址</th><th>OpenAPI App Key</th><th>OMS 发货账号</th><th>更新时间</th><th>状态</th></tr></thead>
+      <thead><tr><th>仓库</th><th>连接地址</th><th>OpenAPI App Key</th><th>更新时间</th><th>状态</th></tr></thead>
       <tbody>{warehouses.map(item => <tr key={item.wh_code}>
         <td><div className="warehouse-cell"><span><WarehouseIcon size={18} /></span><div><strong>{item.name || item.wh_code}</strong><small>{item.wh_code}</small></div></div></td>
         <td>{item.api_base_url}</td>
         <td><span className="key-hint"><KeyRound size={14} />{item.app_key_hint}</span></td>
-        <td><div className="warehouse-account-cell"><div><span className={`status-badge ${item.oms_account_configured ? "success" : ""}`}>{item.oms_account_configured ? "已配置" : "未配置"}</span><small>{item.oms_account_hint || "未绑定发货账号"}</small></div><button className="icon-button bordered" onClick={() => openAccount(item)} title={item.oms_account_configured ? "更换 OMS 发货账号" : "配置 OMS 发货账号"}><KeyRound size={15} /></button></div></td>
         <td>{dateTime(item.updated_at)}</td>
         <td><label className="toggle"><input type="checkbox" checked={item.active} onChange={() => void toggle(item)} /><span /><b>{item.active ? "已启用" : "已停用"}</b></label></td>
       </tr>)}</tbody>
@@ -122,23 +74,6 @@ export default function WarehousesPage({ warehouses, onChanged }: { warehouses: 
       </div><label className="checkbox-row"><input type="checkbox" checked={form.active} onChange={event => setForm({ ...form, active: event.target.checked })} /><span>立即启用</span></label>
       <div className="security-note"><ShieldCheck size={17} /><span>凭证将加密保存</span></div>
       <footer><button type="button" className="secondary-button" onClick={() => setOpen(false)}>取消</button><button type="submit" className="primary-button" disabled={saving}>{saving ? "保存中" : "保存仓库"}</button></footer></form>
-    </section></div>}
-
-    {accountWarehouse && <div className="modal-backdrop" role="presentation"><section className="modal account-modal" role="dialog" aria-modal="true" aria-labelledby="account-modal-title">
-      <header><div><h2 id="account-modal-title">OMS 发货账号</h2><p>{accountWarehouse.name || accountWarehouse.wh_code} · {accountWarehouse.wh_code}</p></div><button className="icon-button" onClick={closeAccount} title="关闭"><X size={19} /></button></header>
-      <form onSubmit={saveAccount}>
-        {accountError && <div className="error-banner"><span>{accountError}</span></div>}
-        <div className="form-grid">
-          <label className="full"><span>OMS 账号</span><input required autoComplete="off" aria-label="OMS 用户名" value={accountForm.username} onChange={event => setAccountForm({ ...accountForm, username: event.target.value })} placeholder={accountWarehouse.oms_account_hint ? "当前 " + accountWarehouse.oms_account_hint : "输入新的登录账号"} /></label>
-          <label className="full"><span>OMS 密码</span><input required type="password" autoComplete="new-password" aria-label="OMS 密码" value={accountForm.password} onChange={event => setAccountForm({ ...accountForm, password: event.target.value })} placeholder="输入新的登录密码" /></label>
-        </div>
-        <div className="security-note"><ShieldCheck size={17} /><span>账号和密码会一起更新并加密存储，仅用于此仓库的发货操作</span></div>
-        <footer>
-          {accountWarehouse.oms_account_configured && <button type="button" className="secondary-button danger-button account-clear-button" onClick={() => void clearAccount()} disabled={savingAccount}><Trash2 size={15} />清除账号</button>}
-          <button type="button" className="secondary-button" onClick={closeAccount}>取消</button>
-          <button type="submit" className="primary-button" disabled={savingAccount}>{savingAccount ? "保存中" : "保存账号和密码"}</button>
-        </footer>
-      </form>
     </section></div>}
   </>;
 }

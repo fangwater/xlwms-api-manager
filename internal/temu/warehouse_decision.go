@@ -3,6 +3,7 @@ package temu
 import (
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	"xlwms-api-manager/internal/model"
@@ -71,6 +72,66 @@ type WarehouseDecision struct {
 	ReasonCode          string     `json:"reason_code"`
 	Reason              string     `json:"reason"`
 	PlatformSKUDisabled bool       `json:"platform_sku_disabled,omitempty"`
+	OMSAccountDisabled  bool       `json:"oms_account_disabled,omitempty"`
+}
+
+func ApplyOMSAccountWarehouseRestrictions(decision *SKUDecision, account model.FulfillmentAccountDecision) {
+	if decision == nil {
+		return
+	}
+	allowed := make(map[string]bool, len(account.WarehouseCodes))
+	for _, code := range account.WarehouseCodes {
+		allowed[strings.ToUpper(strings.TrimSpace(code))] = true
+	}
+	for regionIndex := range decision.RegionDecisions {
+		region := &decision.RegionDecisions[regionIndex]
+		for warehouseIndex := range region.Warehouses {
+			warehouse := &region.Warehouses[warehouseIndex]
+			if account.Configured && allowed[strings.ToUpper(strings.TrimSpace(warehouse.WarehouseCode))] {
+				continue
+			}
+			warehouse.Selectable = false
+			warehouse.Recommended = false
+			warehouse.OMSAccountDisabled = true
+			warehouse.ReasonCode = "OMS_ACCOUNT_WAREHOUSE_NOT_ALLOWED"
+			warehouse.Reason = "SKU 指定的 OMS 账户不能操作此仓库"
+		}
+		recommendRegionAfterAccountRestriction(region, account)
+	}
+	if account.RequiresManual {
+		decision.RequiresManual = true
+		decision.DecisionCode = account.DecisionCode
+		decision.Reason = account.Reason
+		decision.ManualRegions = []string{RegionEast, RegionWest}
+	}
+}
+
+func recommendRegionAfterAccountRestriction(region *RegionDecision, account model.FulfillmentAccountDecision) {
+	if region == nil {
+		return
+	}
+	region.RecommendedWarehouseKey, region.RecommendedWarehouse, region.RecommendedName = "", "", ""
+	for index := range region.Warehouses {
+		region.Warehouses[index].Recommended = false
+	}
+	for index := range region.Warehouses {
+		if !region.Warehouses[index].Selectable {
+			continue
+		}
+		region.Warehouses[index].Recommended = true
+		setRecommended(region, region.Warehouses[index])
+		region.RequiresManual = false
+		region.DecisionCode = "OMS_ACCOUNT_WAREHOUSE_APPLIED"
+		region.Reason = region.RegionName + "已按 SKU 发货账户限制候选仓库"
+		return
+	}
+	region.RequiresManual = true
+	region.DecisionCode = "MANUAL_OMS_ACCOUNT_WAREHOUSE_UNAVAILABLE"
+	if account.RequiresManual {
+		region.Reason = account.Reason
+	} else {
+		region.Reason = region.RegionName + "没有 SKU 发货账户可操作的候选仓库"
+	}
 }
 
 func ApplyPlatformSKUWarehouseRestrictions(decision *SKUDecision, disabled map[string]bool) {

@@ -34,16 +34,20 @@ func (p *Postgres) OMSAccount(ctx context.Context, key string) (model.OMSLoginAc
 	if key == "" {
 		return model.OMSLoginAccount{}, ErrOMSAccountNotFound
 	}
-	var usernameCiphertext, passwordCiphertext, hint string
+	var usernameCiphertext, passwordCiphertext, hint, label string
+	var enabled bool
 	err := p.pool.QueryRow(ctx, `
-		SELECT account_key, username_ciphertext, password_ciphertext, account_hint
+		SELECT account_key, username_ciphertext, password_ciphertext, account_hint, account_label, enabled
 		FROM xlwms_oms_accounts WHERE account_key = $1
-	`, key).Scan(&key, &usernameCiphertext, &passwordCiphertext, &hint)
+	`, key).Scan(&key, &usernameCiphertext, &passwordCiphertext, &hint, &label, &enabled)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return model.OMSLoginAccount{}, ErrOMSAccountNotFound
 	}
 	if err != nil {
 		return model.OMSLoginAccount{}, fmt.Errorf("get OMS account: %w", err)
+	}
+	if !enabled {
+		return model.OMSLoginAccount{}, ErrOMSAccountNotFound
 	}
 	username, err := p.cipher.Decrypt(usernameCiphertext)
 	if err != nil {
@@ -53,7 +57,7 @@ func (p *Postgres) OMSAccount(ctx context.Context, key string) (model.OMSLoginAc
 	if err != nil {
 		return model.OMSLoginAccount{}, fmt.Errorf("decrypt OMS password: %w", err)
 	}
-	return model.OMSLoginAccount{Key: key, Username: username, Password: password, Hint: hint}, nil
+	return model.OMSLoginAccount{Key: key, Label: label, Username: username, Password: password, Hint: hint, Enabled: true}, nil
 }
 
 func (p *Postgres) EnsureOMSAccount(ctx context.Context, key, username, password string) error {
@@ -94,15 +98,27 @@ func (p *Postgres) SetOMSAccount(ctx context.Context, key, username, password st
 	}
 	hint := credentials.MaskIdentifier(username)
 	if _, err := p.pool.Exec(ctx, `
-		INSERT INTO xlwms_oms_accounts (account_key, username_ciphertext, password_ciphertext, account_hint, updated_at)
-		VALUES ($1, $2, $3, $4, now())
+		INSERT INTO xlwms_oms_accounts (account_key, username_ciphertext, password_ciphertext, account_hint, account_label, enabled, updated_at)
+		VALUES ($1, $2, $3, $4, $5, true, now())
 		ON CONFLICT (account_key) DO UPDATE SET
 			username_ciphertext = EXCLUDED.username_ciphertext,
 			password_ciphertext = EXCLUDED.password_ciphertext,
 			account_hint = EXCLUDED.account_hint,
+			enabled = true,
 			updated_at = now()
-	`, key, usernameCiphertext, passwordCiphertext, hint); err != nil {
+	`, key, usernameCiphertext, passwordCiphertext, hint, defaultOMSAccountLabel(key)); err != nil {
 		return model.OMSLoginAccount{}, fmt.Errorf("save OMS account: %w", err)
 	}
-	return model.OMSLoginAccount{Key: key, Username: username, Password: password, Hint: hint}, nil
+	return model.OMSLoginAccount{Key: key, Label: defaultOMSAccountLabel(key), Username: username, Password: password, Hint: hint, Enabled: true}, nil
+}
+
+func defaultOMSAccountLabel(key string) string {
+	switch strings.ToLower(strings.TrimSpace(key)) {
+	case "arp":
+		return "ARP 账户"
+	case "dps":
+		return "DPS 账户"
+	default:
+		return strings.TrimSpace(key)
+	}
 }

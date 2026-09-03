@@ -6,27 +6,23 @@ import (
 	"errors"
 	"net/http"
 	"reflect"
-	"sort"
 	"strings"
 	"sync"
 	"time"
 
-	"xlwms-api-manager/internal/credentials"
 	"xlwms-api-manager/internal/model"
 	"xlwms-api-manager/internal/oms"
 	"xlwms-api-manager/internal/store"
 )
 
 type platformOrderAccountStore interface {
-	ListWarehousesWithOMS(context.Context, bool) ([]model.WarehouseSummary, error)
-	WarehouseOMSAccount(context.Context, string, bool) (model.WarehouseOMSAccount, error)
-	SetWarehouseOMSAccount(context.Context, string, string, string) (model.WarehouseSummary, error)
+	ListOMSAccountSummaries(context.Context, bool) ([]model.OMSAccountSummary, error)
 	OMSAccount(context.Context, string) (model.OMSLoginAccount, error)
 	SetOMSAccount(context.Context, string, string, string) (model.OMSLoginAccount, error)
 }
 
 type platformOrderAccountSource interface {
-	OperatorForWarehouse(context.Context, string) (platformOrderOperator, error)
+	OperatorForAccount(context.Context, string) (platformOrderAccount, error)
 }
 
 type platformOrderAccount interface {
@@ -86,8 +82,12 @@ type fixedPlatformOrderAccounts struct {
 	operator platformOrderOperator
 }
 
-func (f fixedPlatformOrderAccounts) OperatorForWarehouse(context.Context, string) (platformOrderOperator, error) {
-	return f.operator, nil
+func (f fixedPlatformOrderAccounts) OperatorForAccount(_ context.Context, key string) (platformOrderAccount, error) {
+	account, ok := f.operator.(platformOrderAccount)
+	if !ok || (strings.TrimSpace(key) != "" && !strings.EqualFold(key, defaultPlatformOrderAccountKey)) {
+		return nil, errPlatformOrderAccountNotFound
+	}
+	return account, nil
 }
 
 type postgresPlatformOrderAccounts struct {
@@ -101,22 +101,17 @@ type postgresPlatformOrderAccounts struct {
 	clients        map[[sha256.Size]byte]platformOrderAccount
 }
 
-func (p *postgresPlatformOrderAccounts) OperatorForWarehouse(ctx context.Context, warehouseCode string) (platformOrderOperator, error) {
-	account, err := p.store.WarehouseOMSAccount(ctx, warehouseCode, true)
-	if err != nil {
-		return nil, err
-	}
-	return p.clientForCredentials(account.Username, account.Password), nil
-}
-
 func (p *postgresPlatformOrderAccounts) PlatformOrderAccounts(ctx context.Context) ([]platformOrderAccountOption, error) {
-	accounts, err := p.selectableAccounts(ctx)
+	accounts, err := p.store.ListOMSAccountSummaries(ctx, false)
 	if err != nil {
 		return nil, err
 	}
 	options := make([]platformOrderAccountOption, 0, len(accounts))
 	for _, account := range accounts {
-		options = append(options, account.option)
+		options = append(options, platformOrderAccountOption{
+			Key: account.Key, Label: account.Label, WarehouseCodes: account.WarehouseCodes,
+			UsernameHint: account.UsernameHint,
+		})
 	}
 	return options, nil
 }
@@ -127,28 +122,14 @@ func (p *postgresPlatformOrderAccounts) OperatorForAccount(ctx context.Context, 
 		account, _, _, err := p.resolveShared(ctx)
 		return account, err
 	}
-	accounts, err := p.selectableAccounts(ctx)
+	account, err := p.store.OMSAccount(ctx, key)
+	if errors.Is(err, store.ErrOMSAccountNotFound) {
+		return nil, errPlatformOrderAccountNotFound
+	}
 	if err != nil {
 		return nil, err
 	}
-	for _, selectable := range accounts {
-		if !platformOrderAccountKeyMatches(selectable.option, key) {
-			continue
-		}
-		if strings.EqualFold(selectable.option.Key, defaultPlatformOrderAccountKey) {
-			account, _, _, sharedErr := p.resolveShared(ctx)
-			return account, sharedErr
-		}
-		if selectable.warehouseCode == "" {
-			return nil, errPlatformOrderAccountUnavailable
-		}
-		account, accountErr := p.store.WarehouseOMSAccount(ctx, selectable.warehouseCode, true)
-		if accountErr != nil {
-			return nil, accountErr
-		}
-		return p.clientForCredentials(account.Username, account.Password), nil
-	}
-	return nil, errPlatformOrderAccountNotFound
+	return p.clientForCredentials(account.Username, account.Password), nil
 }
 
 func (p *postgresPlatformOrderAccounts) resolveShared(ctx context.Context) (platformOrderAccount, string, string, error) {
@@ -163,31 +144,6 @@ func (p *postgresPlatformOrderAccounts) resolveShared(ctx context.Context) (plat
 		return nil, "", "", errPlatformOrderAccountUnavailable
 	}
 	return p.shared, p.sharedUsername, p.sharedPassword, nil
-}
-
-func platformOrderAccountKeyMatches(option platformOrderAccountOption, key string) bool {
-	if strings.EqualFold(option.Key, key) {
-		return true
-	}
-	if strings.EqualFold(key, dpsPlatformOrderAccountKey) {
-		for _, code := range option.WarehouseCodes {
-			if strings.HasPrefix(strings.ToUpper(strings.TrimSpace(code)), "DPS") {
-				return true
-			}
-		}
-		return false
-	}
-	const warehousePrefix = "warehouse:"
-	if !strings.HasPrefix(strings.ToLower(key), warehousePrefix) {
-		return false
-	}
-	warehouseCode := strings.TrimSpace(key[len(warehousePrefix):])
-	for _, code := range option.WarehouseCodes {
-		if strings.EqualFold(code, warehouseCode) {
-			return true
-		}
-	}
-	return false
 }
 
 func (p *postgresPlatformOrderAccounts) clientForCredentials(username, password string) platformOrderAccount {
@@ -209,128 +165,8 @@ func (p *postgresPlatformOrderAccounts) clientForCredentials(username, password 
 	return client
 }
 
-type selectablePlatformOrderAccount struct {
-	option        platformOrderAccountOption
-	warehouseCode string
-}
-
-type warehouseAccountGroup struct {
-	warehouseCodes []string
-}
-
-func (p *postgresPlatformOrderAccounts) selectableAccounts(ctx context.Context) ([]selectablePlatformOrderAccount, error) {
-	warehouses, err := p.store.ListWarehousesWithOMS(ctx, true)
-	if err != nil {
-		return nil, err
-	}
-	groups := make(map[[sha256.Size]byte]*warehouseAccountGroup)
-	_, sharedUsername, sharedPassword, sharedErr := p.resolveShared(ctx)
-	sharedConfigured := sharedErr == nil && sharedUsername != "" && sharedPassword != ""
-	var sharedFingerprint [sha256.Size]byte
-	if sharedConfigured {
-		sharedFingerprint = platformOrderCredentialFingerprint(sharedUsername, sharedPassword)
-	}
-	sharedWarehouseCodes := make([]string, 0)
-	for _, warehouse := range warehouses {
-		if !warehouse.OMSAccountConfigured {
-			continue
-		}
-		account, accountErr := p.store.WarehouseOMSAccount(ctx, warehouse.Code, true)
-		if accountErr != nil {
-			return nil, accountErr
-		}
-		fingerprint := platformOrderCredentialFingerprint(account.Username, account.Password)
-		if sharedConfigured && fingerprint == sharedFingerprint {
-			sharedWarehouseCodes = append(sharedWarehouseCodes, warehouse.Code)
-			continue
-		}
-		group := groups[fingerprint]
-		if group == nil {
-			group = &warehouseAccountGroup{}
-			groups[fingerprint] = group
-		}
-		group.warehouseCodes = append(group.warehouseCodes, warehouse.Code)
-	}
-
-	accounts := make([]selectablePlatformOrderAccount, 0, len(groups)+1)
-	if sharedErr == nil || p.shared != nil {
-		sort.Strings(sharedWarehouseCodes)
-		accounts = append(accounts, selectablePlatformOrderAccount{option: platformOrderAccountOption{
-			Key: defaultPlatformOrderAccountKey, Label: "ARP 账户", WarehouseCodes: sharedWarehouseCodes,
-			UsernameHint: credentials.MaskIdentifier(sharedUsername),
-		}})
-	}
-	for _, group := range groups {
-		sort.Strings(group.warehouseCodes)
-		warehouseCode := group.warehouseCodes[0]
-		account, accountErr := p.store.WarehouseOMSAccount(ctx, warehouseCode, true)
-		usernameHint := ""
-		if accountErr == nil {
-			usernameHint = credentials.MaskIdentifier(account.Username)
-		}
-		accounts = append(accounts, selectablePlatformOrderAccount{
-			option: platformOrderAccountOption{
-				Key:            "warehouse:" + warehouseCode,
-				Label:          platformOrderAccountLabel(group.warehouseCodes),
-				WarehouseCodes: group.warehouseCodes,
-				UsernameHint:   usernameHint,
-			},
-			warehouseCode: warehouseCode,
-		})
-	}
-	sort.Slice(accounts, func(i, j int) bool {
-		if accounts[i].option.Key == defaultPlatformOrderAccountKey {
-			return accounts[j].option.Key != defaultPlatformOrderAccountKey
-		}
-		if accounts[j].option.Key == defaultPlatformOrderAccountKey {
-			return false
-		}
-		if accounts[i].option.Label != accounts[j].option.Label {
-			return accounts[i].option.Label < accounts[j].option.Label
-		}
-		return accounts[i].option.Key < accounts[j].option.Key
-	})
-	return accounts, nil
-}
-
 func platformOrderCredentialFingerprint(username, password string) [sha256.Size]byte {
 	return sha256.Sum256([]byte(strings.TrimSpace(username) + "\x00" + password))
-}
-
-func platformOrderAccountLabel(warehouseCodes []string) string {
-	if len(warehouseCodes) == 0 {
-		return "OMS 账户"
-	}
-	prefix := leadingWarehouseLetters(warehouseCodes[0])
-	for _, code := range warehouseCodes[1:] {
-		prefix = commonPrefix(prefix, leadingWarehouseLetters(code))
-	}
-	if len(prefix) < 2 {
-		prefix = warehouseCodes[0]
-	}
-	return strings.ToUpper(prefix) + " 账户"
-}
-
-func leadingWarehouseLetters(value string) string {
-	value = strings.ToUpper(strings.TrimSpace(value))
-	for index, character := range value {
-		if character < 'A' || character > 'Z' {
-			return value[:index]
-		}
-	}
-	return value
-}
-
-func commonPrefix(left, right string) string {
-	limit := len(left)
-	if len(right) < limit {
-		limit = len(right)
-	}
-	index := 0
-	for index < limit && left[index] == right[index] {
-		index++
-	}
-	return left[:index]
 }
 
 func (s *Server) selectedPlatformOrderAccount(ctx context.Context, key string) (platformOrderAccount, error) {
@@ -571,54 +407,36 @@ func (p *postgresPlatformOrderAccounts) UpgradeAccountPassword(ctx context.Conte
 }
 
 func (p *postgresPlatformOrderAccounts) validateAccountKey(ctx context.Context, key string) error {
-	accounts, err := p.selectableAccounts(ctx)
-	if err != nil {
-		return err
-	}
 	key = strings.TrimSpace(key)
 	if key == "" {
 		key = defaultPlatformOrderAccountKey
 	}
-	for _, selectable := range accounts {
-		if platformOrderAccountKeyMatches(selectable.option, key) {
-			return nil
+	if _, err := p.store.OMSAccount(ctx, key); err != nil {
+		if errors.Is(err, store.ErrOMSAccountNotFound) {
+			return errPlatformOrderAccountNotFound
 		}
+		return err
 	}
-	return errPlatformOrderAccountNotFound
+	return nil
 }
 
 func (p *postgresPlatformOrderAccounts) saveVerifiedAccountCredentials(ctx context.Context, key, username, password string, verified platformOrderAccount) error {
-	accounts, err := p.selectableAccounts(ctx)
-	if err != nil {
-		return err
-	}
 	key = strings.TrimSpace(key)
 	if key == "" {
 		key = defaultPlatformOrderAccountKey
 	}
-	for _, selectable := range accounts {
-		if !platformOrderAccountKeyMatches(selectable.option, key) {
-			continue
-		}
-		if strings.EqualFold(selectable.option.Key, defaultPlatformOrderAccountKey) {
-			if _, err := p.store.SetOMSAccount(ctx, defaultPlatformOrderAccountKey, username, password); err != nil {
-				return err
-			}
-			p.replaceShared(username, password, verified)
-			return nil
-		}
-		if len(selectable.option.WarehouseCodes) == 0 {
-			return errPlatformOrderAccountUnavailable
-		}
-		for _, warehouseCode := range selectable.option.WarehouseCodes {
-			if _, err := p.store.SetWarehouseOMSAccount(ctx, warehouseCode, username, password); err != nil {
-				return err
-			}
-		}
-		p.forgetClients()
-		return nil
+	if err := p.validateAccountKey(ctx, key); err != nil {
+		return err
 	}
-	return errPlatformOrderAccountNotFound
+	if _, err := p.store.SetOMSAccount(ctx, key, username, password); err != nil {
+		return err
+	}
+	if strings.EqualFold(key, defaultPlatformOrderAccountKey) {
+		p.replaceShared(username, password, verified)
+	} else {
+		p.forgetClients()
+	}
+	return nil
 }
 
 func (p *postgresPlatformOrderAccounts) replaceShared(username, password string, client platformOrderAccount) {
