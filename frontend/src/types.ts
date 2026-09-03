@@ -311,8 +311,8 @@ export type FulfillmentShop = {
   enabled: boolean;
 };
 
-export type ShopInventoryThresholds = FulfillmentShop & InventoryThresholds & {
-  customized: boolean;
+export type PlatformInventoryThresholds = InventoryThresholds & {
+  platform: string;
   updated_at: string;
 };
 
@@ -329,10 +329,37 @@ export type SKUInventoryThreshold = InventoryThresholds & {
 };
 
 export type InventoryThresholdPage = PageData<SKUInventoryThreshold> & {
-  default_thresholds: InventoryThresholds | ShopInventoryThresholds;
-  shops: ShopInventoryThresholds[];
-  platform?: string;
-  shop_code?: string;
+  default_thresholds: PlatformInventoryThresholds;
+  platforms: PlatformInventoryThresholds[];
+  platform: string;
+};
+
+export type CarrierPolicy = {
+  warehouse_key: string;
+  carrier_code: string;
+  priority: number;
+  enabled: boolean;
+};
+
+export type WarehouseCarrierPolicies = {
+  warehouse_key: string;
+  warehouse_sku?: string;
+  customized: boolean;
+  source: "platform_default" | "platform_sku";
+  carriers: CarrierPolicy[];
+};
+
+export type PlatformSKUFulfillmentPolicy = {
+  platform: string;
+  warehouse_sku: string;
+  product_name: string;
+  disabled_warehouse_keys: string[];
+  customized: boolean;
+  updated_at: string;
+};
+
+export type PlatformSKUFulfillmentPolicyPage = PageData<PlatformSKUFulfillmentPolicy> & {
+  platform: string;
 };
 
 export type InventoryAlert = {

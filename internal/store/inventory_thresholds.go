@@ -95,216 +95,108 @@ WHERE platform=$1 AND shop_code=$2 AND enabled
 	return item, nil
 }
 
-func (p *Postgres) InventoryThresholdDefaults(ctx context.Context) (model.InventoryThresholds, error) {
-	var result model.InventoryThresholds
-	err := p.pool.QueryRow(ctx, `
-SELECT east_threshold::float8, west_threshold::float8, total_threshold::float8
-FROM xlwms_inventory_threshold_defaults WHERE id=1
-`).Scan(&result.EastThreshold, &result.WestThreshold, &result.TotalThreshold)
-	if err != nil {
-		return result, fmt.Errorf("get inventory threshold defaults: %w", err)
-	}
-	return result, nil
-}
-
-func (p *Postgres) UpdateInventoryThresholdDefaults(ctx context.Context, thresholds model.InventoryThresholds) (model.InventoryThresholds, error) {
-	var result model.InventoryThresholds
-	err := p.pool.QueryRow(ctx, `
-INSERT INTO xlwms_inventory_threshold_defaults (id, east_threshold, west_threshold, total_threshold, updated_at)
-VALUES (1, $1, $2, $3, now())
-ON CONFLICT (id) DO UPDATE SET east_threshold=EXCLUDED.east_threshold,
-west_threshold=EXCLUDED.west_threshold, total_threshold=EXCLUDED.total_threshold, updated_at=now()
-RETURNING east_threshold::float8, west_threshold::float8, total_threshold::float8
-`, thresholds.EastThreshold, thresholds.WestThreshold, thresholds.TotalThreshold).Scan(
-		&result.EastThreshold, &result.WestThreshold, &result.TotalThreshold,
-	)
-	if err != nil {
-		return result, fmt.Errorf("update inventory threshold defaults: %w", err)
-	}
-	return result, nil
-}
-
-func (p *Postgres) ListShopInventoryThresholds(ctx context.Context) ([]model.ShopInventoryThresholds, error) {
-	if err := p.ensureFulfillmentShopThresholds(ctx); err != nil {
-		return nil, err
-	}
+func (p *Postgres) ListPlatformInventoryThresholds(ctx context.Context) ([]model.PlatformInventoryThresholds, error) {
 	rows, err := p.pool.Query(ctx, `
-SELECT s.platform, s.shop_code, s.shop_name, s.enabled,
-coalesce(t.east_threshold, d.east_threshold)::float8,
-coalesce(t.west_threshold, d.west_threshold)::float8,
-coalesce(t.total_threshold, d.total_threshold)::float8,
-(t.platform IS NOT NULL), coalesce(t.updated_at, d.updated_at)
-FROM xlwms_fulfillment_shops s
-CROSS JOIN xlwms_inventory_threshold_defaults d
-LEFT JOIN xlwms_shop_inventory_thresholds t
-  ON t.platform=s.platform AND t.shop_code=s.shop_code
-WHERE s.enabled AND d.id=1
-ORDER BY s.platform, s.shop_name, s.shop_code
+SELECT platform,east_threshold::float8,west_threshold::float8,total_threshold::float8,updated_at
+FROM xlwms_platform_inventory_thresholds ORDER BY platform
 `)
 	if err != nil {
-		return nil, fmt.Errorf("list shop inventory thresholds: %w", err)
+		return nil, fmt.Errorf("list platform inventory thresholds: %w", err)
 	}
 	defer rows.Close()
-	items := make([]model.ShopInventoryThresholds, 0, 4)
+	items := make([]model.PlatformInventoryThresholds, 0, 2)
 	for rows.Next() {
-		var item model.ShopInventoryThresholds
-		if err := rows.Scan(
-			&item.Platform, &item.ShopCode, &item.ShopName, &item.Enabled,
-			&item.EastThreshold, &item.WestThreshold, &item.TotalThreshold,
-			&item.Customized, &item.UpdatedAt,
-		); err != nil {
-			return nil, fmt.Errorf("scan shop inventory thresholds: %w", err)
+		var item model.PlatformInventoryThresholds
+		if err := rows.Scan(&item.Platform, &item.EastThreshold, &item.WestThreshold, &item.TotalThreshold, &item.UpdatedAt); err != nil {
+			return nil, fmt.Errorf("scan platform inventory thresholds: %w", err)
 		}
 		items = append(items, item)
 	}
 	return items, rows.Err()
 }
 
-func (p *Postgres) ShopInventoryThresholds(ctx context.Context, platform, shopCode string) (model.ShopInventoryThresholds, error) {
-	shop, err := p.FulfillmentShop(ctx, platform, shopCode)
+func (p *Postgres) PlatformInventoryThresholds(ctx context.Context, platform string) (model.PlatformInventoryThresholds, error) {
+	platform, err := NormalizeFulfillmentPlatform(platform)
 	if err != nil {
-		return model.ShopInventoryThresholds{}, err
+		return model.PlatformInventoryThresholds{}, err
 	}
-	var item model.ShopInventoryThresholds
+	var item model.PlatformInventoryThresholds
 	err = p.pool.QueryRow(ctx, `
-SELECT coalesce(t.east_threshold, d.east_threshold)::float8,
-coalesce(t.west_threshold, d.west_threshold)::float8,
-coalesce(t.total_threshold, d.total_threshold)::float8,
-(t.platform IS NOT NULL), coalesce(t.updated_at, d.updated_at)
-FROM xlwms_inventory_threshold_defaults d
-LEFT JOIN xlwms_shop_inventory_thresholds t
-  ON t.platform=$1 AND t.shop_code=$2
-WHERE d.id=1
-`, shop.Platform, shop.ShopCode).Scan(
-		&item.EastThreshold, &item.WestThreshold, &item.TotalThreshold,
-		&item.Customized, &item.UpdatedAt,
-	)
+SELECT platform,east_threshold::float8,west_threshold::float8,total_threshold::float8,updated_at
+FROM xlwms_platform_inventory_thresholds WHERE platform=$1
+`, platform).Scan(&item.Platform, &item.EastThreshold, &item.WestThreshold, &item.TotalThreshold, &item.UpdatedAt)
 	if err != nil {
-		return model.ShopInventoryThresholds{}, fmt.Errorf("get shop inventory thresholds: %w", err)
+		return item, fmt.Errorf("get platform inventory thresholds: %w", err)
 	}
-	item.FulfillmentShop = shop
 	return item, nil
 }
 
-func (p *Postgres) UpdateShopInventoryThresholds(ctx context.Context, platform, shopCode string, thresholds model.InventoryThresholds) (model.ShopInventoryThresholds, error) {
-	shop, err := p.FulfillmentShop(ctx, platform, shopCode)
+func (p *Postgres) UpdatePlatformInventoryThresholds(ctx context.Context, platform string, thresholds model.InventoryThresholds) (model.PlatformInventoryThresholds, error) {
+	platform, err := NormalizeFulfillmentPlatform(platform)
 	if err != nil {
-		return model.ShopInventoryThresholds{}, err
+		return model.PlatformInventoryThresholds{}, err
 	}
 	if _, err := p.pool.Exec(ctx, `
-INSERT INTO xlwms_shop_inventory_thresholds (platform, shop_code, east_threshold, west_threshold, total_threshold, updated_at)
-VALUES ($1, $2, $3, $4, $5, now())
-ON CONFLICT (platform, shop_code) DO UPDATE SET east_threshold=EXCLUDED.east_threshold,
-west_threshold=EXCLUDED.west_threshold, total_threshold=EXCLUDED.total_threshold, updated_at=now()
-`, shop.Platform, shop.ShopCode, thresholds.EastThreshold, thresholds.WestThreshold, thresholds.TotalThreshold); err != nil {
-		return model.ShopInventoryThresholds{}, fmt.Errorf("save shop inventory thresholds: %w", err)
+INSERT INTO xlwms_platform_inventory_thresholds(platform,east_threshold,west_threshold,total_threshold,updated_at)
+VALUES($1,$2,$3,$4,now())
+ON CONFLICT(platform) DO UPDATE SET east_threshold=EXCLUDED.east_threshold,
+west_threshold=EXCLUDED.west_threshold,total_threshold=EXCLUDED.total_threshold,updated_at=now()
+`, platform, thresholds.EastThreshold, thresholds.WestThreshold, thresholds.TotalThreshold); err != nil {
+		return model.PlatformInventoryThresholds{}, fmt.Errorf("save platform inventory thresholds: %w", err)
 	}
-	return p.ShopInventoryThresholds(ctx, shop.Platform, shop.ShopCode)
+	return p.PlatformInventoryThresholds(ctx, platform)
 }
 
-func (p *Postgres) ResetShopInventoryThresholds(ctx context.Context, platform, shopCode string) (model.ShopInventoryThresholds, error) {
-	shop, err := p.FulfillmentShop(ctx, platform, shopCode)
+func (p *Postgres) UpsertPlatformSKUInventoryThreshold(ctx context.Context, platform, warehouseSKU string, thresholds model.InventoryThresholds) (model.SKUInventoryThreshold, error) {
+	platform, err := NormalizeFulfillmentPlatform(platform)
 	if err != nil {
-		return model.ShopInventoryThresholds{}, err
+		return model.SKUInventoryThreshold{}, err
 	}
-	if _, err := p.pool.Exec(ctx, `
-DELETE FROM xlwms_shop_inventory_thresholds WHERE platform=$1 AND shop_code=$2
-`, shop.Platform, shop.ShopCode); err != nil {
-		return model.ShopInventoryThresholds{}, fmt.Errorf("reset shop inventory thresholds: %w", err)
-	}
-	return p.ShopInventoryThresholds(ctx, shop.Platform, shop.ShopCode)
-}
-
-func (p *Postgres) UpsertSKUInventoryThreshold(ctx context.Context, warehouseSKU string, thresholds model.InventoryThresholds) (model.SKUInventoryThreshold, error) {
-	return p.UpsertShopSKUInventoryThreshold(ctx, "", "", warehouseSKU, thresholds)
-}
-
-func (p *Postgres) UpsertShopSKUInventoryThreshold(ctx context.Context, platform, shopCode, warehouseSKU string, thresholds model.InventoryThresholds) (model.SKUInventoryThreshold, error) {
 	warehouseSKU = strings.TrimSpace(warehouseSKU)
 	if warehouseSKU == "" {
 		return model.SKUInventoryThreshold{}, errors.New("warehouse_sku is required")
 	}
-	if platform == "" && shopCode == "" {
-		_, err := p.pool.Exec(ctx, `
-INSERT INTO xlwms_sku_inventory_thresholds (warehouse_sku, east_threshold, west_threshold, total_threshold, updated_at)
-VALUES ($1, $2, $3, $4, now())
-ON CONFLICT (warehouse_sku) DO UPDATE SET east_threshold=EXCLUDED.east_threshold,
-west_threshold=EXCLUDED.west_threshold, total_threshold=EXCLUDED.total_threshold, updated_at=now()
-`, warehouseSKU, thresholds.EastThreshold, thresholds.WestThreshold, thresholds.TotalThreshold)
-		if err != nil {
-			return model.SKUInventoryThreshold{}, fmt.Errorf("save SKU inventory thresholds: %w", err)
-		}
-		return p.SKUInventoryThreshold(ctx, warehouseSKU)
+	if _, err := p.pool.Exec(ctx, `
+INSERT INTO xlwms_platform_sku_inventory_thresholds(platform,warehouse_sku,east_threshold,west_threshold,total_threshold,updated_at)
+VALUES($1,$2,$3,$4,$5,now())
+ON CONFLICT(platform,warehouse_sku) DO UPDATE SET east_threshold=EXCLUDED.east_threshold,
+west_threshold=EXCLUDED.west_threshold,total_threshold=EXCLUDED.total_threshold,updated_at=now()
+`, platform, warehouseSKU, thresholds.EastThreshold, thresholds.WestThreshold, thresholds.TotalThreshold); err != nil {
+		return model.SKUInventoryThreshold{}, fmt.Errorf("save platform SKU inventory thresholds: %w", err)
 	}
-	shop, err := p.FulfillmentShop(ctx, platform, shopCode)
-	if err != nil {
-		return model.SKUInventoryThreshold{}, err
-	}
-	_, err = p.pool.Exec(ctx, `
-INSERT INTO xlwms_shop_sku_inventory_thresholds (platform, shop_code, warehouse_sku, east_threshold, west_threshold, total_threshold, updated_at)
-VALUES ($1, $2, $3, $4, $5, $6, now())
-ON CONFLICT (platform, shop_code, warehouse_sku) DO UPDATE SET east_threshold=EXCLUDED.east_threshold,
-west_threshold=EXCLUDED.west_threshold, total_threshold=EXCLUDED.total_threshold, updated_at=now()
-`, shop.Platform, shop.ShopCode, warehouseSKU, thresholds.EastThreshold, thresholds.WestThreshold, thresholds.TotalThreshold)
-	if err != nil {
-		return model.SKUInventoryThreshold{}, fmt.Errorf("save shop SKU inventory thresholds: %w", err)
-	}
-	return p.ShopSKUInventoryThreshold(ctx, shop.Platform, shop.ShopCode, warehouseSKU)
+	return p.PlatformSKUInventoryThreshold(ctx, platform, warehouseSKU)
 }
 
-func (p *Postgres) DeleteSKUInventoryThreshold(ctx context.Context, warehouseSKU string) error {
-	return p.DeleteShopSKUInventoryThreshold(ctx, "", "", warehouseSKU)
-}
-
-func (p *Postgres) DeleteShopSKUInventoryThreshold(ctx context.Context, platform, shopCode, warehouseSKU string) error {
+func (p *Postgres) DeletePlatformSKUInventoryThreshold(ctx context.Context, platform, warehouseSKU string) error {
+	platform, err := NormalizeFulfillmentPlatform(platform)
+	if err != nil {
+		return err
+	}
 	warehouseSKU = strings.TrimSpace(warehouseSKU)
 	if warehouseSKU == "" {
 		return errors.New("warehouse_sku is required")
 	}
-	if platform == "" && shopCode == "" {
-		command, err := p.pool.Exec(ctx, `DELETE FROM xlwms_sku_inventory_thresholds WHERE warehouse_sku=$1`, warehouseSKU)
-		if err != nil {
-			return fmt.Errorf("delete SKU inventory thresholds: %w", err)
-		}
-		if command.RowsAffected() == 0 {
-			return errors.New("SKU has no custom inventory thresholds")
-		}
-		return nil
-	}
-	shop, err := p.FulfillmentShop(ctx, platform, shopCode)
-	if err != nil {
-		return err
-	}
 	command, err := p.pool.Exec(ctx, `
-DELETE FROM xlwms_shop_sku_inventory_thresholds
-WHERE platform=$1 AND shop_code=$2 AND warehouse_sku=$3
-`, shop.Platform, shop.ShopCode, warehouseSKU)
+DELETE FROM xlwms_platform_sku_inventory_thresholds WHERE platform=$1 AND warehouse_sku=$2
+`, platform, warehouseSKU)
 	if err != nil {
-		return fmt.Errorf("delete shop SKU inventory thresholds: %w", err)
+		return fmt.Errorf("delete platform SKU inventory thresholds: %w", err)
 	}
 	if command.RowsAffected() == 0 {
-		return errors.New("SKU has no custom inventory thresholds")
+		return errors.New("SKU has no platform-specific inventory thresholds")
 	}
 	return nil
 }
 
-func (p *Postgres) SKUInventoryThreshold(ctx context.Context, warehouseSKU string) (model.SKUInventoryThreshold, error) {
-	return p.ShopSKUInventoryThreshold(ctx, "", "", warehouseSKU)
+func (p *Postgres) PlatformSKUInventoryThreshold(ctx context.Context, platform, warehouseSKU string) (model.SKUInventoryThreshold, error) {
+	return p.lookupPlatformSKUInventoryThreshold(ctx, platform, warehouseSKU)
 }
 
-func (p *Postgres) ShopSKUInventoryThreshold(ctx context.Context, platform, shopCode, warehouseSKU string) (model.SKUInventoryThreshold, error) {
-	item, err := p.lookupSKUInventoryThreshold(ctx, platform, shopCode, warehouseSKU)
+func (p *Postgres) ListPlatformInventorySKUThresholds(ctx context.Context, platform string, filter InventoryThresholdFilter, eastCodes, westCodes []string) ([]model.SKUInventoryThreshold, int, error) {
+	platform, err := NormalizeFulfillmentPlatform(platform)
 	if err != nil {
-		return model.SKUInventoryThreshold{}, err
+		return nil, 0, err
 	}
-	return item, nil
-}
-
-func (p *Postgres) ListInventoryThresholds(ctx context.Context, filter InventoryThresholdFilter, eastCodes, westCodes []string) ([]model.SKUInventoryThreshold, int, error) {
-	return p.ListShopInventorySKUThresholds(ctx, "", "", filter, eastCodes, westCodes)
-}
-
-func (p *Postgres) ListShopInventorySKUThresholds(ctx context.Context, platform, shopCode string, filter InventoryThresholdFilter, eastCodes, westCodes []string) ([]model.SKUInventoryThreshold, int, error) {
 	if filter.Page < 1 {
 		filter.Page = 1
 	}
@@ -312,15 +204,6 @@ func (p *Postgres) ListShopInventorySKUThresholds(ctx context.Context, platform,
 		filter.PageSize = 30
 	}
 	query := strings.TrimSpace(filter.Query)
-	shopScoped := platform != "" || shopCode != ""
-	var shop model.FulfillmentShop
-	if shopScoped {
-		var err error
-		shop, err = p.FulfillmentShop(ctx, platform, shopCode)
-		if err != nil {
-			return nil, 0, err
-		}
-	}
 	var total int
 	if err := p.pool.QueryRow(ctx, `
 SELECT count(*) FROM xlwms_warehouse_sku_specs s
@@ -328,15 +211,7 @@ WHERE $1='' OR s.warehouse_sku ILIKE '%' || $1 || '%' OR coalesce(s.product_name
 `, query).Scan(&total); err != nil {
 		return nil, 0, fmt.Errorf("count inventory thresholds: %w", err)
 	}
-	var rows interface {
-		Close()
-		Next() bool
-		Scan(dest ...any) error
-		Err() error
-	}
-	var err error
-	if shopScoped {
-		rows, err = p.pool.Query(ctx, `
+	rows, err := p.pool.Query(ctx, `
 WITH inventory AS (
 SELECT i.sku,
 coalesce(sum(i.product_available_amount) FILTER (WHERE i.wh_code=ANY($1)), 0) AS east_available,
@@ -351,58 +226,22 @@ GROUP BY i.sku
 SELECT s.warehouse_sku, coalesce(s.product_name,''),
 coalesce(i.east_available,0)::float8, coalesce(i.west_available,0)::float8,
 (coalesce(i.east_available,0)+coalesce(i.west_available,0))::float8,
-coalesce(st.east_threshold, shop.east_threshold, d.east_threshold)::float8,
-coalesce(st.west_threshold, shop.west_threshold, d.west_threshold)::float8,
-coalesce(st.total_threshold, shop.total_threshold, d.total_threshold)::float8,
+coalesce(st.east_threshold, defaults.east_threshold)::float8,
+coalesce(st.west_threshold, defaults.west_threshold)::float8,
+coalesce(st.total_threshold, defaults.total_threshold)::float8,
 (st.warehouse_sku IS NOT NULL),
-CASE
-  WHEN st.warehouse_sku IS NOT NULL THEN 'shop_sku'
-  WHEN shop.platform IS NOT NULL THEN 'shop_default'
-  ELSE 'global_default'
-END,
+CASE WHEN st.warehouse_sku IS NOT NULL THEN 'platform_sku' ELSE 'platform_default' END,
 i.inventory_at,
-coalesce(st.updated_at, shop.updated_at, d.updated_at)
+coalesce(st.updated_at, defaults.updated_at)
 FROM xlwms_warehouse_sku_specs s
-CROSS JOIN xlwms_inventory_threshold_defaults d
-LEFT JOIN xlwms_shop_inventory_thresholds shop ON shop.platform=$4 AND shop.shop_code=$5
-LEFT JOIN xlwms_shop_sku_inventory_thresholds st
-  ON st.platform=$4 AND st.shop_code=$5 AND st.warehouse_sku=s.warehouse_sku
+JOIN xlwms_platform_inventory_thresholds defaults ON defaults.platform=$4
+LEFT JOIN xlwms_platform_sku_inventory_thresholds st
+  ON st.platform=$4 AND st.warehouse_sku=s.warehouse_sku
 LEFT JOIN inventory i ON i.sku=s.warehouse_sku
 WHERE $3='' OR s.warehouse_sku ILIKE '%' || $3 || '%' OR coalesce(s.product_name,'') ILIKE '%' || $3 || '%'
 ORDER BY (coalesce(i.east_available,0)+coalesce(i.west_available,0)) ASC, s.warehouse_sku ASC
-LIMIT $6 OFFSET $7
-`, eastCodes, westCodes, query, shop.Platform, shop.ShopCode, filter.PageSize, (filter.Page-1)*filter.PageSize)
-	} else {
-		rows, err = p.pool.Query(ctx, `
-WITH inventory AS (
-SELECT i.sku,
-coalesce(sum(i.product_available_amount) FILTER (WHERE i.wh_code=ANY($1)), 0) AS east_available,
-coalesce(sum(i.product_available_amount) FILTER (WHERE i.wh_code=ANY($2)), 0) AS west_available,
-max(i.last_seen_at) AS inventory_at
-FROM xlwms_inventory_records i
-JOIN xlwms_warehouses w ON w.wh_code=i.wh_code AND w.is_active
-WHERE i.inventory_kind='integrated' AND i.stock_type=0
-AND i.wh_code=ANY($1 || $2)
-GROUP BY i.sku
-)
-SELECT s.warehouse_sku, coalesce(s.product_name,''),
-coalesce(i.east_available,0)::float8, coalesce(i.west_available,0)::float8,
-(coalesce(i.east_available,0)+coalesce(i.west_available,0))::float8,
-coalesce(t.east_threshold,d.east_threshold)::float8,
-coalesce(t.west_threshold,d.west_threshold)::float8,
-coalesce(t.total_threshold,d.total_threshold)::float8,
-(t.warehouse_sku IS NOT NULL),
-CASE WHEN t.warehouse_sku IS NOT NULL THEN 'sku' ELSE 'global_default' END,
-i.inventory_at, coalesce(t.updated_at,d.updated_at)
-FROM xlwms_warehouse_sku_specs s
-CROSS JOIN xlwms_inventory_threshold_defaults d
-LEFT JOIN xlwms_sku_inventory_thresholds t ON t.warehouse_sku=s.warehouse_sku
-LEFT JOIN inventory i ON i.sku=s.warehouse_sku
-WHERE $3='' OR s.warehouse_sku ILIKE '%' || $3 || '%' OR coalesce(s.product_name,'') ILIKE '%' || $3 || '%'
-ORDER BY (coalesce(i.east_available,0)+coalesce(i.west_available,0)) ASC, s.warehouse_sku ASC
-LIMIT $4 OFFSET $5
-`, eastCodes, westCodes, query, filter.PageSize, (filter.Page-1)*filter.PageSize)
-	}
+LIMIT $5 OFFSET $6
+`, eastCodes, westCodes, query, platform, filter.PageSize, (filter.Page-1)*filter.PageSize)
 	if err != nil {
 		return nil, 0, fmt.Errorf("list inventory thresholds: %w", err)
 	}
@@ -422,62 +261,27 @@ LIMIT $4 OFFSET $5
 	return items, total, rows.Err()
 }
 
-func (p *Postgres) InventoryThresholdsForSKUs(ctx context.Context, warehouseSKUs []string) (map[string]model.InventoryThresholds, model.InventoryThresholds, error) {
-	return p.InventoryThresholdsForShopSKUs(ctx, "", "", warehouseSKUs)
-}
-
-func (p *Postgres) InventoryThresholdsForShopSKUs(ctx context.Context, platform, shopCode string, warehouseSKUs []string) (map[string]model.InventoryThresholds, model.InventoryThresholds, error) {
-	defaults, err := p.InventoryThresholdDefaults(ctx)
+func (p *Postgres) InventoryThresholdsForPlatformSKUs(ctx context.Context, platform string, warehouseSKUs []string) (map[string]model.InventoryThresholds, model.InventoryThresholds, error) {
+	defaultsRecord, err := p.PlatformInventoryThresholds(ctx, platform)
 	if err != nil {
-		return nil, defaults, err
+		return nil, model.InventoryThresholds{}, err
 	}
-	shopDefaults := defaults
-	shopScoped := platform != "" || shopCode != ""
-	if shopScoped {
-		shopThresholds, shopErr := p.ShopInventoryThresholds(ctx, platform, shopCode)
-		if shopErr != nil {
-			return nil, defaults, shopErr
-		}
-		shopDefaults = shopThresholds.InventoryThresholds
-		defaults = shopDefaults
-	}
+	defaults := defaultsRecord.InventoryThresholds
 	result := make(map[string]model.InventoryThresholds, len(warehouseSKUs))
 	for _, sku := range warehouseSKUs {
-		result[sku] = shopDefaults
+		result[sku] = defaults
 	}
 	if len(warehouseSKUs) == 0 {
 		return result, defaults, nil
 	}
-	if !shopScoped {
-		rows, queryErr := p.pool.Query(ctx, `
-SELECT warehouse_sku, east_threshold::float8, west_threshold::float8, total_threshold::float8
-FROM xlwms_sku_inventory_thresholds WHERE warehouse_sku=ANY($1)
-`, warehouseSKUs)
-		if queryErr != nil {
-			return nil, defaults, fmt.Errorf("resolve SKU inventory thresholds: %w", queryErr)
-		}
-		defer rows.Close()
-		for rows.Next() {
-			var sku string
-			var thresholds model.InventoryThresholds
-			if err := rows.Scan(&sku, &thresholds.EastThreshold, &thresholds.WestThreshold, &thresholds.TotalThreshold); err != nil {
-				return nil, defaults, err
-			}
-			result[sku] = thresholds
-		}
-		return result, defaults, rows.Err()
-	}
-	shop, err := p.FulfillmentShop(ctx, platform, shopCode)
-	if err != nil {
-		return nil, defaults, err
-	}
+	platform = defaultsRecord.Platform
 	rows, err := p.pool.Query(ctx, `
 SELECT warehouse_sku, east_threshold::float8, west_threshold::float8, total_threshold::float8
-FROM xlwms_shop_sku_inventory_thresholds
-WHERE platform=$1 AND shop_code=$2 AND warehouse_sku=ANY($3)
-`, shop.Platform, shop.ShopCode, warehouseSKUs)
+FROM xlwms_platform_sku_inventory_thresholds
+WHERE platform=$1 AND warehouse_sku=ANY($2)
+`, platform, warehouseSKUs)
 	if err != nil {
-		return nil, defaults, fmt.Errorf("resolve shop SKU inventory thresholds: %w", err)
+		return nil, defaults, fmt.Errorf("resolve platform SKU inventory thresholds: %w", err)
 	}
 	defer rows.Close()
 	for rows.Next() {
@@ -491,58 +295,35 @@ WHERE platform=$1 AND shop_code=$2 AND warehouse_sku=ANY($3)
 	return result, defaults, rows.Err()
 }
 
-func (p *Postgres) lookupSKUInventoryThreshold(ctx context.Context, platform, shopCode, warehouseSKU string) (model.SKUInventoryThreshold, error) {
+func (p *Postgres) lookupPlatformSKUInventoryThreshold(ctx context.Context, platform, warehouseSKU string) (model.SKUInventoryThreshold, error) {
+	platform, err := NormalizeFulfillmentPlatform(platform)
+	if err != nil {
+		return model.SKUInventoryThreshold{}, err
+	}
 	warehouseSKU = strings.TrimSpace(warehouseSKU)
 	if warehouseSKU == "" {
 		return model.SKUInventoryThreshold{}, errors.New("warehouse_sku is required")
 	}
-	if platform == "" && shopCode == "" {
-		var item model.SKUInventoryThreshold
-		err := p.pool.QueryRow(ctx, `
-SELECT s.warehouse_sku, coalesce(s.product_name,''),
-t.east_threshold::float8, t.west_threshold::float8, t.total_threshold::float8,
-true, 'sku', t.updated_at
-FROM xlwms_warehouse_sku_specs s
-JOIN xlwms_sku_inventory_thresholds t ON t.warehouse_sku=s.warehouse_sku
-WHERE s.warehouse_sku=$1
-`, warehouseSKU).Scan(
-			&item.WarehouseSKU, &item.ProductName, &item.EastThreshold, &item.WestThreshold,
-			&item.TotalThreshold, &item.Customized, &item.Source, &item.UpdatedAt,
-		)
-		if err != nil {
-			return item, fmt.Errorf("get SKU inventory thresholds: %w", err)
-		}
-		return item, nil
-	}
-	shop, err := p.FulfillmentShop(ctx, platform, shopCode)
-	if err != nil {
-		return model.SKUInventoryThreshold{}, err
-	}
 	var item model.SKUInventoryThreshold
 	err = p.pool.QueryRow(ctx, `
 SELECT s.warehouse_sku, coalesce(s.product_name,''),
-coalesce(st.east_threshold, shop.east_threshold, d.east_threshold)::float8,
-coalesce(st.west_threshold, shop.west_threshold, d.west_threshold)::float8,
-coalesce(st.total_threshold, shop.total_threshold, d.total_threshold)::float8,
+coalesce(st.east_threshold, defaults.east_threshold)::float8,
+coalesce(st.west_threshold, defaults.west_threshold)::float8,
+coalesce(st.total_threshold, defaults.total_threshold)::float8,
 (st.warehouse_sku IS NOT NULL),
-CASE
-  WHEN st.warehouse_sku IS NOT NULL THEN 'shop_sku'
-  WHEN shop.platform IS NOT NULL THEN 'shop_default'
-  ELSE 'global_default'
-END,
-coalesce(st.updated_at, shop.updated_at, d.updated_at)
+CASE WHEN st.warehouse_sku IS NOT NULL THEN 'platform_sku' ELSE 'platform_default' END,
+coalesce(st.updated_at, defaults.updated_at)
 FROM xlwms_warehouse_sku_specs s
-CROSS JOIN xlwms_inventory_threshold_defaults d
-LEFT JOIN xlwms_shop_inventory_thresholds shop ON shop.platform=$1 AND shop.shop_code=$2
-LEFT JOIN xlwms_shop_sku_inventory_thresholds st
-  ON st.platform=$1 AND st.shop_code=$2 AND st.warehouse_sku=s.warehouse_sku
-WHERE s.warehouse_sku=$3
-`, shop.Platform, shop.ShopCode, warehouseSKU).Scan(
+JOIN xlwms_platform_inventory_thresholds defaults ON defaults.platform=$1
+LEFT JOIN xlwms_platform_sku_inventory_thresholds st
+  ON st.platform=$1 AND st.warehouse_sku=s.warehouse_sku
+WHERE s.warehouse_sku=$2
+`, platform, warehouseSKU).Scan(
 		&item.WarehouseSKU, &item.ProductName, &item.EastThreshold, &item.WestThreshold,
 		&item.TotalThreshold, &item.Customized, &item.Source, &item.UpdatedAt,
 	)
 	if err != nil {
-		return item, fmt.Errorf("get shop SKU inventory thresholds: %w", err)
+		return item, fmt.Errorf("get platform SKU inventory thresholds: %w", err)
 	}
 	return item, nil
 }

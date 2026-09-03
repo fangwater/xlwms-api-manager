@@ -245,11 +245,10 @@ type FulfillmentShop struct {
 	Enabled  bool   `json:"enabled"`
 }
 
-type ShopInventoryThresholds struct {
-	FulfillmentShop
+type PlatformInventoryThresholds struct {
+	Platform string `json:"platform"`
 	InventoryThresholds
-	Customized bool      `json:"customized"`
-	UpdatedAt  time.Time `json:"updated_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 type SKUInventoryThreshold struct {
@@ -263,6 +262,30 @@ type SKUInventoryThreshold struct {
 	Source      string     `json:"source,omitempty"`
 	InventoryAt *time.Time `json:"inventory_at,omitempty"`
 	UpdatedAt   time.Time  `json:"updated_at"`
+}
+
+type CarrierPolicy struct {
+	WarehouseKey string `json:"warehouse_key"`
+	CarrierCode  string `json:"carrier_code"`
+	Priority     int    `json:"priority"`
+	Enabled      bool   `json:"enabled"`
+}
+
+type WarehouseCarrierPolicies struct {
+	WarehouseKey string          `json:"warehouse_key"`
+	WarehouseSKU string          `json:"warehouse_sku,omitempty"`
+	Customized   bool            `json:"customized"`
+	Source       string          `json:"source"`
+	Carriers     []CarrierPolicy `json:"carriers"`
+}
+
+type PlatformSKUFulfillmentPolicy struct {
+	Platform              string    `json:"platform"`
+	WarehouseSKU          string    `json:"warehouse_sku"`
+	ProductName           string    `json:"product_name"`
+	DisabledWarehouseKeys []string  `json:"disabled_warehouse_keys"`
+	Customized            bool      `json:"customized"`
+	UpdatedAt             time.Time `json:"updated_at"`
 }
 
 type InventoryAlert struct {

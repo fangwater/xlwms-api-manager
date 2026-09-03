@@ -15,17 +15,16 @@ func TestBuildSKUDecisionPrioritizesDPSWhenBothWarehousesHaveStock(t *testing.T)
 	assertRegion(t, decision, RegionWest, "DPS004", "DPS_PRIORITY_CLEAR_STOCK", false)
 }
 
-func TestBuildSKUDecisionUsesInclusiveSafetyThreshold(t *testing.T) {
-	decision := BuildSKUDecision("SKU-1", completeInventory(25, 25, 60, 0), defaultThresholds())
-	if !decision.RequiresManual {
-		t.Fatal("stock equal to the threshold must require manual review")
+func TestBuildSKUDecisionUsesStrictFourWarehouseTotalThreshold(t *testing.T) {
+	atThreshold := BuildSKUDecision("SKU-1", completeInventory(0, 0, 0, 50), defaultThresholds())
+	if atThreshold.RequiresManual || atThreshold.DecisionCode != "AUTO_SELECTION_READY" {
+		t.Fatalf("stock equal to the threshold must remain eligible: %#v", atThreshold)
 	}
-	east := regionByName(t, decision, RegionEast)
-	if east.DecisionCode != "MANUAL_LOW_REGIONAL_STOCK" || east.AvailableAmount != 50 {
-		t.Fatalf("unexpected east decision: %#v", east)
-	}
-	if east.RecommendedWarehouse != "" {
-		t.Fatalf("low-stock region must not recommend a warehouse: %#v", east)
+	assertRegion(t, atThreshold, RegionWest, "ARP_WEST", "ARP_FALLBACK_DPS_OUT_OF_STOCK", false)
+
+	belowThreshold := BuildSKUDecision("SKU-1", completeInventory(0, 0, 0, 49), defaultThresholds())
+	if !belowThreshold.RequiresManual || belowThreshold.DecisionCode != "MANUAL_LOW_TOTAL_STOCK" {
+		t.Fatalf("four-warehouse total below threshold must require manual review: %#v", belowThreshold)
 	}
 }
 
@@ -66,6 +65,9 @@ func TestBuildSKUDecisionRequiresManualReviewWhenQueryIsIncomplete(t *testing.T)
 	if !east.RequiresManual || east.DecisionCode != "MANUAL_INVENTORY_QUERY_INCOMPLETE" {
 		t.Fatalf("failed warehouse query must require manual review: %#v", east)
 	}
+	if !decision.RequiresManual || decision.DecisionCode != "MANUAL_INVENTORY_QUERY_INCOMPLETE" {
+		t.Fatalf("incomplete four-warehouse query must block automatic fulfillment: %#v", decision)
+	}
 }
 
 func TestBuildSKUDecisionTreatsMissingSKUAsZeroInventory(t *testing.T) {
@@ -80,21 +82,8 @@ func TestBuildSKUDecisionTreatsMissingSKUAsZeroInventory(t *testing.T) {
 	}
 }
 
-func TestBuildSKUDecisionUsesPerSKURegionalThresholds(t *testing.T) {
-	thresholds := model.InventoryThresholds{EastThreshold: 80, WestThreshold: 20, TotalThreshold: 0}
-	decision := BuildSKUDecision("SKU-1", completeInventory(30, 30, 35, 25), thresholds)
-	east := regionByName(t, decision, RegionEast)
-	west := regionByName(t, decision, RegionWest)
-	if !east.RequiresManual || east.SafetyStockThreshold != 80 {
-		t.Fatalf("expected custom east threshold to require manual review: %#v", east)
-	}
-	if west.RequiresManual || west.SafetyStockThreshold != 20 {
-		t.Fatalf("expected custom west threshold to allow automatic selection: %#v", west)
-	}
-}
-
 func TestBuildSKUDecisionUsesTotalThreshold(t *testing.T) {
-	thresholds := model.InventoryThresholds{EastThreshold: 10, WestThreshold: 10, TotalThreshold: 130}
+	thresholds := model.InventoryThresholds{TotalThreshold: 121}
 	decision := BuildSKUDecision("SKU-1", completeInventory(30, 30, 35, 25), thresholds)
 	if !decision.RequiresManual || decision.DecisionCode != "MANUAL_LOW_TOTAL_STOCK" {
 		t.Fatalf("expected total threshold to require manual review: %#v", decision)
@@ -104,8 +93,33 @@ func TestBuildSKUDecisionUsesTotalThreshold(t *testing.T) {
 	}
 }
 
+func TestApplyPlatformSKUWarehouseRestrictionsFallsBackWithinRegion(t *testing.T) {
+	decision := BuildSKUDecision("SKU-1", completeInventory(30, 30, 35, 25), defaultThresholds())
+	ApplyPlatformSKUWarehouseRestrictions(&decision, map[string]bool{"DPS002": true})
+
+	assertRegion(t, decision, RegionEast, "ARP_EAST", "PLATFORM_SKU_WAREHOUSE_POLICY_APPLIED", false)
+	east := regionByName(t, decision, RegionEast)
+	if !east.Warehouses[0].PlatformSKUDisabled || east.Warehouses[0].Selectable {
+		t.Fatalf("disabled DPS warehouse remains selectable: %#v", east.Warehouses[0])
+	}
+}
+
+func TestApplyPlatformSKUWarehouseRestrictionsBlocksFullyDisabledRegions(t *testing.T) {
+	decision := BuildSKUDecision("SKU-1", completeInventory(30, 30, 35, 25), defaultThresholds())
+	ApplyPlatformSKUWarehouseRestrictions(&decision, map[string]bool{
+		"DPS002": true, "ARP_EAST": true, "DPS004": true, "ARP_WEST": true,
+	})
+
+	for _, region := range []string{RegionEast, RegionWest} {
+		current := regionByName(t, decision, region)
+		if !current.RequiresManual || current.RecommendedWarehouseKey != "" || current.DecisionCode != "MANUAL_PLATFORM_SKU_WAREHOUSE_DISABLED" {
+			t.Fatalf("fully disabled %s region must have no recommendation: %#v", region, current)
+		}
+	}
+}
+
 func defaultThresholds() model.InventoryThresholds {
-	return model.InventoryThresholds{EastThreshold: 50, WestThreshold: 50, TotalThreshold: 0}
+	return model.InventoryThresholds{TotalThreshold: 50}
 }
 
 func completeInventory(eastDPS, eastARP, westDPS, westARP float64) map[string]WarehouseInventory {

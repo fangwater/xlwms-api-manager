@@ -9,7 +9,7 @@ import (
 )
 
 const (
-	RuleVersion    = "2026-08-21-inventory-corrections"
+	RuleVersion    = "2026-08-27-four-warehouse-total"
 	RegionEast     = "east"
 	RegionWest     = "west"
 	QuerySucceeded = "succeeded"
@@ -70,6 +70,52 @@ type WarehouseDecision struct {
 	InventoryAt         *time.Time `json:"inventory_queried_at,omitempty"`
 	ReasonCode          string     `json:"reason_code"`
 	Reason              string     `json:"reason"`
+	PlatformSKUDisabled bool       `json:"platform_sku_disabled,omitempty"`
+}
+
+func ApplyPlatformSKUWarehouseRestrictions(decision *SKUDecision, disabled map[string]bool) {
+	if decision == nil || len(disabled) == 0 {
+		return
+	}
+	for regionIndex := range decision.RegionDecisions {
+		region := &decision.RegionDecisions[regionIndex]
+		for warehouseIndex := range region.Warehouses {
+			warehouse := &region.Warehouses[warehouseIndex]
+			if !disabled[warehouse.WarehouseKey] {
+				continue
+			}
+			warehouse.Selectable = false
+			warehouse.Recommended = false
+			warehouse.PlatformSKUDisabled = true
+			warehouse.ReasonCode = "PLATFORM_SKU_WAREHOUSE_DISABLED"
+			warehouse.Reason = fmt.Sprintf("平台已禁止 SKU %s 使用此仓库", decision.SKU)
+		}
+		recommendRegionAfterRestriction(region)
+	}
+}
+
+func recommendRegionAfterRestriction(region *RegionDecision) {
+	if region == nil {
+		return
+	}
+	region.RecommendedWarehouseKey, region.RecommendedWarehouse, region.RecommendedName = "", "", ""
+	for index := range region.Warehouses {
+		region.Warehouses[index].Recommended = false
+	}
+	for index := range region.Warehouses {
+		if !region.Warehouses[index].Selectable {
+			continue
+		}
+		region.Warehouses[index].Recommended = true
+		setRecommended(region, region.Warehouses[index])
+		region.RequiresManual = false
+		region.DecisionCode = "PLATFORM_SKU_WAREHOUSE_POLICY_APPLIED"
+		region.Reason = region.RegionName + "已按平台 SKU 可发仓规则选择可用仓库"
+		return
+	}
+	region.RequiresManual = true
+	region.DecisionCode = "MANUAL_PLATFORM_SKU_WAREHOUSE_DISABLED"
+	region.Reason = region.RegionName + "没有符合平台 SKU 可发仓规则的可选仓库"
 }
 
 type RegionDecision struct {
@@ -114,39 +160,41 @@ func WarehouseCodes(region string) []string {
 
 func BuildSKUDecision(sku string, inventory map[string]WarehouseInventory, thresholds model.InventoryThresholds) SKUDecision {
 	regions := []RegionDecision{
-		buildRegionDecision(RegionEast, inventory, thresholds.EastThreshold),
-		buildRegionDecision(RegionWest, inventory, thresholds.WestThreshold),
+		buildRegionDecision(RegionEast, inventory),
+		buildRegionDecision(RegionWest, inventory),
 	}
 	result := SKUDecision{SKU: sku, ManualRegions: make([]string, 0), RegionDecisions: regions, Thresholds: thresholds}
+	queryIncomplete := false
 	for _, region := range regions {
 		result.TotalAvailableAmount += region.AvailableAmount
-		if region.RequiresManual {
-			result.RequiresManual = true
+		if region.DecisionCode == "MANUAL_INVENTORY_QUERY_INCOMPLETE" {
+			queryIncomplete = true
 			result.ManualRegions = append(result.ManualRegions, region.Region)
 		}
 	}
-	if result.TotalAvailableAmount <= thresholds.TotalThreshold {
+	if queryIncomplete {
+		result.RequiresManual = true
+		result.DecisionCode = "MANUAL_INVENTORY_QUERY_INCOMPLETE"
+		result.Reason = "至少一个仓库未启用或库存查询失败，无法确认四仓库存总量，转人工处理"
+		return result
+	}
+	if result.TotalAvailableAmount < thresholds.TotalThreshold {
 		result.RequiresManual = true
 		if len(result.ManualRegions) == 0 {
 			result.ManualRegions = []string{RegionEast, RegionWest}
 		}
 		result.DecisionCode = "MANUAL_LOW_TOTAL_STOCK"
-		result.Reason = fmt.Sprintf("美东和美西正品产品可用库存合计%s，小于等于该SKU总库存安全线%s，保留库存并转人工处理", formatAmount(result.TotalAvailableAmount), formatAmount(thresholds.TotalThreshold))
+		result.Reason = fmt.Sprintf("四仓正品产品可用库存合计%s，小于该SKU总库存安全线%s，保留库存并转人工处理", formatAmount(result.TotalAvailableAmount), formatAmount(thresholds.TotalThreshold))
 		return result
 	}
-	if result.RequiresManual {
-		result.DecisionCode = "MANUAL_REVIEW_REQUIRED"
-		result.Reason = "至少一个区域库存不足或查询不完整，该SKU订单需要人工处理"
-	} else {
-		result.DecisionCode = "AUTO_SELECTION_READY"
-		result.Reason = "美东和美西库存均高于安全线，可按区域推荐仓自动选择"
-	}
+	result.DecisionCode = "AUTO_SELECTION_READY"
+	result.Reason = "四仓正品产品可用库存合计达到安全线，可从有货仓自动选择"
 	return result
 }
 
-func buildRegionDecision(region string, inventory map[string]WarehouseInventory, safetyStockThreshold float64) RegionDecision {
+func buildRegionDecision(region string, inventory map[string]WarehouseInventory) RegionDecision {
 	rules := rulesForRegion(region)
-	result := RegionDecision{Region: region, RegionName: rules[0].RegionName, SafetyStockThreshold: safetyStockThreshold, Warehouses: make([]WarehouseDecision, 0, len(rules))}
+	result := RegionDecision{Region: region, RegionName: rules[0].RegionName, Warehouses: make([]WarehouseDecision, 0, len(rules))}
 	queryIncomplete := false
 	for _, rule := range rules {
 		current := inventory[rule.Code]
@@ -200,12 +248,6 @@ func buildRegionDecision(region string, inventory map[string]WarehouseInventory,
 		result.RequiresManual = true
 		result.DecisionCode = "MANUAL_INVENTORY_QUERY_INCOMPLETE"
 		result.Reason = result.RegionName + "存在未启用仓或库存查询失败，无法安全自动选仓，转人工处理"
-		return result
-	}
-	if result.AvailableAmount <= safetyStockThreshold {
-		result.RequiresManual = true
-		result.DecisionCode = "MANUAL_LOW_REGIONAL_STOCK"
-		result.Reason = fmt.Sprintf("%s两仓正品产品可用库存合计%s，小于等于该SKU安全线%s，保留库存并转人工处理", result.RegionName, formatAmount(result.AvailableAmount), formatAmount(safetyStockThreshold))
 		return result
 	}
 	preferredIndex, fallbackIndex := -1, -1

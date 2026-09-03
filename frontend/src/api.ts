@@ -1,4 +1,4 @@
-import type { CostDetail, DashboardData, FulfilledOrderPage, FulfillmentAuditPage, FundsFlow, InventoryAlertPage, InventoryCorrection, InventoryKind, InventoryRecord, InventoryThresholdPage, InventoryThresholds, PackingPlan, PackingPlanRequest, PageData, PendingPlatformOrderPage, PlatformOrderAccountOption, PlatformOrderAssignmentResult, PlatformOrderRoutingPreview, ProductPairingMutationResult, ProductPairingPage, ProductPairingPayload, ShopInventoryThresholds, SKUCombination, SKUCombinationPayload, SKUInventoryThreshold, SKUStockLevelPage, SyncRun, Warehouse, WarehouseSKUInventoryAlertThreshold, WarehouseSKUSpec } from "./types";
+import type { CarrierPolicy, CostDetail, DashboardData, FulfilledOrderPage, FulfillmentAuditPage, FundsFlow, InventoryAlertPage, InventoryCorrection, InventoryKind, InventoryRecord, InventoryThresholdPage, InventoryThresholds, PackingPlan, PackingPlanRequest, PageData, PendingPlatformOrderPage, PlatformInventoryThresholds, PlatformOrderAccountOption, PlatformOrderAssignmentResult, PlatformOrderRoutingPreview, PlatformSKUFulfillmentPolicy, PlatformSKUFulfillmentPolicyPage, ProductPairingMutationResult, ProductPairingPage, ProductPairingPayload, SKUCombination, SKUCombinationPayload, SKUInventoryThreshold, SKUStockLevelPage, SyncRun, Warehouse, WarehouseCarrierPolicies, WarehouseSKUInventoryAlertThreshold, WarehouseSKUSpec } from "./types";
 
 type Envelope<T> = { success: boolean; data?: T; error?: string; code?: string };
 const apiBase = `${import.meta.env.BASE_URL}api`;
@@ -104,16 +104,24 @@ export const api = {
     request<SKUCombination>(`/packing/combinations/${id}`, { method: "PUT", body: JSON.stringify(payload) }),
   deleteSKUCombination: (id: number) =>
     request<{ deleted: boolean }>(`/packing/combinations/${id}`, { method: "DELETE" }),
-  inventoryThresholds: (params: { q?: string; page: number; pageSize: number; platform?: string; shop?: string }) =>
-    request<InventoryThresholdPage>(`/inventory-thresholds${query({ q: params.q, page: params.page, page_size: params.pageSize, platform: params.platform, shop: params.shop })}`),
-  updateInventoryThresholdDefaults: (payload: InventoryThresholds, params?: { platform?: string; shop?: string }) =>
-    request<InventoryThresholds | ShopInventoryThresholds>(`/inventory-thresholds/defaults${query({ platform: params?.platform, shop: params?.shop })}`, { method: "PATCH", body: JSON.stringify(payload) }),
-  resetShopInventoryThresholds: (params: { platform: string; shop: string }) =>
-    request<ShopInventoryThresholds>(`/inventory-thresholds/defaults/reset${query({ platform: params.platform, shop: params.shop })}`, { method: "POST" }),
-  updateSKUInventoryThreshold: (warehouseSKU: string, payload: InventoryThresholds, params?: { platform?: string; shop?: string }) =>
-    request<SKUInventoryThreshold>(`/inventory-thresholds/${encodeURIComponent(warehouseSKU)}${query({ platform: params?.platform, shop: params?.shop })}`, { method: "PATCH", body: JSON.stringify(payload) }),
-  resetSKUInventoryThreshold: (warehouseSKU: string, params?: { platform?: string; shop?: string }) =>
-    request<{ deleted: boolean }>(`/inventory-thresholds/${encodeURIComponent(warehouseSKU)}/reset${query({ platform: params?.platform, shop: params?.shop })}`, { method: "POST" }),
+  inventoryThresholds: (params: { q?: string; page: number; pageSize: number; platform: string }) =>
+    request<InventoryThresholdPage>(`/inventory-thresholds${query({ q: params.q, page: params.page, page_size: params.pageSize, platform: params.platform })}`),
+  updateInventoryThresholdDefaults: (platform: string, payload: InventoryThresholds) =>
+    request<PlatformInventoryThresholds>(`/inventory-thresholds/defaults${query({ platform })}`, { method: "PATCH", body: JSON.stringify(payload) }),
+  updateSKUInventoryThreshold: (platform: string, warehouseSKU: string, payload: InventoryThresholds) =>
+    request<SKUInventoryThreshold>(`/inventory-thresholds/${encodeURIComponent(warehouseSKU)}${query({ platform })}`, { method: "PATCH", body: JSON.stringify(payload) }),
+  resetSKUInventoryThreshold: (platform: string, warehouseSKU: string) =>
+    request<{ deleted: boolean }>(`/inventory-thresholds/${encodeURIComponent(warehouseSKU)}/reset${query({ platform })}`, { method: "POST" }),
+  carrierPolicies: (platform: string, warehouseSKU?: string) =>
+    request<WarehouseCarrierPolicies[]>(`/fulfillment-policies/carriers${query({ platform, warehouse_sku: warehouseSKU })}`),
+  updateCarrierPolicies: (platform: string, warehouseKey: string, carriers: CarrierPolicy[], warehouseSKU?: string) =>
+    request<WarehouseCarrierPolicies>(`/fulfillment-policies/carriers/${encodeURIComponent(warehouseKey)}${query({ platform, warehouse_sku: warehouseSKU })}`, { method: "PATCH", body: JSON.stringify({ carriers }) }),
+  resetSKUCarrierPolicies: (platform: string, warehouseKey: string, warehouseSKU: string) =>
+    request<{ deleted: boolean }>(`/fulfillment-policies/carriers/${encodeURIComponent(warehouseKey)}/reset${query({ platform, warehouse_sku: warehouseSKU })}`, { method: "POST" }),
+  skuFulfillmentPolicies: (params: { platform: string; q?: string; page: number; pageSize: number }) =>
+    request<PlatformSKUFulfillmentPolicyPage>(`/fulfillment-policies/skus${query({ platform: params.platform, q: params.q, page: params.page, page_size: params.pageSize })}`),
+  updateSKUFulfillmentPolicy: (platform: string, warehouseSKU: string, disabledWarehouseKeys: string[]) =>
+    request<PlatformSKUFulfillmentPolicy>(`/fulfillment-policies/skus/${encodeURIComponent(warehouseSKU)}${query({ platform })}`, { method: "PATCH", body: JSON.stringify({ disabled_warehouse_keys: disabledWarehouseKeys }) }),
   fulfillmentAudits: (params: { shop?: string; warehouse?: string; category?: string; omsStatus?: string; resolution?: "manual_resolved"; q?: string; page: number; pageSize: number }) =>
     request<FulfillmentAuditPage>(`/fulfillment-audits${query({ shop: params.shop, warehouse: params.warehouse, category: params.category, oms_status: params.omsStatus, resolution: params.resolution, q: params.q, page: params.page, page_size: params.pageSize })}`),
   resolveFulfillmentAudit: (id: number, payload: { terminal_status: "manually_fulfilled" | "cancelled" | "not_required" | "other"; terminal_note: string }) =>

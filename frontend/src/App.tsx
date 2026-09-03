@@ -14,6 +14,7 @@ const ProductPairingsPage = lazy(() => import("./pages/ProductPairingsPage"));
 const SKUSpecsPage = lazy(() => import("./pages/SKUSpecsPage"));
 const PackingPlannerPage = lazy(() => import("./pages/PackingPlannerPage"));
 const InventoryThresholdsPage = lazy(() => import("./pages/InventoryThresholdsPage"));
+const ShippingPoliciesPage = lazy(() => import("./pages/ShippingPoliciesPage"));
 const InventoryAlertsPage = lazy(() => import("./pages/InventoryAlertsPage"));
 const FulfillmentAuditsPage = lazy(() => import("./pages/FulfillmentAuditsPage"));
 const FulfilledOrdersPage = lazy(() => import("./pages/FulfilledOrdersPage"));
@@ -21,7 +22,7 @@ const DeliveryEvaluationPage = lazy(() => import("./pages/DeliveryEvaluationPage
 const WarehousesPage = lazy(() => import("./pages/WarehousesPage"));
 const SyncPage = lazy(() => import("./pages/SyncPage"));
 const SettingsPage = lazy(() => import("./pages/SettingsPage"));
-const validPaths = new Set(["/", "/inventory", "/outbound", "/platform-orders", "/product-pairings", "/fulfillment-audits", "/fulfilled-orders", "/delivery-evaluation", "/costs", "/warehouses", "/inventory-alerts", "/sku-specs", "/packing", "/inventory-thresholds", "/sync", "/settings"]);
+const validPaths = new Set(["/", "/inventory", "/outbound", "/platform-orders", "/product-pairings", "/fulfillment-audits", "/fulfilled-orders", "/delivery-evaluation", "/costs", "/warehouses", "/inventory-alerts", "/sku-specs", "/packing", "/inventory-thresholds", "/shipping-policies", "/sync", "/settings"]);
 
 export default function App() {
   const { path, navigate } = useRouter();
@@ -62,6 +63,7 @@ export default function App() {
   else if (path === "/sku-specs") page = <SKUSpecsPage />;
   else if (path === "/packing") page = <PackingPlannerPage />;
   else if (path === "/inventory-thresholds") page = <InventoryThresholdsPage />;
+  else if (path === "/shipping-policies") page = <ShippingPoliciesPage />;
   else if (path === "/warehouses") page = <WarehousesPage warehouses={warehouses} onChanged={loadWarehouses} />;
   else if (path === "/sync") page = <SyncPage warehouse={warehouse} warehouses={warehouses} />;
   else if (path === "/settings") page = <SettingsPage online={online} />;

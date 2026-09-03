@@ -281,26 +281,6 @@ ALTER TABLE xlwms_inventory_corrections
 CREATE INDEX IF NOT EXISTS idx_xlwms_inventory_corrections_sku
     ON xlwms_inventory_corrections (warehouse_sku, wh_code);
 
-CREATE TABLE IF NOT EXISTS xlwms_inventory_threshold_defaults (
-    id smallint PRIMARY KEY DEFAULT 1 CHECK (id = 1),
-    east_threshold numeric NOT NULL DEFAULT 50 CHECK (east_threshold >= 0),
-    west_threshold numeric NOT NULL DEFAULT 50 CHECK (west_threshold >= 0),
-    total_threshold numeric NOT NULL DEFAULT 0 CHECK (total_threshold >= 0),
-    updated_at timestamptz NOT NULL DEFAULT now()
-);
-
-INSERT INTO xlwms_inventory_threshold_defaults (id)
-VALUES (1)
-ON CONFLICT (id) DO NOTHING;
-
-CREATE TABLE IF NOT EXISTS xlwms_sku_inventory_thresholds (
-    warehouse_sku text PRIMARY KEY REFERENCES xlwms_warehouse_sku_specs(warehouse_sku) ON DELETE CASCADE,
-    east_threshold numeric NOT NULL CHECK (east_threshold >= 0),
-    west_threshold numeric NOT NULL CHECK (west_threshold >= 0),
-    total_threshold numeric NOT NULL CHECK (total_threshold >= 0),
-    updated_at timestamptz NOT NULL DEFAULT now()
-);
-
 CREATE TABLE IF NOT EXISTS xlwms_fulfillment_shops (
     platform text NOT NULL CHECK (platform IN ('temu', 'shein')),
     shop_code text NOT NULL CHECK (shop_code ~ '^[a-z0-9]+(?:-[a-z0-9]+)*$'),
@@ -321,36 +301,233 @@ ON CONFLICT (platform, shop_code) DO UPDATE SET
     enabled = true,
     updated_at = now();
 
-CREATE TABLE IF NOT EXISTS xlwms_shop_inventory_thresholds (
-    platform text NOT NULL,
-    shop_code text NOT NULL,
+CREATE TABLE IF NOT EXISTS xlwms_platform_inventory_thresholds (
+    platform text PRIMARY KEY CHECK (platform IN ('temu', 'shein')),
     east_threshold numeric NOT NULL CHECK (east_threshold >= 0),
     west_threshold numeric NOT NULL CHECK (west_threshold >= 0),
     total_threshold numeric NOT NULL CHECK (total_threshold >= 0),
-    updated_at timestamptz NOT NULL DEFAULT now(),
-    PRIMARY KEY (platform, shop_code),
-    FOREIGN KEY (platform, shop_code) REFERENCES xlwms_fulfillment_shops(platform, shop_code) ON DELETE CASCADE
+    updated_at timestamptz NOT NULL DEFAULT now()
 );
 
-CREATE TABLE IF NOT EXISTS xlwms_shop_sku_inventory_thresholds (
-    platform text NOT NULL,
-    shop_code text NOT NULL,
+INSERT INTO xlwms_platform_inventory_thresholds (
+    platform, east_threshold, west_threshold, total_threshold
+)
+VALUES ('temu', 0, 0, 0), ('shein', 0, 0, 0)
+ON CONFLICT (platform) DO NOTHING;
+
+CREATE TABLE IF NOT EXISTS xlwms_platform_sku_inventory_thresholds (
+    platform text NOT NULL REFERENCES xlwms_platform_inventory_thresholds(platform) ON DELETE CASCADE,
     warehouse_sku text NOT NULL REFERENCES xlwms_warehouse_sku_specs(warehouse_sku) ON DELETE CASCADE,
     east_threshold numeric NOT NULL CHECK (east_threshold >= 0),
     west_threshold numeric NOT NULL CHECK (west_threshold >= 0),
     total_threshold numeric NOT NULL CHECK (total_threshold >= 0),
     updated_at timestamptz NOT NULL DEFAULT now(),
-    PRIMARY KEY (platform, shop_code, warehouse_sku),
-    FOREIGN KEY (platform, shop_code) REFERENCES xlwms_fulfillment_shops(platform, shop_code) ON DELETE CASCADE
+    PRIMARY KEY (platform, warehouse_sku)
 );
 
-INSERT INTO xlwms_shop_sku_inventory_thresholds (
-    platform, shop_code, warehouse_sku, east_threshold, west_threshold, total_threshold, updated_at
-)
-SELECT s.platform, s.shop_code, t.warehouse_sku, t.east_threshold, t.west_threshold, t.total_threshold, t.updated_at
-FROM xlwms_sku_inventory_thresholds t
-CROSS JOIN xlwms_fulfillment_shops s
-ON CONFLICT (platform, shop_code, warehouse_sku) DO NOTHING;
+CREATE TABLE IF NOT EXISTS xlwms_platform_carrier_policies (
+    platform text NOT NULL CHECK (platform IN ('temu', 'shein')),
+    warehouse_key text NOT NULL CHECK (warehouse_key IN ('DPS002', 'ARP_EAST', 'DPS004', 'ARP_WEST')),
+    carrier_code text NOT NULL CHECK (carrier_code IN ('GOFO', 'SWIFTX', 'SPEEDX', 'YANWEN', 'UPS', 'USPS', 'FEDEX')),
+    priority integer NOT NULL CHECK (priority BETWEEN 1 AND 7),
+    enabled boolean NOT NULL DEFAULT true,
+    updated_at timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (platform, warehouse_key, carrier_code),
+    UNIQUE (platform, warehouse_key, priority)
+);
+
+INSERT INTO xlwms_platform_carrier_policies(platform, warehouse_key, carrier_code, priority, enabled)
+SELECT platform, warehouse_key, carrier_code, priority,
+       NOT (platform='shein' AND warehouse_key='ARP_EAST' AND carrier_code='SWIFTX')
+FROM (VALUES ('temu'), ('shein')) platforms(platform)
+CROSS JOIN (VALUES ('DPS002'), ('ARP_EAST'), ('DPS004'), ('ARP_WEST')) warehouses(warehouse_key)
+CROSS JOIN (VALUES
+    ('GOFO', 1), ('SWIFTX', 2), ('SPEEDX', 3), ('YANWEN', 4),
+    ('UPS', 5), ('USPS', 6), ('FEDEX', 7)
+) carriers(carrier_code, priority)
+ON CONFLICT (platform, warehouse_key, carrier_code) DO NOTHING;
+
+CREATE TABLE IF NOT EXISTS xlwms_platform_sku_carrier_policies (
+    platform text NOT NULL CHECK (platform IN ('temu', 'shein')),
+    warehouse_sku text NOT NULL,
+    warehouse_key text NOT NULL CHECK (warehouse_key IN ('DPS002', 'ARP_EAST', 'DPS004', 'ARP_WEST')),
+    carrier_code text NOT NULL CHECK (carrier_code IN ('GOFO', 'SWIFTX', 'SPEEDX', 'YANWEN', 'UPS', 'USPS', 'FEDEX')),
+    priority integer NOT NULL CHECK (priority BETWEEN 1 AND 7),
+    enabled boolean NOT NULL DEFAULT true,
+    updated_at timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (platform, warehouse_sku, warehouse_key, carrier_code),
+    UNIQUE (platform, warehouse_sku, warehouse_key, priority)
+);
+
+CREATE INDEX IF NOT EXISTS xlwms_platform_sku_carrier_lookup_idx
+    ON xlwms_platform_sku_carrier_policies(platform, warehouse_sku, warehouse_key);
+
+CREATE TABLE IF NOT EXISTS xlwms_platform_sku_disabled_warehouses (
+    platform text NOT NULL CHECK (platform IN ('temu', 'shein')),
+    warehouse_sku text NOT NULL,
+    warehouse_key text NOT NULL CHECK (warehouse_key IN ('DPS002', 'ARP_EAST', 'DPS004', 'ARP_WEST')),
+    updated_at timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (platform, warehouse_sku, warehouse_key)
+);
+
+CREATE INDEX IF NOT EXISTS xlwms_platform_sku_disabled_warehouse_lookup_idx
+    ON xlwms_platform_sku_disabled_warehouses(platform, warehouse_sku);
+
+DO $inventory_threshold_migration$
+DECLARE
+    conflict_count integer;
+    missing_count integer;
+BEGIN
+    IF to_regclass('xlwms_inventory_threshold_defaults') IS NOT NULL THEN
+        EXECUTE $sql$
+            UPDATE xlwms_platform_inventory_thresholds target
+            SET east_threshold=source.east_threshold,
+                west_threshold=source.west_threshold,
+                total_threshold=source.total_threshold,
+                updated_at=source.updated_at
+            FROM xlwms_inventory_threshold_defaults source
+            WHERE source.id=1
+        $sql$;
+        EXECUTE $sql$
+            SELECT count(*)
+            FROM xlwms_inventory_threshold_defaults source
+            CROSS JOIN xlwms_platform_inventory_thresholds target
+            WHERE source.id=1 AND (
+                target.east_threshold IS DISTINCT FROM source.east_threshold OR
+                target.west_threshold IS DISTINCT FROM source.west_threshold OR
+                target.total_threshold IS DISTINCT FROM source.total_threshold
+            )
+        $sql$ INTO missing_count;
+        IF missing_count > 0 THEN
+            RAISE EXCEPTION 'inventory threshold migration failed to verify % platform default rows', missing_count;
+        END IF;
+    END IF;
+
+    IF to_regclass('xlwms_shop_inventory_thresholds') IS NOT NULL THEN
+        EXECUTE $sql$
+            SELECT count(*) FROM (
+                SELECT platform
+                FROM xlwms_shop_inventory_thresholds
+                GROUP BY platform
+                HAVING count(DISTINCT ROW(east_threshold, west_threshold, total_threshold)) > 1
+            ) conflicts
+        $sql$ INTO conflict_count;
+        IF conflict_count > 0 THEN
+            RAISE EXCEPTION 'inventory threshold migration found % platform default conflicts', conflict_count;
+        END IF;
+        EXECUTE $sql$
+            INSERT INTO xlwms_platform_inventory_thresholds (
+                platform, east_threshold, west_threshold, total_threshold, updated_at
+            )
+            SELECT platform, min(east_threshold), min(west_threshold), min(total_threshold), max(updated_at)
+            FROM xlwms_shop_inventory_thresholds
+            GROUP BY platform
+            ON CONFLICT (platform) DO UPDATE SET
+                east_threshold=EXCLUDED.east_threshold,
+                west_threshold=EXCLUDED.west_threshold,
+                total_threshold=EXCLUDED.total_threshold,
+                updated_at=EXCLUDED.updated_at
+        $sql$;
+        EXECUTE $sql$
+            SELECT count(*)
+            FROM (
+                SELECT platform, min(east_threshold) AS east_threshold,
+                       min(west_threshold) AS west_threshold,
+                       min(total_threshold) AS total_threshold
+                FROM xlwms_shop_inventory_thresholds
+                GROUP BY platform
+            ) source
+            LEFT JOIN xlwms_platform_inventory_thresholds target ON target.platform=source.platform
+            WHERE target.platform IS NULL OR
+                  target.east_threshold IS DISTINCT FROM source.east_threshold OR
+                  target.west_threshold IS DISTINCT FROM source.west_threshold OR
+                  target.total_threshold IS DISTINCT FROM source.total_threshold
+        $sql$ INTO missing_count;
+        IF missing_count > 0 THEN
+            RAISE EXCEPTION 'inventory threshold migration failed to verify % shop default rows', missing_count;
+        END IF;
+    END IF;
+
+    IF to_regclass('xlwms_sku_inventory_thresholds') IS NOT NULL THEN
+        EXECUTE $sql$
+            INSERT INTO xlwms_platform_sku_inventory_thresholds (
+                platform, warehouse_sku, east_threshold, west_threshold, total_threshold, updated_at
+            )
+            SELECT platform.platform, source.warehouse_sku, source.east_threshold,
+                   source.west_threshold, source.total_threshold, source.updated_at
+            FROM xlwms_sku_inventory_thresholds source
+            CROSS JOIN xlwms_platform_inventory_thresholds platform
+            ON CONFLICT (platform, warehouse_sku) DO NOTHING
+        $sql$;
+        EXECUTE $sql$
+            SELECT count(*)
+            FROM xlwms_sku_inventory_thresholds source
+            CROSS JOIN xlwms_platform_inventory_thresholds platform
+            LEFT JOIN xlwms_platform_sku_inventory_thresholds target
+              ON target.platform=platform.platform AND target.warehouse_sku=source.warehouse_sku
+            WHERE target.warehouse_sku IS NULL OR
+                  target.east_threshold IS DISTINCT FROM source.east_threshold OR
+                  target.west_threshold IS DISTINCT FROM source.west_threshold OR
+                  target.total_threshold IS DISTINCT FROM source.total_threshold
+        $sql$ INTO missing_count;
+        IF missing_count > 0 THEN
+            RAISE EXCEPTION 'inventory threshold migration failed to verify % global SKU rows', missing_count;
+        END IF;
+    END IF;
+
+    IF to_regclass('xlwms_shop_sku_inventory_thresholds') IS NOT NULL THEN
+        EXECUTE $sql$
+            SELECT count(*) FROM (
+                SELECT platform, warehouse_sku
+                FROM xlwms_shop_sku_inventory_thresholds
+                GROUP BY platform, warehouse_sku
+                HAVING count(DISTINCT ROW(east_threshold, west_threshold, total_threshold)) > 1
+            ) conflicts
+        $sql$ INTO conflict_count;
+        IF conflict_count > 0 THEN
+            RAISE EXCEPTION 'inventory threshold migration found % platform SKU conflicts', conflict_count;
+        END IF;
+        EXECUTE $sql$
+            INSERT INTO xlwms_platform_sku_inventory_thresholds (
+                platform, warehouse_sku, east_threshold, west_threshold, total_threshold, updated_at
+            )
+            SELECT platform, warehouse_sku, min(east_threshold), min(west_threshold),
+                   min(total_threshold), max(updated_at)
+            FROM xlwms_shop_sku_inventory_thresholds
+            GROUP BY platform, warehouse_sku
+            ON CONFLICT (platform, warehouse_sku) DO UPDATE SET
+                east_threshold=EXCLUDED.east_threshold,
+                west_threshold=EXCLUDED.west_threshold,
+                total_threshold=EXCLUDED.total_threshold,
+                updated_at=EXCLUDED.updated_at
+        $sql$;
+        EXECUTE $sql$
+            SELECT count(*)
+            FROM (
+                SELECT platform, warehouse_sku, min(east_threshold) AS east_threshold,
+                       min(west_threshold) AS west_threshold,
+                       min(total_threshold) AS total_threshold
+                FROM xlwms_shop_sku_inventory_thresholds
+                GROUP BY platform, warehouse_sku
+            ) source
+            LEFT JOIN xlwms_platform_sku_inventory_thresholds target
+              ON target.platform=source.platform AND target.warehouse_sku=source.warehouse_sku
+            WHERE target.warehouse_sku IS NULL OR
+                  target.east_threshold IS DISTINCT FROM source.east_threshold OR
+                  target.west_threshold IS DISTINCT FROM source.west_threshold OR
+                  target.total_threshold IS DISTINCT FROM source.total_threshold
+        $sql$ INTO missing_count;
+        IF missing_count > 0 THEN
+            RAISE EXCEPTION 'inventory threshold migration failed to verify % platform SKU rows', missing_count;
+        END IF;
+    END IF;
+END
+$inventory_threshold_migration$;
+
+DROP TABLE IF EXISTS xlwms_shop_sku_inventory_thresholds;
+DROP TABLE IF EXISTS xlwms_shop_inventory_thresholds;
+DROP TABLE IF EXISTS xlwms_sku_inventory_thresholds;
+DROP TABLE IF EXISTS xlwms_inventory_threshold_defaults;
 
 CREATE TABLE IF NOT EXISTS xlwms_inventory_alert_defaults (
     id smallint PRIMARY KEY DEFAULT 1 CHECK (id = 1),

@@ -29,6 +29,31 @@ func TestRequestedShopIdentityRejectsConflicts(t *testing.T) {
 	}
 }
 
+func TestRequiredThresholdPlatformDoesNotUseShopDimension(t *testing.T) {
+	request := httptest.NewRequest(http.MethodGet, "/v1/inventory-thresholds?platform=TEMU&shop=panda-homes", nil)
+	recorder := httptest.NewRecorder()
+	platform, ok := requiredThresholdPlatform(recorder, request)
+	if !ok || platform != "temu" {
+		t.Fatalf("platform = %q ok=%v body=%s", platform, ok, recorder.Body.String())
+	}
+
+	headerRequest := httptest.NewRequest(http.MethodGet, "/v1/inventory-thresholds?shop=ignored", nil)
+	headerRequest.Header.Set("X-Shein-Shop", "beauty-hangers-home")
+	recorder = httptest.NewRecorder()
+	platform, ok = requiredThresholdPlatform(recorder, headerRequest)
+	if !ok || platform != "shein" {
+		t.Fatalf("header platform = %q ok=%v body=%s", platform, ok, recorder.Body.String())
+	}
+}
+
+func TestInventoryThresholdDefaultResetIsGone(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	inventoryThresholdDefaultResetGone(recorder, httptest.NewRequest(http.MethodPost, "/v1/inventory-thresholds/defaults/reset", nil))
+	if recorder.Code != http.StatusGone {
+		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+}
+
 func TestRequestedDecisionShopAcceptsBodyWhenHeadersMatch(t *testing.T) {
 	request := httptest.NewRequest(http.MethodPost, "/v1/temu/warehouse-availability/query", nil)
 	request.Header.Set("X-Temu-Shop", "panda-buy")

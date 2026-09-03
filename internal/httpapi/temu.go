@@ -46,7 +46,7 @@ func (s *Server) temuWarehouseAvailability(writer http.ResponseWriter, request *
 		writeJSON(writer, http.StatusBadRequest, response{Success: false, Error: err.Error()})
 		return
 	}
-	platform, shopCode, err := requestedDecisionShop(request, payload.Platform, payload.ShopCode)
+	platform, _, err := requestedDecisionShop(request, payload.Platform, payload.ShopCode)
 	if err != nil {
 		writeJSON(writer, http.StatusBadRequest, response{Success: false, Error: err.Error()})
 		return
@@ -90,7 +90,7 @@ func (s *Server) temuWarehouseAvailability(writer http.ResponseWriter, request *
 		return
 	}
 	temu.ApplyInventoryCorrections(&inventory, corrections)
-	thresholdsBySKU, defaultThresholds, err := s.store.InventoryThresholdsForShopSKUs(ctx, platform, shopCode, inventorySKUs)
+	thresholdsBySKU, defaultThresholds, err := s.store.InventoryThresholdsForPlatformSKUs(ctx, platform, inventorySKUs)
 	if err != nil {
 		if isShopIdentityError(err) {
 			writeJSON(writer, http.StatusBadRequest, response{Success: false, Error: err.Error()})
@@ -99,15 +99,22 @@ func (s *Server) temuWarehouseAvailability(writer http.ResponseWriter, request *
 		s.internalError(writer, "resolve SKU inventory thresholds", err)
 		return
 	}
+	disabledBySKU, err := s.store.DisabledWarehousesForPlatformSKUs(ctx, platform, inventorySKUs)
+	if err != nil {
+		s.internalError(writer, "resolve platform SKU warehouse policies", err)
+		return
+	}
 	records := make([]temu.SKUDecision, 0, len(skus))
 	for _, sku := range skus {
 		resolvedSKU := resolvedBySKU[sku]
-		records = append(records, temu.BuildSKUDecision(sku, inventory.InventoryBySKU[resolvedSKU], thresholdsBySKU[resolvedSKU]))
+		record := temu.BuildSKUDecision(sku, inventory.InventoryBySKU[resolvedSKU], thresholdsBySKU[resolvedSKU])
+		temu.ApplyPlatformSKUWarehouseRestrictions(&record, disabledBySKU[resolvedSKU])
+		records = append(records, record)
 	}
 	writeJSON(writer, http.StatusOK, response{Success: true, Data: temuWarehouseQueryResponse{
 		Complete:             inventory.Complete,
 		RuleVersion:          temu.RuleVersion,
-		SafetyStockThreshold: defaultThresholds.EastThreshold,
+		SafetyStockThreshold: defaultThresholds.TotalThreshold,
 		DefaultThresholds:    defaultThresholds,
 		InventoryBasis:       "XLWMS实时综合库存中的正品产品可用库存；存在仓库+SKU修正时使用修正后的可用库存",
 		InventoryWindowStart: inventory.WindowStart,

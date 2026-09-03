@@ -1,4 +1,4 @@
-import { Archive, Truck, Bell, Boxes, ChartNoAxesCombined, ChevronDown, ClipboardCheck, Database, ExternalLink, Gauge, Link2, ListTodo, Menu, PackageCheck, PanelLeftClose, RefreshCw, ScanBox, Settings, SlidersHorizontal, TriangleAlert, Warehouse as WarehouseIcon } from "lucide-react";
+import { Archive, Truck, Bell, Boxes, ChartNoAxesCombined, ChevronDown, ClipboardCheck, Database, ExternalLink, Gauge, Link2, ListTodo, Menu, PackageCheck, PanelLeftClose, RefreshCw, ScanBox, Settings, SlidersHorizontal, TriangleAlert, Warehouse as WarehouseIcon, Waypoints } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import type { Warehouse } from "../types";
 
@@ -20,10 +20,11 @@ const groups = [
     { path: "/sku-specs", label: "SKU 规格", icon: PackageCheck },
     { path: "/packing", label: "包装规划", icon: ScanBox },
     { path: "/inventory-thresholds", label: "库存安全线", icon: SlidersHorizontal },
+    { path: "/shipping-policies", label: "发货策略", icon: Waypoints },
     { path: "/sync", label: "同步中心", icon: RefreshCw }
   ] }
 ];
-const pageNames: Record<string, string> = { "/": "运营总览", "/inventory": "库存中心", "/outbound": "出库管理", "/platform-orders": "平台订单待处理", "/product-pairings": "组合配对", "/fulfillment-audits": "履约核查", "/fulfilled-orders": "出库物流跟踪", "/delivery-evaluation": "快递评价", "/costs": "费用中心", "/warehouses": "仓库管理", "/inventory-alerts": "库存警告", "/sku-specs": "SKU 规格", "/packing": "包装规划", "/inventory-thresholds": "库存安全线", "/sync": "同步中心", "/settings": "系统设置" };
+const pageNames: Record<string, string> = { "/": "运营总览", "/inventory": "库存中心", "/outbound": "出库管理", "/platform-orders": "平台订单待处理", "/product-pairings": "组合配对", "/fulfillment-audits": "履约核查", "/fulfilled-orders": "出库物流跟踪", "/delivery-evaluation": "快递评价", "/costs": "费用中心", "/warehouses": "仓库管理", "/inventory-alerts": "库存警告", "/sku-specs": "SKU 规格", "/packing": "包装规划", "/inventory-thresholds": "库存安全线", "/shipping-policies": "发货策略", "/sync": "同步中心", "/settings": "系统设置" };
 
 export default function Layout({ children, warehouses, warehouse, onWarehouseChange, online, path, onNavigate }: { children: ReactNode; warehouses: Warehouse[]; warehouse: string; onWarehouseChange: (value: string) => void; online: boolean | null; path: string; onNavigate: (path: string) => void }) {
   const [open, setOpen] = useState(false);

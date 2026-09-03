@@ -44,35 +44,27 @@ func (s *Server) listFulfillmentShops(writer http.ResponseWriter, request *http.
 
 func (s *Server) listInventoryThresholds(writer http.ResponseWriter, request *http.Request) {
 	page, pageSize := queryInt(request, "page", 1), queryInt(request, "page_size", 30)
-	platform, shopCode, ok := optionalShopIdentity(writer, request)
+	platform, ok := requiredThresholdPlatform(writer, request)
 	if !ok {
 		return
 	}
 	ctx, cancel := context.WithTimeout(request.Context(), s.requestTimeout)
 	defer cancel()
-	items, total, err := s.store.ListShopInventorySKUThresholds(ctx, platform, shopCode, store.InventoryThresholdFilter{
+	items, total, err := s.store.ListPlatformInventorySKUThresholds(ctx, platform, store.InventoryThresholdFilter{
 		Query: request.URL.Query().Get("q"), Page: page, PageSize: pageSize,
 	}, temu.WarehouseCodes(temu.RegionEast), temu.WarehouseCodes(temu.RegionWest))
 	if err != nil {
-		if isShopIdentityError(err) {
-			writeJSON(writer, http.StatusBadRequest, response{Success: false, Error: err.Error()})
-			return
-		}
 		s.internalError(writer, "list inventory thresholds", err)
 		return
 	}
-	defaults, err := s.thresholdDefaultsForScope(ctx, platform, shopCode)
+	defaults, err := s.store.PlatformInventoryThresholds(ctx, platform)
 	if err != nil {
-		if isShopIdentityError(err) {
-			writeJSON(writer, http.StatusBadRequest, response{Success: false, Error: err.Error()})
-			return
-		}
 		s.internalError(writer, "load inventory threshold defaults", err)
 		return
 	}
-	shops, err := s.store.ListShopInventoryThresholds(ctx)
+	platforms, err := s.store.ListPlatformInventoryThresholds(ctx)
 	if err != nil {
-		s.internalError(writer, "list shop inventory thresholds", err)
+		s.internalError(writer, "list platform inventory thresholds", err)
 		return
 	}
 	pages := (total + pageSize - 1) / pageSize
@@ -81,33 +73,20 @@ func (s *Server) listInventoryThresholds(writer http.ResponseWriter, request *ht
 	}
 	writeJSON(writer, http.StatusOK, response{Success: true, Data: map[string]any{
 		"records": items, "total": total, "page": page, "page_size": pageSize, "pages": pages,
-		"default_thresholds": defaults, "shops": shops, "platform": platform, "shop_code": shopCode,
+		"default_thresholds": defaults, "platforms": platforms, "platform": platform,
 	}})
 }
 
 func (s *Server) inventoryThresholdDefaults(writer http.ResponseWriter, request *http.Request) {
-	platform, shopCode, ok := optionalShopIdentity(writer, request)
+	platform, ok := requiredThresholdPlatform(writer, request)
 	if !ok {
 		return
 	}
 	ctx, cancel := context.WithTimeout(request.Context(), s.requestTimeout)
 	defer cancel()
-	if platform == "" && shopCode == "" {
-		item, err := s.store.InventoryThresholdDefaults(ctx)
-		if err != nil {
-			s.internalError(writer, "load inventory threshold defaults", err)
-			return
-		}
-		writeJSON(writer, http.StatusOK, response{Success: true, Data: item})
-		return
-	}
-	item, err := s.store.ShopInventoryThresholds(ctx, platform, shopCode)
+	item, err := s.store.PlatformInventoryThresholds(ctx, platform)
 	if err != nil {
-		if isShopIdentityError(err) {
-			writeJSON(writer, http.StatusBadRequest, response{Success: false, Error: err.Error()})
-			return
-		}
-		s.internalError(writer, "load shop inventory thresholds", err)
+		s.internalError(writer, "load platform inventory thresholds", err)
 		return
 	}
 	writeJSON(writer, http.StatusOK, response{Success: true, Data: item})
@@ -118,47 +97,15 @@ func (s *Server) updateInventoryThresholdDefaults(writer http.ResponseWriter, re
 	if !ok {
 		return
 	}
-	platform, shopCode, ok := optionalShopIdentity(writer, request)
+	platform, ok := requiredThresholdPlatform(writer, request)
 	if !ok {
 		return
 	}
 	ctx, cancel := context.WithTimeout(request.Context(), s.requestTimeout)
 	defer cancel()
-	if platform == "" && shopCode == "" {
-		item, err := s.store.UpdateInventoryThresholdDefaults(ctx, thresholds)
-		if err != nil {
-			s.internalError(writer, "update inventory threshold defaults", err)
-			return
-		}
-		writeJSON(writer, http.StatusOK, response{Success: true, Data: item})
-		return
-	}
-	item, err := s.store.UpdateShopInventoryThresholds(ctx, platform, shopCode, thresholds)
+	item, err := s.store.UpdatePlatformInventoryThresholds(ctx, platform, thresholds)
 	if err != nil {
-		if isShopIdentityError(err) {
-			writeJSON(writer, http.StatusBadRequest, response{Success: false, Error: err.Error()})
-			return
-		}
-		s.internalError(writer, "update shop inventory thresholds", err)
-		return
-	}
-	writeJSON(writer, http.StatusOK, response{Success: true, Data: item})
-}
-
-func (s *Server) resetShopInventoryThresholds(writer http.ResponseWriter, request *http.Request) {
-	platform, shopCode, ok := requiredShopIdentity(writer, request)
-	if !ok {
-		return
-	}
-	ctx, cancel := context.WithTimeout(request.Context(), s.requestTimeout)
-	defer cancel()
-	item, err := s.store.ResetShopInventoryThresholds(ctx, platform, shopCode)
-	if err != nil {
-		if isShopIdentityError(err) {
-			writeJSON(writer, http.StatusBadRequest, response{Success: false, Error: err.Error()})
-			return
-		}
-		s.internalError(writer, "reset shop inventory thresholds", err)
+		s.internalError(writer, "update platform inventory thresholds", err)
 		return
 	}
 	writeJSON(writer, http.StatusOK, response{Success: true, Data: item})
@@ -169,13 +116,13 @@ func (s *Server) updateSKUInventoryThreshold(writer http.ResponseWriter, request
 	if !ok {
 		return
 	}
-	platform, shopCode, ok := optionalShopIdentity(writer, request)
+	platform, ok := requiredThresholdPlatform(writer, request)
 	if !ok {
 		return
 	}
 	ctx, cancel := context.WithTimeout(request.Context(), s.requestTimeout)
 	defer cancel()
-	item, err := s.store.UpsertShopSKUInventoryThreshold(ctx, platform, shopCode, request.PathValue("warehouseSKU"), thresholds)
+	item, err := s.store.UpsertPlatformSKUInventoryThreshold(ctx, platform, request.PathValue("warehouseSKU"), thresholds)
 	if err != nil {
 		writeJSON(writer, http.StatusBadRequest, response{Success: false, Error: err.Error()})
 		return
@@ -184,17 +131,21 @@ func (s *Server) updateSKUInventoryThreshold(writer http.ResponseWriter, request
 }
 
 func (s *Server) deleteSKUInventoryThreshold(writer http.ResponseWriter, request *http.Request) {
-	platform, shopCode, ok := optionalShopIdentity(writer, request)
+	platform, ok := requiredThresholdPlatform(writer, request)
 	if !ok {
 		return
 	}
 	ctx, cancel := context.WithTimeout(request.Context(), s.requestTimeout)
 	defer cancel()
-	if err := s.store.DeleteShopSKUInventoryThreshold(ctx, platform, shopCode, request.PathValue("warehouseSKU")); err != nil {
+	if err := s.store.DeletePlatformSKUInventoryThreshold(ctx, platform, request.PathValue("warehouseSKU")); err != nil {
 		writeJSON(writer, http.StatusBadRequest, response{Success: false, Error: err.Error()})
 		return
 	}
 	writeJSON(writer, http.StatusOK, response{Success: true, Data: map[string]bool{"deleted": true}})
+}
+
+func inventoryThresholdDefaultResetGone(writer http.ResponseWriter, _ *http.Request) {
+	writeJSON(writer, http.StatusGone, response{Success: false, Error: "platform inventory thresholds have no parent default"})
 }
 
 func decodeInventoryThresholds(writer http.ResponseWriter, request *http.Request) (model.InventoryThresholds, bool) {
@@ -210,11 +161,33 @@ func decodeInventoryThresholds(writer http.ResponseWriter, request *http.Request
 	return thresholds, true
 }
 
-func (s *Server) thresholdDefaultsForScope(ctx context.Context, platform, shopCode string) (any, error) {
-	if platform == "" && shopCode == "" {
-		return s.store.InventoryThresholdDefaults(ctx)
+func requiredThresholdPlatform(writer http.ResponseWriter, request *http.Request) (string, bool) {
+	platform := strings.TrimSpace(request.URL.Query().Get("platform"))
+	temuShop := strings.TrimSpace(request.Header.Get("X-Temu-Shop"))
+	sheinShop := strings.TrimSpace(request.Header.Get("X-Shein-Shop"))
+	if temuShop != "" && sheinShop != "" {
+		writeJSON(writer, http.StatusBadRequest, response{Success: false, Error: "conflicting shop headers"})
+		return "", false
 	}
-	return s.store.ShopInventoryThresholds(ctx, platform, shopCode)
+	headerPlatform := ""
+	if temuShop != "" {
+		headerPlatform = "temu"
+	}
+	if sheinShop != "" {
+		headerPlatform = "shein"
+	}
+	if platform == "" {
+		platform = headerPlatform
+	} else if headerPlatform != "" && !strings.EqualFold(platform, headerPlatform) {
+		writeJSON(writer, http.StatusBadRequest, response{Success: false, Error: "conflicting platform selectors"})
+		return "", false
+	}
+	normalized, err := store.NormalizeFulfillmentPlatform(platform)
+	if err != nil {
+		writeJSON(writer, http.StatusBadRequest, response{Success: false, Error: err.Error()})
+		return "", false
+	}
+	return normalized, true
 }
 
 func requestedShopIdentity(request *http.Request) (string, string, error) {
