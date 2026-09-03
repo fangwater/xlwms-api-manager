@@ -14,13 +14,15 @@ const groups = [
     { path: "/delivery-evaluation", label: "快递评价", icon: Gauge },
     { path: "/costs", label: "费用中心", icon: Database }
   ] },
+  { label: "策略配置", items: [
+    { path: "/inventory-thresholds", label: "库存安全线", icon: SlidersHorizontal },
+    { path: "/shipping-policies", label: "发货策略", icon: Waypoints }
+  ] },
   { label: "管理", items: [
     { path: "/warehouses", label: "仓库管理", icon: WarehouseIcon },
     { path: "/inventory-alerts", label: "库存警告", icon: TriangleAlert },
     { path: "/sku-specs", label: "SKU 规格", icon: PackageCheck },
     { path: "/packing", label: "包装规划", icon: ScanBox },
-    { path: "/inventory-thresholds", label: "库存安全线", icon: SlidersHorizontal },
-    { path: "/shipping-policies", label: "发货策略", icon: Waypoints },
     { path: "/sync", label: "同步中心", icon: RefreshCw }
   ] }
 ];
