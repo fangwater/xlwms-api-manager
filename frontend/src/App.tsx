@@ -22,7 +22,12 @@ const DeliveryEvaluationPage = lazy(() => import("./pages/DeliveryEvaluationPage
 const WarehousesPage = lazy(() => import("./pages/WarehousesPage"));
 const SyncPage = lazy(() => import("./pages/SyncPage"));
 const SettingsPage = lazy(() => import("./pages/SettingsPage"));
-const validPaths = new Set(["/", "/inventory", "/outbound", "/platform-orders", "/product-pairings", "/fulfillment-audits", "/fulfilled-orders", "/delivery-evaluation", "/costs", "/warehouses", "/inventory-alerts", "/sku-specs", "/packing", "/inventory-thresholds", "/shipping-policies", "/sync", "/settings"]);
+const shippingPolicyViews = {
+  "/shipping-policies/base-rules": "base-rules",
+  "/shipping-policies/selection": "selection",
+  "/shipping-policies/sku-rules": "sku-rules"
+} as const;
+const validPaths = new Set(["/", "/inventory", "/outbound", "/platform-orders", "/product-pairings", "/fulfillment-audits", "/fulfilled-orders", "/delivery-evaluation", "/costs", "/warehouses", "/inventory-alerts", "/sku-specs", "/packing", "/inventory-thresholds", "/shipping-policies", ...Object.keys(shippingPolicyViews), "/sync", "/settings"]);
 
 export default function App() {
   const { path, navigate } = useRouter();
@@ -42,7 +47,8 @@ export default function App() {
     void loadWarehouses();
   }, [loadWarehouses]);
   useEffect(() => {
-    if (!validPaths.has(path)) navigate("/");
+    if (path === "/shipping-policies") navigate("/shipping-policies/base-rules");
+    else if (!validPaths.has(path)) navigate("/");
   }, [path]);
 
   const selectWarehouse = (value: string) => {
@@ -63,7 +69,8 @@ export default function App() {
   else if (path === "/sku-specs") page = <SKUSpecsPage />;
   else if (path === "/packing") page = <PackingPlannerPage />;
   else if (path === "/inventory-thresholds") page = <InventoryThresholdsPage />;
-  else if (path === "/shipping-policies") page = <ShippingPoliciesPage />;
+  else if (path === "/shipping-policies") page = <ShippingPoliciesPage view="base-rules" onNavigate={navigate} />;
+  else if (path in shippingPolicyViews) page = <ShippingPoliciesPage view={shippingPolicyViews[path as keyof typeof shippingPolicyViews]} onNavigate={navigate} />;
   else if (path === "/warehouses") page = <WarehousesPage warehouses={warehouses} onChanged={loadWarehouses} />;
   else if (path === "/sync") page = <SyncPage warehouse={warehouse} warehouses={warehouses} />;
   else if (path === "/settings") page = <SettingsPage online={online} />;

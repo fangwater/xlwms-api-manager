@@ -1,8 +1,15 @@
-import { Archive, Truck, Bell, Boxes, ChartNoAxesCombined, ChevronDown, ClipboardCheck, Database, ExternalLink, Gauge, Link2, ListTodo, Menu, PackageCheck, PanelLeftClose, RefreshCw, ScanBox, Settings, SlidersHorizontal, TriangleAlert, Warehouse as WarehouseIcon, Waypoints } from "lucide-react";
-import { useState, type ReactNode } from "react";
+import { Archive, Truck, Bell, Boxes, ChartNoAxesCombined, ChevronDown, ClipboardCheck, Database, ExternalLink, Gauge, Link2, ListOrdered, ListTodo, Menu, PackageSearch, PackageCheck, PanelLeftClose, RefreshCw, ScanBox, Settings, ShieldCheck, SlidersHorizontal, TriangleAlert, Warehouse as WarehouseIcon, Waypoints, type LucideIcon } from "lucide-react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { Warehouse } from "../types";
 
-const groups = [
+type NavigationItem = {
+  path: string;
+  label: string;
+  icon: LucideIcon;
+  children?: NavigationItem[];
+};
+
+const groups: Array<{ label: string; items: NavigationItem[] }> = [
   { label: "运营", items: [
     { path: "/", label: "运营总览", icon: ChartNoAxesCombined },
     { path: "/inventory", label: "库存中心", icon: Boxes },
@@ -16,7 +23,11 @@ const groups = [
   ] },
   { label: "策略配置", items: [
     { path: "/inventory-thresholds", label: "库存安全线", icon: SlidersHorizontal },
-    { path: "/shipping-policies", label: "发货策略", icon: Waypoints }
+    { path: "/shipping-policies/base-rules", label: "发货策略", icon: Waypoints, children: [
+      { path: "/shipping-policies/base-rules", label: "基础快递限制", icon: ShieldCheck },
+      { path: "/shipping-policies/selection", label: "快递选择算法", icon: ListOrdered },
+      { path: "/shipping-policies/sku-rules", label: "SKU 发货规则", icon: PackageSearch }
+    ] }
   ] },
   { label: "管理", items: [
     { path: "/warehouses", label: "仓库管理", icon: WarehouseIcon },
@@ -26,16 +37,25 @@ const groups = [
     { path: "/sync", label: "同步中心", icon: RefreshCw }
   ] }
 ];
-const pageNames: Record<string, string> = { "/": "运营总览", "/inventory": "库存中心", "/outbound": "出库管理", "/platform-orders": "平台订单待处理", "/product-pairings": "组合配对", "/fulfillment-audits": "履约核查", "/fulfilled-orders": "出库物流跟踪", "/delivery-evaluation": "快递评价", "/costs": "费用中心", "/warehouses": "仓库管理", "/inventory-alerts": "库存警告", "/sku-specs": "SKU 规格", "/packing": "包装规划", "/inventory-thresholds": "库存安全线", "/shipping-policies": "发货策略", "/sync": "同步中心", "/settings": "系统设置" };
+const pageNames: Record<string, string> = { "/": "运营总览", "/inventory": "库存中心", "/outbound": "出库管理", "/platform-orders": "平台订单待处理", "/product-pairings": "组合配对", "/fulfillment-audits": "履约核查", "/fulfilled-orders": "出库物流跟踪", "/delivery-evaluation": "快递评价", "/costs": "费用中心", "/warehouses": "仓库管理", "/inventory-alerts": "库存警告", "/sku-specs": "SKU 规格", "/packing": "包装规划", "/inventory-thresholds": "库存安全线", "/shipping-policies": "发货策略", "/shipping-policies/base-rules": "基础快递限制", "/shipping-policies/selection": "快递选择算法", "/shipping-policies/sku-rules": "SKU 发货规则", "/sync": "同步中心", "/settings": "系统设置" };
 
 export default function Layout({ children, warehouses, warehouse, onWarehouseChange, online, path, onNavigate }: { children: ReactNode; warehouses: Warehouse[]; warehouse: string; onWarehouseChange: (value: string) => void; online: boolean | null; path: string; onNavigate: (path: string) => void }) {
   const [open, setOpen] = useState(false);
+  const activeNavRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => { activeNavRef.current?.scrollIntoView({ block: "nearest" }); }, [path]);
   const go = (path: string) => { onNavigate(path); setOpen(false); };
   return <div className="app-shell">
     <aside className={`sidebar ${open ? "open" : ""}`}>
       <div className="brand"><div className="brand-mark">X</div><div><strong>XLWMS</strong><span>仓库运营中台</span></div><button className="icon-button sidebar-close" onClick={() => setOpen(false)} title="关闭导航"><PanelLeftClose size={19} /></button></div>
       <nav aria-label="主导航">
-        {groups.map((group) => <div className="nav-group" key={group.label}><div className="nav-label">{group.label}</div>{group.items.map((item) => { const Icon = item.icon; return <button key={item.path} className={`nav-item ${path === item.path ? "active" : ""}`} onClick={() => go(item.path)}><Icon size={18} /><span>{item.label}</span></button>; })}</div>)}
+        {groups.map((group) => <div className="nav-group" key={group.label}><div className="nav-label">{group.label}</div>{group.items.map((item) => {
+          const Icon = item.icon;
+          const childActive = item.children?.some((child) => child.path === path) ?? false;
+          return <div className={`nav-entry ${item.children ? "has-children" : ""}`} key={`${item.path}-${item.label}`}>
+            <button ref={path === item.path && !item.children ? activeNavRef : undefined} className={`nav-item ${path === item.path && !item.children ? "active" : ""} ${childActive ? "parent-active" : ""}`} onClick={() => go(item.path)}><Icon size={18} /><span>{item.label}</span>{item.children && <ChevronDown className="nav-caret" size={14}/>}</button>
+            {item.children && <div className="nav-submenu">{item.children.map((child) => { const ChildIcon = child.icon; return <button ref={path === child.path ? activeNavRef : undefined} key={child.path} className={`nav-item nav-subitem ${path === child.path ? "active" : ""}`} onClick={() => go(child.path)}><ChildIcon size={15}/><span>{child.label}</span></button>; })}</div>}
+          </div>;
+        })}</div>)}
       </nav>
       <div className="sidebar-footer"><div className="service-state"><span className={`status-dot ${online === null ? "checking" : online ? "" : "offline"}`} />{online === null ? "连接检测中" : online ? "服务运行中" : "服务未连接"}</div><a className="nav-item app-switch-link" href="/temu/"><ExternalLink size={18} /><span>Temu 履约台</span></a><button className={`nav-item ${path === "/settings" ? "active" : ""}`} onClick={() => go("/settings")}><Settings size={18} /><span>系统设置</span></button></div>
     </aside>
