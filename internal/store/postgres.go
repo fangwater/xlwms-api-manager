@@ -109,6 +109,39 @@ func (p *Postgres) ListWarehouses(ctx context.Context, activeOnly bool) ([]model
 	return warehouses, rows.Err()
 }
 
+func (p *Postgres) ExistingWarehouseCodes(ctx context.Context, codes []string) ([]string, error) {
+	normalized := make([]string, 0, len(codes))
+	seen := make(map[string]struct{}, len(codes))
+	for _, code := range codes {
+		code = strings.ToUpper(strings.TrimSpace(code))
+		if code == "" {
+			continue
+		}
+		if _, exists := seen[code]; exists {
+			continue
+		}
+		seen[code] = struct{}{}
+		normalized = append(normalized, code)
+	}
+	if len(normalized) == 0 {
+		return []string{}, nil
+	}
+	rows, err := p.pool.Query(ctx, `SELECT wh_code FROM xlwms_warehouses WHERE wh_code=ANY($1) ORDER BY wh_code`, normalized)
+	if err != nil {
+		return nil, fmt.Errorf("list registered warehouse codes: %w", err)
+	}
+	defer rows.Close()
+	result := make([]string, 0, len(normalized))
+	for rows.Next() {
+		var code string
+		if err := rows.Scan(&code); err != nil {
+			return nil, err
+		}
+		result = append(result, code)
+	}
+	return result, rows.Err()
+}
+
 func (p *Postgres) SetWarehouseActive(ctx context.Context, code string, active bool) (model.WarehouseSummary, error) {
 	var warehouse model.WarehouseSummary
 	err := p.pool.QueryRow(ctx, `

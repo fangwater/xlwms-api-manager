@@ -114,7 +114,7 @@ test("policy subdirectories isolate selection and SKU settings", async ({ page }
   await page.screenshot({ path: "/tmp/xlwms-policy-sku-dialog-desktop.png", fullPage: true });
 });
 
-test("account management creates accounts and supports overlapping warehouses", async ({ page }) => {
+test("account management creates accounts with automatic warehouse discovery", async ({ page }) => {
   await mockPolicyAPI(page);
   await page.goto("./shipping-policies/accounts");
   await expect(page.getByRole("heading", { name: "OMS 账号管理", level: 1 })).toBeVisible();
@@ -125,7 +125,7 @@ test("account management creates accounts and supports overlapping warehouses", 
   await page.getByLabel("显示名称").fill("备用账户");
   await page.getByLabel("OMS 账号").fill("new-user");
   await page.getByLabel("OMS 密码").fill("new-password");
-  await page.locator(".account-create-warehouses label").first().click();
+  await expect(page.getByText("验证成功后自动读取可见仓库，并加密保存登录凭据")).toBeVisible();
   await page.getByRole("button", { name: "验证并新建" }).click();
   await expect(page.locator(".account-policy-card")).toHaveCount(3);
   await expect(page.getByRole("heading", { name: "备用账户", level: 3 })).toBeVisible();

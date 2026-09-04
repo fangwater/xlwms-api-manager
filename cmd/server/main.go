@@ -53,6 +53,9 @@ func run(ctx context.Context, logger *slog.Logger) error {
 	if err := destination.Migrate(ctx); err != nil {
 		return err
 	}
+	if err := destination.EnsureWarehouseAPICredentialGroups(ctx); err != nil {
+		return fmt.Errorf("migrate warehouse API credential groups: %w", err)
+	}
 	if cfg.OMSUsername != "" {
 		if err := destination.EnsureOMSAccount(ctx, "arp", cfg.OMSUsername, cfg.OMSPassword); err != nil {
 			return fmt.Errorf("seed ARP OMS account: %w", err)

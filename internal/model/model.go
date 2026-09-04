@@ -20,6 +20,19 @@ type WarehouseCredentials struct {
 	AppSecret string `json:"-"`
 }
 
+type WarehouseAPICredentialGroup struct {
+	Key            string     `json:"key"`
+	Label          string     `json:"label"`
+	APIBaseURL     string     `json:"api_base_url"`
+	AppKeyHint     string     `json:"app_key_hint"`
+	WarehouseCodes []string   `json:"warehouse_codes"`
+	SKUCount       int        `json:"sku_count"`
+	Active         bool       `json:"active"`
+	Deletable      bool       `json:"deletable"`
+	LastVerifiedAt *time.Time `json:"last_verified_at,omitempty"`
+	UpdatedAt      time.Time  `json:"updated_at"`
+}
+
 type OMSLoginAccount struct {
 	Key      string `json:"key"`
 	Label    string `json:"label"`

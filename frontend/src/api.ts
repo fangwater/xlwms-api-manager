@@ -1,4 +1,4 @@
-import type { CarrierPolicy, CostDetail, DashboardData, FulfilledOrderPage, FulfillmentAuditPage, FundsFlow, InventoryAlertPage, InventoryCorrection, InventoryKind, InventoryRecord, InventoryThresholdPage, InventoryThresholds, OMSAccountSummary, PackingPlan, PackingPlanRequest, PageData, PendingPlatformOrderPage, PlatformInventoryThresholds, PlatformOrderAccountOption, PlatformOrderAssignmentResult, PlatformOrderRoutingPreview, PlatformSKUFulfillmentPolicy, PlatformSKUFulfillmentPolicyPage, PlatformSKUOMSAccount, PlatformSKUOMSAccountPage, ProductPairingMutationResult, ProductPairingPage, ProductPairingPayload, SKUCombination, SKUCombinationPayload, SKUInventoryThreshold, SKUStockLevelPage, SyncRun, Warehouse, WarehouseCarrierPolicies, WarehouseCarrierRules, WarehouseSKUInventoryAlertThreshold, WarehouseSKUSpec } from "./types";
+import type { CarrierPolicy, CostDetail, DashboardData, FulfilledOrderPage, FulfillmentAuditPage, FundsFlow, InventoryAlertPage, InventoryCorrection, InventoryKind, InventoryRecord, InventoryThresholdPage, InventoryThresholds, OMSAccountSummary, PackingPlan, PackingPlanRequest, PageData, PendingPlatformOrderPage, PlatformInventoryThresholds, PlatformOrderAccountOption, PlatformOrderAssignmentResult, PlatformOrderRoutingPreview, PlatformSKUFulfillmentPolicy, PlatformSKUFulfillmentPolicyPage, PlatformSKUOMSAccount, PlatformSKUOMSAccountPage, ProductPairingMutationResult, ProductPairingPage, ProductPairingPayload, SKUCombination, SKUCombinationPayload, SKUInventoryThreshold, SKUStockLevelPage, SyncRun, Warehouse, WarehouseAPICredentialGroup, WarehouseCarrierPolicies, WarehouseCarrierRules, WarehouseSKUInventoryAlertThreshold, WarehouseSKUSpec } from "./types";
 
 type Envelope<T> = { success: boolean; data?: T; error?: string; code?: string };
 const apiBase = `${import.meta.env.BASE_URL}api`;
@@ -148,6 +148,11 @@ export const api = {
   warehouses: () => request<Warehouse[]>("/warehouses"),
   saveWarehouse: (payload: Record<string, unknown>) => request<Warehouse>("/warehouses", { method: "POST", body: JSON.stringify(payload) }),
   setWarehouseActive: (code: string, active: boolean) => request<Warehouse>(`/warehouses/${encodeURIComponent(code)}/status`, { method: "PATCH", body: JSON.stringify({ active }) }),
+  warehouseAPICredentials: () => request<WarehouseAPICredentialGroup[]>("/warehouse-api-credentials?include_disabled=true"),
+  saveWarehouseAPICredential: (payload: { label: string; api_base_url: string; app_key: string; app_secret: string }) =>
+    request<WarehouseAPICredentialGroup>("/warehouse-api-credentials", { method: "POST", body: JSON.stringify(payload) }),
+  deleteWarehouseAPICredential: (key: string) =>
+    request<{ deleted: boolean }>(`/warehouse-api-credentials/${encodeURIComponent(key)}`, { method: "DELETE" }),
   inventory: (params: { kind: InventoryKind; warehouse?: string; q?: string; stockType?: string; page: number; pageSize: number }) =>
     request<PageData<InventoryRecord>>(`/inventory${query({ kind: params.kind, warehouse: params.warehouse, q: params.q, stock_type: params.stockType, page: params.page, page_size: params.pageSize })}`),
   fundsFlows: (params: { warehouse?: string; q?: string; detailStatus?: string; startDate?: string; endDate?: string; page: number; pageSize: number }) =>

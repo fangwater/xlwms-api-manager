@@ -813,3 +813,29 @@ CROSS JOIN LATERAL generate_series(
 ) window_start
 WHERE watermark.coverage_started_at IS NOT NULL AND watermark.watermark_at IS NOT NULL
 ON CONFLICT (account_key,window_start) DO NOTHING;
+
+CREATE TABLE IF NOT EXISTS xlwms_api_credentials (
+    credential_key text PRIMARY KEY,
+    credential_label text NOT NULL,
+    api_base_url text NOT NULL,
+    app_key_ciphertext text NOT NULL,
+    app_secret_ciphertext text NOT NULL,
+    app_key_hint text NOT NULL,
+    is_active boolean NOT NULL DEFAULT true,
+    last_verified_at timestamptz,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS xlwms_api_credential_inventory (
+    credential_key text NOT NULL REFERENCES xlwms_api_credentials(credential_key) ON DELETE CASCADE,
+    wh_code text NOT NULL,
+    warehouse_name text NOT NULL DEFAULT '',
+    warehouse_sku text NOT NULL,
+    product_name text NOT NULL DEFAULT '',
+    last_seen_at timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (credential_key, wh_code, warehouse_sku)
+);
+
+CREATE INDEX IF NOT EXISTS idx_xlwms_api_credential_inventory_warehouse_sku
+    ON xlwms_api_credential_inventory(wh_code, warehouse_sku, credential_key);

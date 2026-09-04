@@ -113,7 +113,7 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .date-range-field span { color: #9aa0a5; font-size: 10px; }
 .table-panel { overflow: hidden; border-radius: 0 0 8px 8px; }
 .filter-bar + .table-panel { border-top: 0; }
-.table-scroll { width: 100%; overflow-x: auto; }
+.table-scroll { width: 100%; overflow-x: auto; contain: layout paint; }
 .data-table { width: 100%; border-collapse: collapse; white-space: nowrap; font-size: 11px; }
 .data-table th, .data-table td { height: 45px; padding: 0 13px; border-bottom: 1px solid #eaedef; text-align: left; }
 .data-table th { height: 38px; background: #f7f8f9; color: #697178; font-size: 10px; font-weight: 680; }
@@ -163,6 +163,35 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .spin { animation: spin .8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 .warehouse-table td { height: 58px; }
+.warehouse-header-actions { display: flex; align-items: center; gap: 8px; }
+.warehouse-summary-bar { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); margin-bottom: 24px; border: 1px solid #dfe3e5; border-radius: 8px; background: #fff; }
+.warehouse-summary-bar > div { min-width: 0; min-height: 78px; display: flex; align-items: center; gap: 11px; padding: 13px 16px; border-right: 1px solid #e6e9ea; }
+.warehouse-summary-bar > div:last-child { border-right: 0; }
+.warehouse-summary-bar > div > span { width: 34px; height: 34px; display: grid; place-items: center; flex: none; border-radius: 7px; background: #edf3f0; color: #2f755f; }
+.warehouse-summary-bar > div > div { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.warehouse-summary-bar strong { color: #30373b; font-size: 20px; }
+.warehouse-summary-bar small { color: #858d92; font-size: 10px; }
+.warehouse-section { margin-top: 24px; }
+.warehouse-section-heading { min-height: 42px; display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.warehouse-section-heading h2 { margin: 0 0 3px; font-size: 15px; }
+.warehouse-section-heading p { margin: 0; color: #858d92; font-size: 10px; }
+.warehouse-section-heading > span { color: #6d777d; font-size: 10px; font-weight: 700; }
+.api-credential-table td { height: 62px; }
+.api-credential-table th:last-child { width: 86px; }
+.credential-delete { color: #a83b45; }
+.credential-delete:hover { background: #f8e9eb; color: #942e38; }
+.credential-in-use { display: inline-flex; align-items: center; gap: 5px; color: #8d9499; font-size: 9px; font-weight: 650; }
+.credential-delete-modal { width: min(480px,100%); }
+.credential-delete-warning { min-height: 74px; display: flex; align-items: flex-start; gap: 11px; padding: 14px; border: 1px solid #ecd2d5; border-radius: 7px; background: #fcf4f4; color: #a13a44; }
+.credential-delete-warning > div { min-width: 0; }
+.credential-delete-warning strong { display: block; overflow-wrap: anywhere; color: #70252c; font-size: 12px; }
+.credential-delete-warning p { margin: 5px 0 0; color: #865158; font-size: 10px; line-height: 16px; }
+.confirm-delete-button { border-color: #d9a9ae; color: #a22f3a; }
+.confirm-delete-button:hover { border-color: #c88389; background: #f9ebec; }
+.warehouse-code-list { display: flex; min-width: 180px; flex-wrap: wrap; gap: 4px; }
+.warehouse-code-list span { display: inline-flex; min-height: 22px; align-items: center; padding: 0 6px; border-radius: 4px; background: #edf3f0; color: #2e705b; font-size: 9px; font-weight: 700; }
+.warehouse-code-list small,.muted-text { color: #92999e; }
+.verified-text { color: #28745d; }
 .warehouse-cell { display: flex; align-items: center; gap: 10px; }
 .warehouse-cell > span { width: 32px; height: 32px; display: grid; place-items: center; border-radius: 6px; background: #eaf2ef; color: #287159; }
 .warehouse-cell > div { display: flex; flex-direction: column; gap: 2px; }
@@ -272,6 +301,13 @@ button:disabled { cursor: not-allowed; opacity: .55; }
   .setting-row { padding: 11px 13px; }
   .setting-state { font-size: 0; }
   .setting-state svg { width: 17px; height: 17px; }
+}
+@media (max-width: 680px) {
+  .warehouse-header-actions { width: 100%; }
+  .warehouse-header-actions button { flex: 1; }
+  .warehouse-summary-bar { grid-template-columns: 1fr 1fr; }
+  .warehouse-summary-bar > div:nth-child(2) { border-right: 0; }
+  .warehouse-summary-bar > div:last-child { grid-column: 1/-1; border-top: 1px solid #e6e9ea; }
 }
 
 .segmented-tabs button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; }

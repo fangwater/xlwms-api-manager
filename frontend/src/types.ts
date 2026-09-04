@@ -7,6 +7,19 @@ export type Warehouse = {
   updated_at: string;
 };
 
+export type WarehouseAPICredentialGroup = {
+  key: string;
+  label: string;
+  api_base_url: string;
+  app_key_hint: string;
+  warehouse_codes: string[];
+  sku_count: number;
+  active: boolean;
+  deletable: boolean;
+  last_verified_at?: string;
+  updated_at: string;
+};
+
 export type PageData<T> = {
   records: T[];
   total: number;

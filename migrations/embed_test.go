@@ -88,3 +88,17 @@ func TestInitSQLMigratesWarehouseAccountsToPlatformSKURoutes(t *testing.T) {
 		}
 	}
 }
+
+func TestInitSQLDefinesIndependentWarehouseAPICredentialGroups(t *testing.T) {
+	for _, fragment := range []string{
+		"CREATE TABLE IF NOT EXISTS xlwms_api_credentials",
+		"credential_key text PRIMARY KEY",
+		"CREATE TABLE IF NOT EXISTS xlwms_api_credential_inventory",
+		"PRIMARY KEY (credential_key, wh_code, warehouse_sku)",
+		"idx_xlwms_api_credential_inventory_warehouse_sku",
+	} {
+		if !strings.Contains(InitSQL, fragment) {
+			t.Fatalf("InitSQL missing warehouse API credential fragment %q", fragment)
+		}
+	}
+}

@@ -10,6 +10,11 @@ async function mockAPI(page: Page, options: {
   accounts?: Array<{ key: string; label: string; warehouse_codes: string[]; available?: boolean; status?: string; error?: string }>;
   pendingError?: string;
 } = {}) {
+  let apiCredentials = [{
+    key: "api-demo", label: "演示 OpenAPI", api_base_url: "https://api.xlwms.com/openapi",
+    app_key_hint: "demo...key", warehouse_codes: ["EAST-01", "WEST-02"], sku_count: 26,
+    active: true, deletable: true, last_verified_at: "2026-08-01T08:00:00Z", updated_at: "2026-08-01T08:00:00Z"
+  }];
   await page.route("**/warehouse-console/healthz", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ success: true, data: { status: "ok" } }) }));
   await page.route("**/warehouse-console/api/**", (route) => {
     const url = new URL(route.request().url());
@@ -19,7 +24,13 @@ async function mockAPI(page: Page, options: {
       return route.fulfill({ status: 200, contentType: split ? "application/zip" : "text/csv; charset=utf-8", headers: { "Content-Disposition": `attachment; filename=manual-fulfillment-orders-demo.${split ? "zip" : "csv"}` }, body: split ? "PK" : "店铺,平台PO单号\nPANDA HOMES,PO-DEMO-1001\n" });
     }
     let data: unknown = {};
-    if (path.endsWith("/warehouses")) data = warehouses;
+    if (path.includes("/warehouse-api-credentials/") && route.request().method() === "DELETE") {
+      const key = decodeURIComponent(path.split("/").at(-1) || "");
+      apiCredentials = apiCredentials.filter(item => item.key !== key);
+      data = { deleted: true };
+    }
+    else if (path.endsWith("/warehouse-api-credentials")) data = apiCredentials;
+    else if (path.endsWith("/warehouses")) data = warehouses;
     else if (path.endsWith("/dashboard/summary")) data = {
       operations: {
         active_warehouses: 2, total_warehouses: 2, funds_flows: 1284, cost_details: 1209,
@@ -559,15 +570,31 @@ test("outbound tracking classifies pickup exceptions and combines filters", asyn
   await page.screenshot({ path: "/tmp/xlwms-outbound-tracking-mobile.png", fullPage: true });
 });
 
-test("warehouse page only manages warehouse OpenAPI connections", async ({ page }) => {
+test("warehouse page separates API credential groups from warehouse codes", async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 860 });
   await mockAPI(page);
   await page.goto("./warehouses");
 
   await expect(page.getByRole("heading", { name: "仓库管理" })).toBeVisible();
-  await expect(page.getByText("仓库 OpenAPI 连接与同步状态")).toBeVisible();
-  await expect(page.getByText("demo...key")).toHaveCount(2);
+  await expect(page.getByText("仓库、OpenAPI 凭据组与数据覆盖范围")).toBeVisible();
+  await expect(page.getByText("1").first()).toBeVisible();
+  await expect(page.getByText("组 OpenAPI 凭据")).toBeVisible();
+  await expect(page.getByText("演示 OpenAPI")).toBeVisible();
+  await expect(page.getByText("26").first()).toBeVisible();
+  await expect(page.getByText("EAST-01")).toHaveCount(2);
   await expect(page.getByText("OMS 发货账号")).toHaveCount(0);
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBeTruthy();
+  expect(await page.locator(".api-credential-table").locator("xpath=..").evaluate(element => element.scrollWidth > element.clientWidth)).toBeTruthy();
+  await page.screenshot({ path: "/tmp/xlwms-warehouse-connections-mobile.png", fullPage: true });
+  await page.setViewportSize({ width: 1280, height: 860 });
+  await page.getByRole("button", { name: "删除 演示 OpenAPI" }).click();
+  await expect(page.getByRole("alertdialog")).toContainText("删除后无法恢复");
+  const deleteRequest = page.waitForRequest(request => request.method() === "DELETE" && request.url().endsWith("/warehouse-api-credentials/api-demo"));
+  await page.getByRole("button", { name: "确认删除" }).click();
+  await deleteRequest;
+  await expect(page.getByText("演示 OpenAPI")).toHaveCount(0);
+  await expect(page.getByText("尚未登记 OpenAPI 凭据")).toBeVisible();
   await page.screenshot({ path: "/tmp/xlwms-warehouse-connections-desktop.png", fullPage: true });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBeTruthy();
 });

@@ -115,6 +115,9 @@ POST   /v1/platform-orders/assign-and-approve
 GET    /v1/warehouses
 POST   /v1/warehouses
 PATCH  /v1/warehouses/{code}/status
+GET    /v1/warehouse-api-credentials
+POST   /v1/warehouse-api-credentials
+DELETE /v1/warehouse-api-credentials/{credentialKey}
 GET    /v1/inventory
 GET    /v1/inventory/sku-levels
 GET    /v1/inventory-corrections
@@ -394,6 +397,9 @@ watermark 轮转，互不挤占批次；Temu 查询失败会保存本次查询�
 - 仓库凭据使用 Fernet 加密后写入 `xlwms_warehouses`。
 - Fernet 主密钥仅保存在模式为 `600` 的 `.warehouse_credentials_key`。
 - 仓库列表只返回 App Key 提示，不返回可解密凭据。
+- OpenAPI 凭据按实际 `api_base_url + App Key` 独立分组；同一组可覆盖多个
+  `wh_code`，同一个 `wh_code` 也可出现在多组凭据中。新增凭据时会通过综合库存接口
+  自动发现并记录其仓库与 SKU 覆盖范围，凭据本身仍使用 Fernet 加密。
 ## 安全约束
 - 同步任务只读取启用仓库，服务仅允许监听回环地址。
 - 不要记录、提交或公开原始 API 响应中的客户、财务和物流数据。

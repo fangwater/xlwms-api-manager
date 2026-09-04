@@ -18,6 +18,7 @@ import (
 
 type platformOrderAccountStore interface {
 	ListOMSAccountSummaries(context.Context, bool) ([]model.OMSAccountSummary, error)
+	ExistingWarehouseCodes(context.Context, []string) ([]string, error)
 	OMSAccount(context.Context, string) (model.OMSLoginAccount, error)
 	SetOMSAccount(context.Context, string, string, string) (model.OMSLoginAccount, error)
 	CreateOMSAccount(context.Context, string, string, string, string, []string) (model.OMSAccountSummary, error)
@@ -388,7 +389,7 @@ type platformOrderAccountCreator interface {
 	CreateAccount(context.Context, string, string, string, string, []string) (model.OMSAccountSummary, error)
 }
 
-func (p *postgresPlatformOrderAccounts) CreateAccount(ctx context.Context, key, label, username, password string, warehouseCodes []string) (model.OMSAccountSummary, error) {
+func (p *postgresPlatformOrderAccounts) CreateAccount(ctx context.Context, key, label, username, password string, _ []string) (model.OMSAccountSummary, error) {
 	key, label, err := store.NormalizeOMSAccountIdentity(key, label)
 	if err != nil {
 		return model.OMSAccountSummary{}, err
@@ -407,7 +408,16 @@ func (p *postgresPlatformOrderAccounts) CreateAccount(ctx context.Context, key, 
 		}
 	}
 	probe := oms.NewClient(p.baseURL, username, password, p.timeout)
-	if err := probe.CheckAccess(ctx); err != nil {
+	warehouses, err := probe.WarehouseOptions(ctx)
+	if err != nil {
+		return model.OMSAccountSummary{}, err
+	}
+	discoveredCodes := make([]string, 0, len(warehouses))
+	for _, warehouse := range warehouses {
+		discoveredCodes = append(discoveredCodes, warehouse.WarehouseCode)
+	}
+	warehouseCodes, err := p.store.ExistingWarehouseCodes(ctx, discoveredCodes)
+	if err != nil {
 		return model.OMSAccountSummary{}, err
 	}
 	item, err := p.store.CreateOMSAccount(ctx, key, label, username, password, warehouseCodes)

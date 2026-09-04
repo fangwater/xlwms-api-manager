@@ -27,6 +27,10 @@ func (f *fakePlatformOrderAccountStore) ListOMSAccountSummaries(context.Context,
 	return f.summaries, nil
 }
 
+func (f *fakePlatformOrderAccountStore) ExistingWarehouseCodes(_ context.Context, codes []string) ([]string, error) {
+	return codes, nil
+}
+
 func (f *fakePlatformOrderAccountStore) OMSAccount(_ context.Context, key string) (model.OMSLoginAccount, error) {
 	if err := f.accountErrors[key]; err != nil {
 		return model.OMSLoginAccount{}, err
@@ -148,11 +152,14 @@ func TestPlatformOrderAccountUpdateSavesVerifiedExplicitLogin(t *testing.T) {
 
 func TestPlatformOrderAccountCreateValidatesLoginAndPersists(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		if request.URL.Path != "/gateway/woms/auth/login" {
+		switch request.URL.Path {
+		case "/gateway/woms/auth/login":
+			_, _ = writer.Write([]byte(`{"code":200,"msg":"ok","data":{"token":"new-token"}}`))
+		case "/gateway/woms/warehouse/options":
+			_, _ = writer.Write([]byte(`{"code":200,"msg":"ok","data":[{"whCode":"HYTX30","whNameCn":"ARP East"}]}`))
+		default:
 			http.NotFound(writer, request)
-			return
 		}
-		_, _ = writer.Write([]byte(`{"code":200,"msg":"ok","data":{"token":"new-token"}}`))
 	}))
 	defer server.Close()
 
