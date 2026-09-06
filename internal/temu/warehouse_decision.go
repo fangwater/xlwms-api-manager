@@ -37,6 +37,7 @@ var warehouseRules = []WarehouseRule{
 }
 
 type WarehouseInventory struct {
+	APIBinding          *WarehouseAPIBinding
 	Name                string
 	Active              bool
 	QueryStatus         string
@@ -52,27 +53,28 @@ type WarehouseInventory struct {
 }
 
 type WarehouseDecision struct {
-	WarehouseKey        string     `json:"warehouse_key"`
-	WarehouseCode       string     `json:"wh_code"`
-	WarehouseName       string     `json:"warehouse_name"`
-	Region              string     `json:"region"`
-	Provider            string     `json:"provider"`
-	Active              bool       `json:"active"`
-	QueryStatus         string     `json:"query_status"`
-	SKUFound            bool       `json:"sku_found"`
-	AvailableAmount     float64    `json:"available_amount"`
-	RawAvailableAmount  float64    `json:"raw_available_amount"`
-	Corrected           bool       `json:"corrected"`
-	CorrectionMode      string     `json:"correction_mode,omitempty"`
-	CorrectionAmount    float64    `json:"correction_amount"`
-	CorrectionNote      string     `json:"correction_note,omitempty"`
-	CorrectionUpdatedAt *time.Time `json:"correction_updated_at,omitempty"`
-	Selectable          bool       `json:"selectable"`
-	Recommended         bool       `json:"recommended"`
-	InventoryAt         *time.Time `json:"inventory_queried_at,omitempty"`
-	ReasonCode          string     `json:"reason_code"`
-	Reason              string     `json:"reason"`
-	PlatformSKUDisabled bool       `json:"platform_sku_disabled,omitempty"`
+	APIBinding          *WarehouseAPIBinding `json:"api_binding,omitempty"`
+	WarehouseKey        string               `json:"warehouse_key"`
+	WarehouseCode       string               `json:"wh_code"`
+	WarehouseName       string               `json:"warehouse_name"`
+	Region              string               `json:"region"`
+	Provider            string               `json:"provider"`
+	Active              bool                 `json:"active"`
+	QueryStatus         string               `json:"query_status"`
+	SKUFound            bool                 `json:"sku_found"`
+	AvailableAmount     float64              `json:"available_amount"`
+	RawAvailableAmount  float64              `json:"raw_available_amount"`
+	Corrected           bool                 `json:"corrected"`
+	CorrectionMode      string               `json:"correction_mode,omitempty"`
+	CorrectionAmount    float64              `json:"correction_amount"`
+	CorrectionNote      string               `json:"correction_note,omitempty"`
+	CorrectionUpdatedAt *time.Time           `json:"correction_updated_at,omitempty"`
+	Selectable          bool                 `json:"selectable"`
+	Recommended         bool                 `json:"recommended"`
+	InventoryAt         *time.Time           `json:"inventory_queried_at,omitempty"`
+	ReasonCode          string               `json:"reason_code"`
+	Reason              string               `json:"reason"`
+	PlatformSKUDisabled bool                 `json:"platform_sku_disabled,omitempty"`
 }
 
 func ApplyPlatformSKUWarehouseRestrictions(decision *SKUDecision, disabled map[string]bool) {
@@ -227,6 +229,7 @@ func buildRegionDecision(region string, inventory map[string]WarehouseInventory)
 			name = rule.FallbackName
 		}
 		warehouse := WarehouseDecision{
+			APIBinding:   current.APIBinding,
 			WarehouseKey: rule.Key, WarehouseCode: rule.Code, WarehouseName: name, Region: rule.Region, Provider: rule.Provider,
 			Active: current.Active, QueryStatus: current.QueryStatus, SKUFound: current.SKUFound,
 			AvailableAmount: current.AvailableAmount, RawAvailableAmount: current.RawAvailableAmount,

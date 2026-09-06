@@ -45,13 +45,23 @@ func TestScopedInventoryDoesNotMixSharedWarehouseCredentials(t *testing.T) {
 	hanger := server(999)
 	defer hanger.Close()
 	result := QueryScopedInventory(context.Background(), map[string][]model.WarehouseCredentials{
-		"laundry": {{WarehouseSummary: model.WarehouseSummary{Code: "HYTX30", APIBaseURL: laundry.URL, Active: true}, AppKey: "laundry-test", AppSecret: "test"}},
-		"hanger":  {{WarehouseSummary: model.WarehouseSummary{Code: "HYTX30", APIBaseURL: hanger.URL, Active: true}, AppKey: "hanger-test", AppSecret: "test"}},
+		"laundry": {{WarehouseSummary: model.WarehouseSummary{Code: "HYTX30", APIBaseURL: laundry.URL, Active: true}, APICredentialKey: "api-laundry", OMSAccountKey: "laundry", AppKey: "laundry-test", AppSecret: "test"}},
+		"hanger":  {{WarehouseSummary: model.WarehouseSummary{Code: "HYTX30", APIBaseURL: hanger.URL, Active: true}, APICredentialKey: "api-hanger", OMSAccountKey: "hanger", AppKey: "hanger-test", AppSecret: "test"}},
 	}, time.Second, time.Now())
 	if !result.Complete || result.InventoryBySKU["laundry"]["HYTX30"].AvailableAmount != 31 {
 		t.Fatalf("incorrect scoped inventory: complete=%v amount=%v", result.Complete, result.InventoryBySKU["laundry"]["HYTX30"].AvailableAmount)
 	}
 	if result.InventoryBySKU["laundry"]["DPSNY002"].QueryStatus != QueryOutOfScope {
 		t.Fatal("unrelated warehouse required")
+	}
+	for _, sku := range []string{"laundry", "hanger"} {
+		decision := BuildSKUDecision(sku, result.InventoryBySKU[sku], model.InventoryThresholds{})
+		for _, region := range decision.RegionDecisions {
+			for _, warehouse := range region.Warehouses {
+				if warehouse.WarehouseCode == "HYTX30" && (warehouse.APIBinding == nil || warehouse.APIBinding.OMSAccountKey != sku || warehouse.APIBinding.CredentialKey != "api-"+sku) {
+					t.Fatal("API binding was lost or mixed")
+				}
+			}
+		}
 	}
 }

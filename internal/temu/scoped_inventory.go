@@ -18,7 +18,7 @@ func QueryScopedInventory(ctx context.Context, scopes map[string][]model.Warehou
 	for sku, credentials := range scopes {
 		var identity strings.Builder
 		for _, c := range credentials {
-			identity.WriteString(c.Code + "\x00" + c.APIBaseURL + "\x00" + c.AppKey + "\x00")
+			identity.WriteString(c.Code + "\x00" + c.APIBaseURL + "\x00" + c.AppKey + "\x00" + c.APICredentialKey + "\x00" + c.OMSAccountKey + "\x00")
 		}
 		key := sha256.Sum256([]byte(identity.String()))
 		if groups[key] == nil {
@@ -30,6 +30,13 @@ func QueryScopedInventory(ctx context.Context, scopes map[string][]model.Warehou
 	for _, g := range groups {
 		go func(g *group) {
 			current := QueryLiveInventory(ctx, g.credentials, g.skus, timeout, now)
+			for _, credential := range g.credentials {
+				for _, sku := range g.skus {
+					stock := current.InventoryBySKU[sku][credential.Code]
+					stock.APIBinding = &WarehouseAPIBinding{CredentialKey: credential.APICredentialKey, OMSAccountKey: credential.OMSAccountKey}
+					current.InventoryBySKU[sku][credential.Code] = stock
+				}
+			}
 			if len(g.credentials) > 0 {
 				current.Complete = true
 				for i := range current.WarehouseQueries {

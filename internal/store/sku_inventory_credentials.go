@@ -7,7 +7,7 @@ import (
 )
 
 func (p *Postgres) InventoryCredentialsForSKUs(ctx context.Context, skus []string) (map[string][]model.WarehouseCredentials, error) {
-	rows, err := p.pool.Query(ctx, `SELECT DISTINCT i.warehouse_sku,i.wh_code,c.credential_key,c.api_base_url,c.app_key_ciphertext,c.app_secret_ciphertext,
+	rows, err := p.pool.Query(ctx, `SELECT DISTINCT i.warehouse_sku,i.wh_code,c.credential_key,b.account_key,c.api_base_url,c.app_key_ciphertext,c.app_secret_ciphertext,
  c.is_active AND a.enabled AND coalesce(w.is_active,false) AND c.inventory_sync_status='ready'
  FROM xlwms_api_credential_inventory i
  JOIN xlwms_api_credentials c USING(credential_key)
@@ -26,10 +26,10 @@ func (p *Postgres) InventoryCredentialsForSKUs(ctx context.Context, skus []strin
 	}
 	seen := map[string]bool{}
 	for rows.Next() {
-		var sku, key, encryptedKey, encryptedSecret string
+		var sku, encryptedKey, encryptedSecret string
 		var credential model.WarehouseCredentials
 		var ready bool
-		if err := rows.Scan(&sku, &credential.Code, &key, &credential.APIBaseURL, &encryptedKey, &encryptedSecret, &ready); err != nil {
+		if err := rows.Scan(&sku, &credential.Code, &credential.APICredentialKey, &credential.OMSAccountKey, &credential.APIBaseURL, &encryptedKey, &encryptedSecret, &ready); err != nil {
 			return nil, err
 		}
 		if !ready {

@@ -400,6 +400,7 @@ curl -sS \
 
 - 单仓可用库存小于等于 0 时不可选择。
 - 实时库存按 SKU 的已绑定 API 凭据范围查询，共用仓库代码不会混用其他账户的凭据。范围内查询必须完整；范围外仓库不参与选择。
+- 各仓库存返回 `api_binding`，仅包含 `credential_key` 与 `oms_account_key`。Temu 报价按候选仓的 API 绑定选择 OMS 账户；不再使用整单 `account_decision`，也不按仓库名称推断账户。
 - 默认维持合计库存严格低于平台/SKU 安全线时转人工。Temu 与 SHEIN 分别维护默认值。
 - Temu 脏衣篓账户的规则通过 API 绑定覆盖其 SKU：ARP 美东、美西两仓合计库存小于等于 30 转人工，其他账户阈值不变。
   ARP 美东禁用 SWIFTX、UNIUNI、YANWEN，美西禁用 YANWEN。优先级为 GOFO、SWIFTX、SPEEDX、UPS、USPS、FEDEX。

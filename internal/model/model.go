@@ -16,8 +16,10 @@ type WarehouseSummary struct {
 
 type WarehouseCredentials struct {
 	WarehouseSummary
-	AppKey    string `json:"-"`
-	AppSecret string `json:"-"`
+	APICredentialKey string `json:"-"`
+	OMSAccountKey    string `json:"-"`
+	AppKey           string `json:"-"`
+	AppSecret        string `json:"-"`
 }
 
 type WarehouseAPICredentialGroup struct {
