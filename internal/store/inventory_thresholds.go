@@ -346,6 +346,9 @@ func (p *Postgres) UpsertPlatformSKUInventoryThreshold(ctx context.Context, plat
 		return model.SKUInventoryThreshold{}, err
 	}
 	warehouseSKU = strings.TrimSpace(warehouseSKU)
+	if err := p.requireSKUManagedRules(ctx, platform, warehouseSKU); err != nil {
+		return model.SKUInventoryThreshold{}, err
+	}
 	if warehouseSKU == "" {
 		return model.SKUInventoryThreshold{}, errors.New("warehouse_sku is required")
 	}
@@ -382,7 +385,20 @@ DELETE FROM xlwms_platform_sku_inventory_thresholds WHERE platform=$1 AND wareho
 }
 
 func (p *Postgres) PlatformSKUInventoryThreshold(ctx context.Context, platform, warehouseSKU string) (model.SKUInventoryThreshold, error) {
-	return p.lookupPlatformSKUInventoryThreshold(ctx, platform, warehouseSKU)
+	item, err := p.lookupPlatformSKUInventoryThreshold(ctx, platform, warehouseSKU)
+	if err != nil {
+		return item, err
+	}
+	rules, err := p.accountRulesForSKUs(ctx, platform, []string{warehouseSKU})
+	if err != nil {
+		return item, err
+	}
+	if rule, ok := rules[warehouseSKU]; ok {
+		item.InventoryThresholds = rule.Thresholds
+		item.Source = "oms_account"
+		item.Customized = true
+	}
+	return item, nil
 }
 
 func (p *Postgres) ListPlatformInventorySKUThresholds(ctx context.Context, platform string, filter InventoryThresholdFilter, eastCodes, westCodes []string) ([]model.SKUInventoryThreshold, int, error) {
@@ -451,7 +467,26 @@ LIMIT $5 OFFSET $6
 		}
 		items = append(items, item)
 	}
-	return items, total, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, 0, err
+	}
+	rows.Close()
+	skus := make([]string, 0, len(items))
+	for _, item := range items {
+		skus = append(skus, item.WarehouseSKU)
+	}
+	rules, err := p.accountRulesForSKUs(ctx, platform, skus)
+	if err != nil {
+		return nil, 0, err
+	}
+	for index := range items {
+		if rule, ok := rules[items[index].WarehouseSKU]; ok {
+			items[index].InventoryThresholds = rule.Thresholds
+			items[index].Source = "oms_account"
+			items[index].Customized = true
+		}
+	}
+	return items, total, nil
 }
 
 func (p *Postgres) InventoryThresholdsForPlatformSKUs(ctx context.Context, platform string, warehouseSKUs []string) (map[string]model.InventoryThresholds, model.InventoryThresholds, error) {
@@ -485,7 +520,18 @@ WHERE platform=$1 AND warehouse_sku=ANY($2)
 		}
 		result[sku] = thresholds
 	}
-	return result, defaults, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, defaults, err
+	}
+	rows.Close()
+	rules, err := p.accountRulesForSKUs(ctx, platform, warehouseSKUs)
+	if err != nil {
+		return nil, defaults, err
+	}
+	for sku, rule := range rules {
+		result[sku] = rule.Thresholds
+	}
+	return result, defaults, nil
 }
 
 func (p *Postgres) lookupPlatformSKUInventoryThreshold(ctx context.Context, platform, warehouseSKU string) (model.SKUInventoryThreshold, error) {

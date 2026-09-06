@@ -203,6 +203,14 @@ ORDER BY defaults.warehouse_key,coalesce(overrides.priority,defaults.priority),d
 			Source: source, BaseRules: rulesByWarehouse[warehouseKey], Carriers: byWarehouse[warehouseKey],
 		})
 	}
+	rows.Close()
+	accountRules, err := p.accountRulesForSKUs(ctx, platform, []string{warehouseSKU})
+	if err != nil {
+		return nil, err
+	}
+	if rules, ok := accountRules[warehouseSKU]; ok {
+		applyAccountCarrierRules(result, rules)
+	}
 	return result, nil
 }
 
@@ -222,6 +230,11 @@ func (p *Postgres) ReplaceCarrierPolicies(ctx context.Context, platform, warehou
 	warehouseSKU = strings.TrimSpace(warehouseSKU)
 	if warehouseSKU != "" && baseRules != nil {
 		return model.WarehouseCarrierPolicies{}, errors.New("base_rules can only be changed at platform and warehouse scope")
+	}
+	if warehouseSKU != "" {
+		if err := p.requireSKUManagedRules(ctx, platform, warehouseSKU); err != nil {
+			return model.WarehouseCarrierPolicies{}, err
+		}
 	}
 	var normalizedRules model.WarehouseCarrierRules
 	if baseRules != nil {

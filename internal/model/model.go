@@ -254,9 +254,11 @@ type SKUCombination struct {
 }
 
 type InventoryThresholds struct {
-	EastThreshold  float64 `json:"east_threshold"`
-	WestThreshold  float64 `json:"west_threshold"`
-	TotalThreshold float64 `json:"total_threshold"`
+	TotalInclusive bool     `json:"total_inclusive,omitempty"`
+	WarehouseCodes []string `json:"warehouse_codes,omitempty"`
+	EastThreshold  float64  `json:"east_threshold"`
+	WestThreshold  float64  `json:"west_threshold"`
+	TotalThreshold float64  `json:"total_threshold"`
 }
 
 type FulfillmentShop struct {

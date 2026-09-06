@@ -870,3 +870,20 @@ BEGIN
     DROP TABLE IF EXISTS xlwms_platform_sku_oms_accounts;
     DROP TABLE IF EXISTS xlwms_oms_account_warehouses;
 END $oms_api_binding_migration$;
+
+CREATE TABLE IF NOT EXISTS xlwms_oms_account_fulfillment_rules (
+ platform text NOT NULL,
+ account_key text NOT NULL REFERENCES xlwms_oms_accounts(account_key),
+ rules jsonb NOT NULL,
+ updated_at timestamptz NOT NULL DEFAULT now(),
+ PRIMARY KEY(platform,account_key)
+);
+INSERT INTO xlwms_oms_account_fulfillment_rules(platform,account_key,rules)
+SELECT 'temu',account_key,'{
+ "thresholds":{"east_threshold":0,"west_threshold":0,"total_threshold":30,"total_inclusive":true,"warehouse_codes":["HYTX30","ARPCA01"]},
+ "selection_mode":"gofo_over_swiftx_speedx",
+ "max_price_delta":0.30,
+ "carrier_priority":["GOFO","SWIFTX","SPEEDX","UPS","USPS","FEDEX","YANWEN"],
+ "blocked_carriers":{"ARP_EAST":["SWIFTX","UNIUNI","YANWEN"],"ARP_WEST":["YANWEN"]}
+}'::jsonb FROM xlwms_oms_accounts WHERE account_key='fhzarp-laundry'
+ON CONFLICT(platform,account_key) DO NOTHING;

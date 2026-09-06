@@ -2,6 +2,7 @@ package temu
 
 import (
 	"fmt"
+	"slices"
 	"strconv"
 	"time"
 
@@ -9,12 +10,13 @@ import (
 )
 
 const (
-	RuleVersion    = "2026-08-27-four-warehouse-total"
-	RegionEast     = "east"
-	RegionWest     = "west"
-	QuerySucceeded = "succeeded"
-	QueryFailed    = "failed"
-	QueryInactive  = "inactive"
+	RuleVersion     = "2026-09-06-api-scope-account-rules"
+	RegionEast      = "east"
+	RegionWest      = "west"
+	QuerySucceeded  = "succeeded"
+	QueryFailed     = "failed"
+	QueryInactive   = "inactive"
+	QueryOutOfScope = "out_of_scope"
 )
 
 type WarehouseRule struct {
@@ -159,6 +161,24 @@ func WarehouseCodes(region string) []string {
 }
 
 func BuildSKUDecision(sku string, inventory map[string]WarehouseInventory, thresholds model.InventoryThresholds) SKUDecision {
+	if len(thresholds.WarehouseCodes) > 0 {
+		scoped := make(map[string]WarehouseInventory, len(warehouseRules))
+		for _, rule := range warehouseRules {
+			if slices.Contains(thresholds.WarehouseCodes, rule.Code) {
+				scoped[rule.Code] = inventory[rule.Code]
+				if scoped[rule.Code].QueryStatus == QueryOutOfScope {
+					scoped[rule.Code] = WarehouseInventory{QueryStatus: QueryInactive}
+				}
+			} else {
+				scoped[rule.Code] = WarehouseInventory{QueryStatus: QueryOutOfScope}
+			}
+		}
+		inventory = scoped
+	}
+	scopeLabel := "可用仓库"
+	if len(thresholds.WarehouseCodes) > 0 {
+		scopeLabel = fmt.Sprintf("指定%d仓", len(thresholds.WarehouseCodes))
+	}
 	regions := []RegionDecision{
 		buildRegionDecision(RegionEast, inventory),
 		buildRegionDecision(RegionWest, inventory),
@@ -175,20 +195,24 @@ func BuildSKUDecision(sku string, inventory map[string]WarehouseInventory, thres
 	if queryIncomplete {
 		result.RequiresManual = true
 		result.DecisionCode = "MANUAL_INVENTORY_QUERY_INCOMPLETE"
-		result.Reason = "至少一个仓库未启用或库存查询失败，无法确认四仓库存总量，转人工处理"
+		result.Reason = "至少一个范围内仓库未启用或库存查询失败，无法确认库存总量，转人工处理"
 		return result
 	}
-	if result.TotalAvailableAmount < thresholds.TotalThreshold {
+	if result.TotalAvailableAmount < thresholds.TotalThreshold || (thresholds.TotalInclusive && result.TotalAvailableAmount == thresholds.TotalThreshold) {
 		result.RequiresManual = true
 		if len(result.ManualRegions) == 0 {
 			result.ManualRegions = []string{RegionEast, RegionWest}
 		}
 		result.DecisionCode = "MANUAL_LOW_TOTAL_STOCK"
-		result.Reason = fmt.Sprintf("四仓正品产品可用库存合计%s，小于该SKU总库存安全线%s，保留库存并转人工处理", formatAmount(result.TotalAvailableAmount), formatAmount(thresholds.TotalThreshold))
+		comparison := "小于"
+		if thresholds.TotalInclusive {
+			comparison = "小于等于"
+		}
+		result.Reason = fmt.Sprintf("%s正品产品可用库存合计%s，%s该SKU总库存安全线%s，保留库存并转人工处理", scopeLabel, formatAmount(result.TotalAvailableAmount), comparison, formatAmount(thresholds.TotalThreshold))
 		return result
 	}
 	result.DecisionCode = "AUTO_SELECTION_READY"
-	result.Reason = "四仓正品产品可用库存合计达到安全线，可从有货仓自动选择"
+	result.Reason = scopeLabel + "正品产品可用库存合计通过安全线，可从有货仓自动选择"
 	return result
 }
 
@@ -211,6 +235,9 @@ func buildRegionDecision(region string, inventory map[string]WarehouseInventory)
 			CorrectionUpdatedAt: current.CorrectionUpdatedAt, InventoryAt: current.QueriedAt,
 		}
 		switch {
+		case current.QueryStatus == QueryOutOfScope:
+			warehouse.ReasonCode = "WAREHOUSE_OUT_OF_API_SCOPE"
+			warehouse.Reason = "不在该 SKU 的 API 库存范围内"
 		case !current.Active || current.QueryStatus == QueryInactive:
 			warehouse.ReasonCode = "WAREHOUSE_NOT_ACTIVE"
 			warehouse.Reason = "仓库未启用或未配置，不能用于发货"

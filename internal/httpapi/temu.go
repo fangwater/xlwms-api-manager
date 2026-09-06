@@ -77,13 +77,13 @@ func (s *Server) temuWarehouseAvailability(writer http.ResponseWriter, request *
 		seenInventorySKU[resolved] = struct{}{}
 		inventorySKUs = append(inventorySKUs, resolved)
 	}
-	warehouses, err := s.store.ActiveWarehouseCredentials(ctx)
+	scopes, err := s.store.InventoryCredentialsForSKUs(ctx, inventorySKUs)
 	if err != nil {
 		s.internalError(writer, "load active warehouses for Temu inventory query", err)
 		return
 	}
 	queriedAt := time.Now()
-	inventory := temu.QueryLiveInventory(ctx, warehouses, inventorySKUs, s.requestTimeout, queriedAt)
+	inventory := temu.QueryScopedInventory(ctx, scopes, s.requestTimeout, queriedAt)
 	corrections, err := s.store.InventoryCorrectionsForSKUs(ctx, inventorySKUs)
 	if err != nil {
 		s.internalError(writer, "load inventory corrections", err)

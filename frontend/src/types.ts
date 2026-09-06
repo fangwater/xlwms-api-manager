@@ -313,6 +313,8 @@ export type SKUCombinationPayload = Omit<SKUCombination, "id" | "corrected" | "c
 };
 
 export type InventoryThresholds = {
+  total_inclusive?: boolean;
+  warehouse_codes?: string[];
   east_threshold: number;
   west_threshold: number;
   total_threshold: number;
@@ -360,7 +362,7 @@ export type WarehouseCarrierRules = {
   allowed_carrier_codes: string[];
   allow_signature: boolean;
   allowed_currency_codes: string[];
-  selection_mode: "lowest_price" | "carrier_priority_within_delta";
+  selection_mode: "lowest_price" | "carrier_priority_within_delta" | "gofo_over_swiftx_speedx";
   max_price_delta: number;
   warehouse_tie_priority: number;
 };
@@ -369,7 +371,7 @@ export type WarehouseCarrierPolicies = {
   warehouse_key: string;
   warehouse_sku?: string;
   customized: boolean;
-  source: "platform_default" | "platform_sku";
+  source: "platform_default" | "platform_sku" | "oms_account";
   base_rules: WarehouseCarrierRules;
   carriers: CarrierPolicy[];
 };
