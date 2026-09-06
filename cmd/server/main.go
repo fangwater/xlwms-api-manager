@@ -16,7 +16,6 @@ import (
 	"xlwms-api-manager/internal/config"
 	"xlwms-api-manager/internal/credentials"
 	"xlwms-api-manager/internal/httpapi"
-	"xlwms-api-manager/internal/oms"
 	"xlwms-api-manager/internal/sheinfulfillment"
 	"xlwms-api-manager/internal/store"
 	"xlwms-api-manager/internal/syncer"
@@ -56,11 +55,6 @@ func run(ctx context.Context, logger *slog.Logger) error {
 	if err := destination.EnsureWarehouseAPICredentialGroups(ctx); err != nil {
 		return fmt.Errorf("migrate warehouse API credential groups: %w", err)
 	}
-	if cfg.OMSUsername != "" {
-		if err := destination.EnsureOMSAccount(ctx, "arp", cfg.OMSUsername, cfg.OMSPassword); err != nil {
-			return fmt.Errorf("seed ARP OMS account: %w", err)
-		}
-	}
 	service := syncer.New(ctx, destination, cfg.RequestTimeout, cfg.SyncTimeout, logger)
 	go backgroundInventorySync(ctx, destination, service, cfg.InventorySyncInterval, logger)
 	go backgroundCostSync(ctx, destination, service, cfg.CostSyncInterval, 2*cfg.SyncTimeout, logger)
@@ -71,17 +65,13 @@ func run(ctx context.Context, logger *slog.Logger) error {
 	}
 	auditService := auditor.NewWithTracking(destination, trackingClient, cfg.RequestTimeout,
 		cfg.FulfillmentTrackingLimit, cfg.FulfillmentTrackingWorkers, logger)
-	var platformOrders *oms.Client
-	if cfg.OMSUsername != "" {
-		platformOrders = oms.NewClient(cfg.OMSBaseURL, cfg.OMSUsername, cfg.OMSPassword, cfg.RequestTimeout)
-	}
 	go backgroundFulfillmentAudits(ctx, auditService, cfg.FulfillmentAuditInterval, cfg.RequestTimeout*10, logger)
 	listener, err := net.Listen("tcp", cfg.Listen)
 	if err != nil {
 		return fmt.Errorf("listen on %s: %w", cfg.Listen, err)
 	}
 	server := &http.Server{
-		Handler:           httpapi.NewWithWarehousePlatformOrderOperations(destination, service, auditService, platformOrders, platformSources, cfg.OMSBaseURL, cfg.OMSUsername, cfg.OMSPassword, cfg.RequestTimeout, logger),
+		Handler:           httpapi.NewWithWarehousePlatformOrderOperations(destination, service, auditService, platformSources, cfg.OMSBaseURL, cfg.ConsoleUser, cfg.ConsolePassword, cfg.RequestTimeout, logger),
 		ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 30 * time.Second, WriteTimeout: 30 * time.Second, IdleTimeout: 60 * time.Second,
 		BaseContext: func(net.Listener) context.Context { return ctx },
 	}

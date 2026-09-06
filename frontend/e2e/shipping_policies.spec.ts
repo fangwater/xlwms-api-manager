@@ -26,6 +26,19 @@ async function fulfill(route: Route, data: unknown) {
 }
 
 async function mockPolicyAPI(page: Page) {
+  const accounts = [
+    { key: "arp", label: "FHZARP-衣架", username_hint: "FH***RP", enabled: true, api_credential_keys: ["api-hanger"], sku_count: 8, updated_at: "2026-09-03T08:00:00Z" },
+    { key: "dps", label: "FHZDPS-衣架", username_hint: "FH***PS", enabled: true, api_credential_keys: ["api-dps"], sku_count: 6, updated_at: "2026-09-03T08:00:00Z" }
+  ];
+  const accountHealth = [
+    { key: "arp", label: "FHZARP-衣架", username_hint: "FH***RP", api_credential_keys: ["api-hanger"], available: false, status: "mfa_required", error: "需要短信、邮箱或验证器二次验证" },
+    { key: "dps", label: "FHZDPS-衣架", username_hint: "FH***PS", api_credential_keys: ["api-dps"], available: true, status: "ready" }
+  ];
+  const credentials = [
+    { key: "api-hanger", label: "衣架 OpenAPI", api_base_url: "https://api.example", app_key_hint: "aa***01", warehouse_codes: ["HYTX30", "ARPCA01"], sku_count: 8, oms_account_key: "arp", oms_account_label: "FHZARP-衣架", active: true, deletable: false, updated_at: "2026-09-03T08:00:00Z" },
+    { key: "api-dps", label: "DPS OpenAPI", api_base_url: "https://api.example", app_key_hint: "bb***02", warehouse_codes: ["DPSNY002", "DPSCA004"], sku_count: 6, oms_account_key: "dps", oms_account_label: "FHZDPS-衣架", active: true, deletable: false, updated_at: "2026-09-03T08:00:00Z" },
+    { key: "api-laundry", label: "脏衣篓 OpenAPI", api_base_url: "https://api.example", app_key_hint: "cc***03", warehouse_codes: ["HYTX30", "ARPCA01"], sku_count: 13, oms_account_key: "", oms_account_label: "", active: true, deletable: true, updated_at: "2026-09-03T08:00:00Z" }
+  ];
   await page.route("**/warehouse-console/healthz", (route) => fulfill(route, { status: "ok" }));
   await page.route("**/warehouse-console/api/**", async (route) => {
     const url = new URL(route.request().url());
@@ -38,30 +51,45 @@ async function mockPolicyAPI(page: Page) {
     if (path.endsWith("/fulfillment-policies/accounts")) {
       if (route.request().method() === "POST") {
         const payload = route.request().postDataJSON();
-        return fulfill(route, { key: payload.key, label: payload.label, username_hint: "NE***ER", enabled: true, warehouse_codes: payload.warehouse_codes, route_count: 0, updated_at: "2026-09-03T08:00:00Z" });
+        const created = { key: payload.key, label: payload.label, username_hint: "NE***ER", enabled: true, api_credential_keys: payload.api_credential_keys, sku_count: 13, updated_at: "2026-09-03T08:00:00Z" };
+        accounts.push(created);
+        accountHealth.push({ key: payload.key, label: payload.label, username_hint: "NE***ER", api_credential_keys: payload.api_credential_keys, available: true, status: "ready", error: "" });
+        for (const credential of credentials) {
+          if (payload.api_credential_keys.includes(credential.key)) {
+            credential.oms_account_key = payload.key;
+            credential.oms_account_label = payload.label;
+          }
+        }
+        return fulfill(route, created);
       }
-      return fulfill(route, [
-        { key: "arp", label: "ARP 账户", username_hint: "FH***RP", enabled: true, warehouse_codes: ["HYTX30", "DPSNY002"], route_count: 1, updated_at: "2026-09-03T08:00:00Z" },
-        { key: "dps", label: "DPS 账户", username_hint: "FH***PS", enabled: true, warehouse_codes: ["DPSNY002", "DPSCA004"], route_count: 0, updated_at: "2026-09-03T08:00:00Z" }
-      ]);
+      return fulfill(route, accounts);
+    }
+    if (path.endsWith("/platform-orders/accounts")) return fulfill(route, accountHealth);
+    if (/\/platform-orders\/accounts\/[^/]+\/mfa-challenge$/.test(path)) {
+      return fulfill(route, { channel: "TOTP", masked_target: "Authenticator", code_sent: false, code_length: 6 });
+    }
+    if (/\/platform-orders\/accounts\/[^/]+\/mfa-verify$/.test(path)) {
+      const accountKey = decodeURIComponent(path.split("/").at(-2) || "");
+      const item = accountHealth.find((account) => account.key === accountKey)!;
+      item.available = true;
+      item.status = "ready";
+      item.error = "";
+      return fulfill(route, accountHealth);
+    }
+    if (path.endsWith("/warehouse-api-credentials")) return fulfill(route, credentials);
+    if (/\/fulfillment-policies\/accounts\/[^/]+\/api-credentials$/.test(path)) {
+      const accountKey = decodeURIComponent(path.split("/").at(-2) || "");
+      const payload = route.request().postDataJSON();
+      const account = accounts.find((item) => item.key === accountKey)!;
+      account.api_credential_keys = payload.api_credential_keys;
+      return fulfill(route, account);
     }
     if (/\/fulfillment-policies\/accounts\/[^/]+$/.test(path)) {
       const accountKey = decodeURIComponent(path.split("/").at(-1) || "");
       const payload = route.request().postDataJSON();
-      return fulfill(route, { key: accountKey, label: payload.label || `${accountKey.toUpperCase()} 账户`, username_hint: "FH***NT", enabled: payload.enabled ?? true, warehouse_codes: ["HYTX30"], route_count: 0, updated_at: "2026-09-03T08:00:00Z" });
-    }
-    if (path.endsWith("/fulfillment-policies/account-routes")) return fulfill(route, {
-      platform: url.searchParams.get("platform") || "temu",
-      records: [
-        { platform: "temu", warehouse_sku: "DEMO-SKU-01", product_name: "演示收纳篮", account_key: "arp", account_label: "ARP 账户", configured: true, updated_at: "2026-09-03T08:00:00Z" },
-        { platform: "temu", warehouse_sku: "DEMO-SKU-02", product_name: "演示衣架", configured: false, updated_at: "2026-09-03T08:00:00Z" }
-      ],
-      total: 2, page: 1, page_size: 30, pages: 1
-    });
-    if (/\/fulfillment-policies\/account-routes\/[^/]+$/.test(path)) {
-      const sku = decodeURIComponent(path.split("/").at(-1) || "");
-      const payload = route.request().postDataJSON();
-      return fulfill(route, { platform: url.searchParams.get("platform") || "temu", warehouse_sku: sku, product_name: "演示衣架", account_key: payload.account_key, account_label: payload.account_key === "dps" ? "DPS 账户" : "ARP 账户", configured: true, updated_at: "2026-09-03T08:00:00Z" });
+      const account = accounts.find((item) => item.key === accountKey)!;
+      Object.assign(account, { label: payload.label || account.label, enabled: payload.enabled ?? account.enabled });
+      return fulfill(route, account);
     }
     if (path.endsWith("/fulfillment-policies/carriers")) return fulfill(route, carrierGroups(url.searchParams.get("warehouse_sku") || ""));
     if (/\/fulfillment-policies\/carriers\/[^/]+$/.test(path)) {
@@ -114,33 +142,61 @@ test("policy subdirectories isolate selection and SKU settings", async ({ page }
   await page.screenshot({ path: "/tmp/xlwms-policy-sku-dialog-desktop.png", fullPage: true });
 });
 
-test("account management creates accounts with automatic warehouse discovery", async ({ page }) => {
+test("account management creates accounts with OpenAPI scope bindings", async ({ page }) => {
   await mockPolicyAPI(page);
   await page.goto("./shipping-policies/accounts");
   await expect(page.getByRole("heading", { name: "OMS 账号管理", level: 1 })).toBeVisible();
   await expect(page.locator(".account-policy-card")).toHaveCount(2);
-  await expect(page.getByText("DPSNY002")).toHaveCount(2);
+  await expect(page.getByText("衣架 OpenAPI")).toBeVisible();
   await page.getByRole("button", { name: "新建账户" }).click();
   await page.getByLabel("账户标识").fill("backup");
   await page.getByLabel("显示名称").fill("备用账户");
   await page.getByLabel("OMS 账号").fill("new-user");
   await page.getByLabel("OMS 密码").fill("new-password");
-  await expect(page.getByText("验证成功后自动读取可见仓库，并加密保存登录凭据")).toBeVisible();
+  await page.getByText("脏衣篓 OpenAPI").click();
+  await expect(page.getByText("验证成功后加密保存，API 凭据决定该账号负责的 SKU 范围")).toBeVisible();
   await page.getByRole("button", { name: "验证并新建" }).click();
   await expect(page.locator(".account-policy-card")).toHaveCount(3);
   await expect(page.getByRole("heading", { name: "备用账户", level: 3 })).toBeVisible();
   await page.screenshot({ path: "/tmp/xlwms-account-management-desktop.png", fullPage: true });
 });
 
-test("account routing assigns per-SKU ownership", async ({ page }) => {
+test("account management reassigns an OpenAPI scope", async ({ page }) => {
   await mockPolicyAPI(page);
-  await page.goto("./shipping-policies/account-routes");
-  await expect(page.getByRole("heading", { name: "OMS 账户路由", level: 1 })).toBeVisible();
-  await expect(page.getByText("DEMO-SKU-02")).toBeVisible();
-  await page.getByLabel("DEMO-SKU-02 OMS 发货账户").selectOption("dps");
-  await expect(page.getByLabel("DEMO-SKU-02 OMS 发货账户")).toHaveValue("dps");
-  await expect(page.locator(".account-route-table .status-badge", { hasText: "已配置" })).toHaveCount(2);
-  await page.screenshot({ path: "/tmp/xlwms-account-routes-desktop.png", fullPage: true });
+  await page.goto("./shipping-policies/accounts");
+  const account = page.locator(".account-policy-card", { hasText: "FHZARP-衣架" });
+  await account.getByRole("button", { name: "绑定 API" }).click();
+  await page.getByText("脏衣篓 OpenAPI").click();
+  await page.getByRole("button", { name: "保存绑定" }).click();
+  await expect(account.getByText("2 组 OpenAPI")).toBeVisible();
+  await page.screenshot({ path: "/tmp/xlwms-account-bindings-desktop.png", fullPage: true });
+});
+
+test("account workspace filters accounts without redundant counters or warehouse scope", async ({ page }) => {
+  await mockPolicyAPI(page);
+  await page.goto("./shipping-policies/accounts");
+  await expect(page.locator(".account-policy-card")).toHaveCount(2);
+  await expect(page.getByText("个 OMS 发货账户")).toHaveCount(0);
+  await expect(page.getByLabel("当前仓库")).toHaveCount(0);
+  await page.getByLabel("搜索账户", { exact: true }).fill("DPS OpenAPI");
+  await expect(page.locator(".account-policy-card")).toHaveCount(1);
+  await expect(page.getByRole("heading", { name: "FHZDPS-衣架" })).toBeVisible();
+  await page.getByLabel("搜索账户", { exact: true }).fill("no-matching-account");
+  await expect(page.getByText("没有匹配的账户")).toBeVisible();
+  await page.getByLabel("搜索账户", { exact: true }).clear();
+  await expect(page.locator(".account-policy-card")).toHaveCount(2);
+});
+
+test("account management completes six-digit OMS verification", async ({ page }) => {
+  await mockPolicyAPI(page);
+  await page.goto("./shipping-policies/accounts");
+  const account = page.locator(".account-policy-card", { hasText: "FHZARP-衣架" });
+  await expect(account.getByText("需要短信、邮箱或验证器二次验证")).toBeVisible();
+  await account.getByRole("button", { name: "二次验证" }).click();
+  await expect(page.getByRole("dialog", { name: "FHZARP-衣架 二次验证" })).toBeVisible();
+  await page.getByLabel("6 位验证码").fill("123456");
+  await page.getByRole("button", { name: "验证登录" }).click();
+  await expect(account.getByText("登录正常")).toBeVisible();
 });
 
 test("mobile policy directory remains usable without horizontal overflow", async ({ page }) => {
@@ -148,7 +204,7 @@ test("mobile policy directory remains usable without horizontal overflow", async
   await mockPolicyAPI(page);
   await page.goto("./shipping-policies/selection");
   await page.getByTitle("打开导航").click();
-  await expect(page.locator(".nav-submenu").getByRole("button")).toHaveCount(5);
+  await expect(page.locator(".nav-submenu").getByRole("button")).toHaveCount(4);
   await page.screenshot({ path: "/tmp/xlwms-policy-directory-mobile.png" });
   await page.locator(".nav-submenu").getByRole("button", { name: "基础快递限制" }).click();
   await expect(page.getByRole("heading", { name: "基础快递限制", level: 1 })).toBeVisible();
@@ -161,6 +217,7 @@ test("mobile account management remains usable without horizontal overflow", asy
   await mockPolicyAPI(page);
   await page.goto("./shipping-policies/accounts");
   await expect(page.locator(".account-policy-card")).toHaveCount(2);
+  await expect(page.locator(".policy-view-nav button.active")).toBeInViewport();
   await page.screenshot({ path: "/tmp/xlwms-account-management-mobile.png", fullPage: true });
   const sizes = await page.evaluate(() => ({ viewport: document.documentElement.clientWidth, scrollWidth: document.documentElement.scrollWidth }));
   expect(sizes.scrollWidth).toBeLessThanOrEqual(sizes.viewport);

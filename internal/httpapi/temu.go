@@ -34,7 +34,6 @@ type temuWarehouseQueryResponse struct {
 	WarehouseQueries     []temu.WarehouseQuery            `json:"warehouse_queries"`
 	Records              []temu.SKUDecision               `json:"records"`
 	PackageResolution    model.WarehouseSKUSpecResolution `json:"package_resolution"`
-	AccountDecision      model.FulfillmentAccountDecision `json:"account_decision"`
 }
 
 func (s *Server) temuWarehouseAvailability(writer http.ResponseWriter, request *http.Request) {
@@ -105,17 +104,11 @@ func (s *Server) temuWarehouseAvailability(writer http.ResponseWriter, request *
 		s.internalError(writer, "resolve platform SKU warehouse policies", err)
 		return
 	}
-	accountDecision, err := s.store.ResolveFulfillmentAccount(ctx, platform, inventorySKUs)
-	if err != nil {
-		s.internalError(writer, "resolve platform SKU OMS account", err)
-		return
-	}
 	records := make([]temu.SKUDecision, 0, len(skus))
 	for _, sku := range skus {
 		resolvedSKU := resolvedBySKU[sku]
 		record := temu.BuildSKUDecision(sku, inventory.InventoryBySKU[resolvedSKU], thresholdsBySKU[resolvedSKU])
 		temu.ApplyPlatformSKUWarehouseRestrictions(&record, disabledBySKU[resolvedSKU])
-		temu.ApplyOMSAccountWarehouseRestrictions(&record, accountDecision)
 		records = append(records, record)
 	}
 	writeJSON(writer, http.StatusOK, response{Success: true, Data: temuWarehouseQueryResponse{
@@ -130,7 +123,6 @@ func (s *Server) temuWarehouseAvailability(writer http.ResponseWriter, request *
 		WarehouseQueries:     inventory.WarehouseQueries,
 		Records:              records,
 		PackageResolution:    packageResolution,
-		AccountDecision:      accountDecision,
 	}})
 }
 

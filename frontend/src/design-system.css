@@ -1,0 +1,279 @@
+:root {
+  --canvas: #ffffff;
+  --surface: #ffffff;
+  --surface-subtle: #f6f8f8;
+  --line: #e5e9e8;
+  --ink: #202a28;
+  --muted: #6d7975;
+  --accent: #16765b;
+  --accent-soft: #eaf5ef;
+  --focus: #55a88b;
+  font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  color: var(--ink);
+  background: var(--canvas);
+  font-size: 14px;
+  line-height: 1.5;
+}
+body { background: var(--canvas); }
+button, input, select, textarea { font-family: inherit; }
+button, a, input, select, textarea { -webkit-tap-highlight-color: transparent; }
+button, a { transition: color .15s ease, background .15s ease, border-color .15s ease; }
+button:focus-visible, a:focus-visible { outline: 2px solid var(--focus); outline-offset: 3px; }
+input:focus-visible, select:focus-visible, textarea:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+input[type="checkbox"] { accent-color: var(--accent); }
+::selection { background: #d5eee2; color: #183d2f; }
+.app-shell { background: var(--canvas); }
+.app-shell .sidebar { width: 224px; background: #f7f9f8; border-color: var(--line); color: var(--ink); }
+.app-shell .brand { height: 76px; padding: 0 22px; border-bottom: 0; gap: 12px; }
+.app-shell .brand-mark { width: 34px; height: 34px; background: var(--accent); border-radius: 8px; }
+.app-shell .brand strong { font-size: 16px; line-height: 22px; }
+.app-shell .brand span { color: var(--muted); font-size: 11px; }
+.app-shell .sidebar nav { padding: 10px 12px; scrollbar-width: thin; scrollbar-color: #d2dbd7 transparent; }
+.app-shell .nav-group { margin-bottom: 22px; }
+.app-shell .nav-label { padding: 0 12px 8px; color: #89958f; font-size: 11px; font-weight: 500; }
+.app-shell .nav-item { height: 40px; padding: 0 12px; gap: 11px; color: #65716b; font-size: 13px; font-weight: 500; border-radius: 6px; }
+.app-shell .nav-item svg { flex-shrink: 0; stroke-width: 1.65; }
+.app-shell .nav-item:hover { background: #edf1ef; color: #263f33; }
+.app-shell .nav-item.active { background: #e5f0e9; color: #176646; box-shadow: none; font-weight: 650; }
+.app-shell .nav-item.parent-active { color: #283d32; }
+.app-shell .nav-submenu { margin-left: 21px; padding-left: 8px; }
+.app-shell .nav-submenu::before { background: #dce4df; }
+.app-shell .nav-subitem { height: 34px; font-size: 12px; padding-left: 9px; }
+.app-shell .sidebar-footer { border-color: var(--line); padding: 12px; }
+.app-shell .service-state { padding: 0 12px 10px; color: var(--muted); }
+.app-shell .status-dot { box-shadow: none; width: 6px; height: 6px; }
+.app-shell .workspace { width: calc(100% - 224px); margin-left: 224px; }
+.app-shell .topbar { height: 60px; padding: 0 32px; background: #fff; border-color: var(--line); }
+.app-shell .topbar-title { gap: 12px; min-width: 0; font-size: 12px; }
+.app-shell .topbar-title > strong { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.app-shell .topbar-actions { flex-shrink: 0; }
+.app-shell .warehouse-select { border-color: var(--line); background: #fff; }
+.app-shell .warehouse-select select { font-weight: 500; }
+.app-shell .main-content { width: min(1540px, calc(100% - 64px)); padding: 32px 0 56px; }
+.app-shell .page-header { min-height: 40px; align-items: center; gap: 18px; margin-bottom: 26px; }
+.app-shell .page-header h1 { margin: 0; color: #1e2b25; font-size: 24px; line-height: 34px; font-weight: 650; }
+.app-shell .page-header p { margin-top: 6px; color: var(--muted); font-size: 12px; line-height: 1.7; }
+.app-shell .page-actions { flex-wrap: wrap; justify-content: flex-end; }
+.app-shell .primary-button, .app-shell .secondary-button { min-height: 36px; height: auto; padding: 8px 13px; font-size: 12px; line-height: 18px; font-weight: 550; border-radius: 6px; }
+.app-shell .primary-button { background: var(--accent); border-color: var(--accent); box-shadow: 0 1px 2px #173d2414; }
+.app-shell .primary-button:hover:not(:disabled) { background: #105e48; border-color: #105e48; }
+.app-shell .secondary-button { color: #45534c; border-color: #dce3df; background: #fff; box-shadow: 0 1px 2px #173d2408; }
+.app-shell .secondary-button:hover:not(:disabled) { background: #f5f8f6; border-color: #acbfb3; }
+.app-shell .primary-button svg, .app-shell .secondary-button svg { flex-shrink: 0; }
+.app-shell .icon-button { color: #6d7973; border-radius: 6px; }
+.app-shell .icon-button:hover:not(:disabled) { color: var(--accent); background: var(--accent-soft); }
+.app-shell .icon-button.bordered { border-color: #dce3df; }
+.app-shell .panel, .app-shell .operations-panel, .app-shell .settings-list, .app-shell .sync-console { border: 0; border-radius: 0; background: #fff; }
+.app-shell .panel { padding: 0 4px 18px; border-top: 1px solid var(--line); }
+.app-shell .panel-header { min-height: 66px; }
+.app-shell .panel-header h2, .app-shell .section-title h2 { font-size: 15px; font-weight: 600; }
+.app-shell .panel-header p, .app-shell .section-title p { font-size: 11px; color: var(--muted); }
+.app-shell .chart-grid, .app-shell .dashboard-lower { gap: 28px; margin-bottom: 24px; }
+.app-shell .metric-grid { gap: 0; border-block: 1px solid var(--line); margin-bottom: 28px; }
+.app-shell .metric-card { padding: 20px; border: 0; border-right: 1px solid var(--line); border-radius: 0; min-height: 124px; }
+.app-shell .metric-card:last-child { border-right: 0; }
+.app-shell .metric-card strong { font-size: 28px; line-height: 36px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.app-shell .metric-card span { font-size: 12px; color: var(--muted); }
+.app-shell .metric-card small { font-size: 11px; color: #8b948f; }
+.app-shell .metric-icon { width: 32px; height: 32px; border-radius: 6px; }
+.app-shell .filter-bar { min-height: 62px; padding: 12px 0; gap: 10px; border: 0; border-radius: 0; flex-wrap: wrap; }
+.app-shell .search-field, .app-shell .select-field, .app-shell .date-range-field { height: 38px; border-color: #dfe5e1; border-radius: 6px; background: #fff; }
+.app-shell .search-field:focus-within { border-color: var(--focus); box-shadow: 0 0 0 3px #16765b10; }
+.app-shell .search-field input { font-size: 13px; background: transparent; }
+.app-shell .search-field input:focus-visible { outline: none; }
+.app-shell .select-field select, .app-shell .date-range-field input { font-size: 12px; }
+.app-shell .table-panel { border: 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); border-radius: 0; }
+.app-shell .data-table { font-size: 12px; font-variant-numeric: tabular-nums; }
+.app-shell .data-table th { height: 42px; padding: 10px 16px; background: #f7f9f8; color: #758179; font-size: 11px; font-weight: 500; }
+.app-shell .data-table td { height: 56px; padding: 12px 16px; color: #4f5d55; border-color: #edf0ee; }
+.app-shell .data-table td strong { font-weight: 550; color: #2a3930; }
+.app-shell .data-table tbody tr:hover { background: #f6faf7; }
+.app-shell .primary-cell { gap: 4px; }
+.app-shell .primary-cell small { color: #8a958e; font-size: 11px; }
+.app-shell .pagination { min-height: 60px; font-size: 12px; color: var(--muted); }
+.app-shell .segmented-tabs { gap: 18px; padding: 0; border: 0; border-bottom: 1px solid var(--line); border-radius: 0; background: transparent; margin-bottom: 14px; }
+.app-shell .segmented-tabs button { height: 42px; padding: 0 2px; border-radius: 0; border-bottom: 2px solid transparent; font-size: 12px; font-weight: 500; }
+.app-shell .segmented-tabs button.active { color: var(--accent); background: transparent; border-bottom-color: var(--accent); box-shadow: none; }
+.app-shell .state-view { min-height: 200px; gap: 12px; color: #87958c; font-size: 13px; }
+.app-shell .error-banner, .app-shell .success-banner, .app-shell .notice-strip { padding: 12px 16px; height: auto; line-height: 1.6; border-radius: 6px; font-size: 12px; }
+.app-shell .error-banner svg { flex-shrink: 0; }
+.app-shell .status-badge, .app-shell .order-status { height: auto; min-height: 24px; padding: 3px 8px; font-size: 11px; font-weight: 500; }
+.app-shell .modal-backdrop { background: #15261e66; backdrop-filter: blur(3px); }
+.app-shell .modal { border: 1px solid #e2e8e3; box-shadow: 0 24px 80px #13271c33; border-radius: 8px; }
+.app-shell .modal > header { min-height: 76px; padding: 18px 24px; gap: 16px; }
+.app-shell .modal h2 { font-size: 17px; line-height: 1.5; font-weight: 600; overflow-wrap: anywhere; }
+.app-shell .modal header p { font-size: 12px; line-height: 1.6; }
+.app-shell .modal form { padding: 24px; }
+.app-shell .modal footer { padding-top: 20px; margin-top: 24px; }
+.app-shell .form-grid { gap: 18px; }
+.app-shell .form-grid label, .app-shell .sync-config > label { font-size: 12px; font-weight: 500; }
+.app-shell .form-grid input, .app-shell .form-grid select, .app-shell .sync-config select { height: 40px; font-size: 13px; border-color: #dce4df; }
+.app-shell .form-grid .mfa-code-input { height: 54px; font-size: 26px; }
+.app-shell .security-note { padding: 10px 12px; height: auto; line-height: 1.6; }
+.app-shell .security-note svg { flex-shrink: 0; }
+.app-shell .toggle input:focus-visible + span, .app-shell .policy-toggle input:focus-visible + span { outline: 2px solid var(--focus); outline-offset: 3px; }
+.app-shell .setting-row { min-height: 88px; padding: 18px 4px; }
+.app-shell .setting-row strong { font-size: 14px; font-weight: 550; }
+.app-shell .setting-row small { font-size: 12px; }
+.app-shell .setting-state { font-size: 12px; }
+.app-shell .sync-console { border-block: 1px solid var(--line); margin-bottom: 28px; }
+.app-shell .sync-targets { background: #fff; padding: 24px 24px 24px 0; }
+.app-shell .sync-targets strong { font-size: 14px; }
+.app-shell .sync-targets small { font-size: 12px; }
+.app-shell .sync-targets > button { min-height: 80px; padding: 16px; }
+.app-shell .sync-config { padding: 24px; }
+.app-shell .warehouse-summary-bar, .app-shell .platform-order-overview, .app-shell .packing-summary-bar { border-inline: 0; border-radius: 0; background: #fff; }
+.app-shell .warehouse-section-heading { min-height: 60px; padding: 10px 0; }
+.app-shell .warehouse-section-heading h2 { font-size: 15px; font-weight: 600; margin: 0; }
+.app-shell .warehouse-section-heading > span { color: var(--muted); font-size: 12px; }
+.app-shell .warehouse-section + .warehouse-section { margin-top: 28px; }
+.app-shell .audit-summary { gap: 0; border-block: 1px solid var(--line); margin-bottom: 20px; }
+.app-shell .audit-summary-item { border: 0; border-bottom: 2px solid transparent; border-radius: 0; min-height: 100px; padding: 16px; }
+.app-shell .audit-summary-item:hover, .app-shell .audit-summary-item.active { background: #f4f8f5; border-bottom-color: var(--accent); box-shadow: none; }
+.app-shell .audit-summary-item strong { font-size: 26px; font-weight: 600; }
+.app-shell .audit-summary-item span { font-weight: 500; }
+.app-shell .pairing-toolbar { padding: 16px 0; border: 0; border-radius: 0; margin-bottom: 8px; }
+.app-shell .pairing-toolbar label { font-size: 12px; font-weight: 500; }
+.app-shell .pairing-toolbar input, .app-shell .pairing-toolbar select { height: 38px; font-size: 12px; }
+.app-shell .pairing-members > span { background: #f6f9f7; border: 0; padding: 7px 9px; }
+.app-shell .pairing-members b, .app-shell .pairing-members em { font-size: 11px; font-weight: 500; }
+.app-shell .pairing-members small { font-size: 11px; }
+.app-shell .threshold-defaults { grid-template-columns: minmax(180px, 1fr) minmax(160px, 260px) auto; padding: 20px 0; border-inline: 0; border-radius: 0; gap: 24px; }
+.app-shell .threshold-default-title { height: auto; grid-column: auto; }
+.app-shell .threshold-default-actions { grid-column: auto; }
+.app-shell .threshold-default-title strong { font-size: 14px; font-weight: 550; }
+.app-shell .threshold-default-title small { font-size: 12px; }
+.app-shell .threshold-defaults label { font-size: 12px; font-weight: 500; }
+.app-shell .threshold-shop-bar .muted-text { font-size: 12px; color: var(--muted); }
+.app-shell .threshold-source small { font-size: 11px; }
+.app-shell .packing-config { border-inline: 0; border-radius: 0; }
+.app-shell .packing-config-section { padding: 18px 12px; }
+.app-shell .packing-config-section h2, .app-shell .packing-unfit h2 { font-size: 14px; font-weight: 550; }
+.app-shell .packing-config-section header span, .app-shell .packing-unfit header span { font-size: 11px; }
+.app-shell .packing-sku-option strong, .app-shell .packing-selected-sku strong { font-size: 12px; }
+.app-shell .packing-sku-option small, .app-shell .packing-selected-sku small { font-size: 11px; }
+.app-shell .evaluation-source-strip { border: 0; border-bottom: 1px solid var(--line); border-radius: 0; padding-inline: 0; min-height: 48px; }
+.app-shell .evaluation-view-tabs button { font-size: 12px; font-weight: 500; }
+.app-shell .evaluation-chart-grid { gap: 28px; }
+
+/* Shared policy controls remain distinct from the page's unframed sections. */
+.app-shell .policy-workspace-bar { padding: 0; min-height: 48px; border: 0; border-bottom: 1px solid var(--line); border-radius: 0; gap: 14px; }
+.app-shell .policy-view-nav { gap: 24px; }
+.app-shell .policy-view-nav button { height: 48px; padding: 0 2px; border-radius: 0; border-bottom: 2px solid transparent; font-size: 12px; font-weight: 500; }
+.app-shell .policy-view-nav button.active { border-bottom-color: var(--accent); background: transparent; color: var(--accent); }
+.app-shell .policy-view-nav button:hover { background: transparent; color: var(--accent); }
+.app-shell .policy-context { border: 0; padding: 0; }
+.app-shell .policy-view-content { margin-top: 24px; }
+.app-shell .warehouse-policy-grid { gap: 28px; }
+.app-shell .warehouse-policy-card { border: 0; border-radius: 0; border-top: 1px solid var(--line); }
+.app-shell .warehouse-policy-header { background: #fff; padding: 18px 0; }
+.app-shell .warehouse-policy-identity h2 { font-size: 16px; font-weight: 600; }
+.app-shell .warehouse-policy-body { padding: 0; }
+.app-shell .warehouse-policy-footer { background: #fff; padding: 14px 0; }
+.app-shell .policy-field-section { padding: 20px 0; }
+.app-shell .policy-field-heading h3 { font-size: 13px; font-weight: 550; }
+.app-shell .policy-field-heading p { font-size: 11px; line-height: 1.6; }
+.app-shell .policy-inline-fields label, .app-shell .selection-number-grid label { font-size: 12px; font-weight: 500; }
+.app-shell .policy-inline-fields input, .app-shell .policy-inline-fields select, .app-shell .selection-number-grid input { height: 40px; font-size: 13px; }
+.app-shell .carrier-allow-grid label { height: 40px; }
+.app-shell .carrier-allow-grid strong, .app-shell .carrier-priority-row > strong { font-size: 12px; font-weight: 550; }
+.app-shell .carrier-priority-list { border: 0; border-radius: 0; }
+.app-shell .carrier-priority-row { min-height: 46px; padding-inline: 0; }
+.app-shell .policy-toggle b { font-size: 11px; }
+.app-shell .warehouse-tags span { font-size: 11px; padding: 3px 8px; }
+.app-shell .account-policy-workspace { padding-top: 24px; }
+.app-shell .account-policy-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-bottom: 20px; }
+.app-shell .account-policy-toolbar .search-field { width: min(340px, 65%); }
+.app-shell .account-policy-grid { display: flex; flex-direction: column; gap: 0; border-top: 1px solid var(--line); }
+.app-shell .account-policy-card { display: grid; grid-template-columns: minmax(230px, 1fr) minmax(250px, 1.4fr); column-gap: 28px; padding: 24px 0; border: 0; border-bottom: 1px solid var(--line); border-radius: 0; background: #fff; }
+.app-shell .account-policy-card > header { grid-row: 1 / 3; min-height: 0; align-items: flex-start; padding: 0; border: 0; background: transparent; }
+.app-shell .account-identity { gap: 14px; align-items: flex-start; }
+.app-shell .account-identity > span { width: 40px; height: 40px; border-radius: 8px; background: #edf3f0; color: #507c65; }
+.app-shell .account-identity h3 { margin: 0; font-size: 15px; line-height: 22px; font-weight: 600; overflow-wrap: anywhere; }
+.app-shell .account-identity p { font-size: 12px; color: #839087; margin-top: 5px; }
+.app-shell .account-card-summary { padding: 0; gap: 16px; flex-wrap: wrap; font-size: 11px; color: #7a877e; }
+.app-shell .account-card-summary .account-health { margin-left: 0; line-height: 1.6; font-weight: 500; }
+.app-shell .account-card-summary .account-health svg { flex-shrink: 0; }
+.app-shell .account-health.ready { color: #24825e; }
+.app-shell .account-health.blocked { color: #b16c22; }
+.app-shell .account-bindings { display: flex; flex-wrap: wrap; gap: 8px; padding-top: 12px; }
+.app-shell .account-bindings > span { display: inline-flex; align-items: center; gap: 8px; color: #506c5b; font-size: 12px; }
+.app-shell .account-bindings strong { font-weight: 500; overflow-wrap: anywhere; }
+.app-shell .account-bindings small { font-size: 12px; color: var(--muted); }
+.app-shell .account-policy-card > footer { grid-column: 1 / -1; min-height: 0; margin-top: 20px; padding: 0 0 0 54px; background: transparent; border: 0; }
+.app-shell .account-policy-card > footer > small { color: #98a29b; font-size: 11px; }
+.app-shell .account-policy-card > footer > div { gap: 8px; }
+.app-shell .account-policy-card > footer .toggle { margin-left: 8px; }
+.app-shell .account-policy-card.disabled { opacity: .7; background: #fafbfa; }
+.app-shell .account-warehouse-grid { gap: 10px; padding: 18px 0; }
+.app-shell .account-warehouse-grid label { min-height: 64px; padding: 12px; }
+.app-shell .account-warehouse-grid strong { font-size: 12px; }
+.app-shell .account-warehouse-grid small { font-size: 11px; }
+
+@media (min-width: 901px) {
+  .app-shell .nav-submenu { display: none; }
+  .app-shell .nav-item.parent-active { background: #e5f0e9; color: #176646; font-weight: 650; }
+  .app-shell .nav-caret { display: none; }
+}
+@media (min-width: 901px) and (max-height: 850px) {
+  .app-shell .brand { height: 64px; }
+  .app-shell .nav-group { margin-bottom: 14px; }
+  .app-shell .nav-item { height: 35px; }
+  .app-shell .nav-subitem { height: 30px; }
+}
+@media (max-width: 1180px) {
+  .app-shell .metric-card { border-bottom: 1px solid var(--line); }
+  .app-shell .policy-view-nav { gap: 12px; }
+}
+@media (max-width: 900px) {
+  .app-shell .workspace { width: 100%; margin-left: 0; }
+  .app-shell .sidebar { box-shadow: 12px 0 40px #193b2018; }
+  .app-shell .main-content { width: calc(100% - 40px); padding-top: 24px; }
+  .app-shell .topbar { padding-inline: 20px; }
+  .app-shell .threshold-defaults { grid-template-columns: minmax(0, 1fr) auto; gap: 16px; }
+  .app-shell .threshold-default-title { grid-column: 1 / -1; }
+  .app-shell .threshold-default-actions { grid-column: auto; }
+}
+@media (max-width: 680px) {
+  .app-shell .main-content { width: calc(100% - 32px); padding-top: 22px; }
+  .app-shell .topbar { height: 56px; padding-inline: 10px; gap: 8px; }
+  .app-shell .page-header { align-items: flex-start; gap: 14px; margin-bottom: 20px; }
+  .app-shell .page-header h1 { font-size: 22px; line-height: 30px; }
+  .app-shell .page-actions { justify-content: flex-start; gap: 8px; }
+  .app-shell .page-actions > button { flex: 0 1 auto; white-space: normal; }
+  .app-shell .page-actions > .icon-button { flex: none; }
+  .app-shell .metric-card { padding: 16px 10px; min-height: 110px; gap: 8px; }
+  .app-shell .metric-card strong { font-size: 24px; }
+  .app-shell .metric-icon { width: 28px; height: 28px; }
+  .app-shell .policy-workspace-bar { align-items: stretch; gap: 8px; }
+  .app-shell .policy-view-nav { gap: 20px; }
+  .app-shell .policy-view-nav button { flex: none; }
+  .app-shell .policy-context { justify-content: flex-start; padding-bottom: 8px; }
+  .app-shell .account-policy-card { grid-template-columns: minmax(0, 1fr); gap: 16px; padding: 22px 0; }
+  .app-shell .account-policy-card > header { grid-row: auto; }
+  .app-shell .account-card-summary { gap: 10px 16px; }
+  .app-shell .account-card-summary .account-health { flex-basis: 100%; }
+  .app-shell .account-bindings { padding: 0; }
+  .app-shell .account-policy-card > footer { margin: 0; padding: 0; flex-direction: column; align-items: flex-start; gap: 14px; }
+  .app-shell .account-policy-card > footer > div { width: 100%; justify-content: flex-start; flex-wrap: wrap; }
+  .app-shell .account-policy-card > footer .toggle { margin-left: auto; }
+  .app-shell .account-policy-toolbar { gap: 8px; }
+  .app-shell .account-policy-toolbar .search-field { min-width: 0; flex: 1; }
+  .app-shell .account-policy-toolbar .primary-button { flex: none; padding-inline: 10px; }
+  .app-shell .modal-backdrop { padding: 10px; }
+  .app-shell .modal { max-height: calc(100dvh - 20px); }
+  .app-shell .modal > header { padding: 16px; }
+  .app-shell .modal form { padding: 18px 16px; }
+  .app-shell .account-warehouse-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .app-shell .sync-targets { padding: 16px 0; }
+  .app-shell .sync-config { padding: 20px 0; }
+  .app-shell .setting-row { gap: 10px; }
+  .app-shell .setting-state { font-size: 0; }
+  .app-shell .threshold-defaults { grid-template-columns: minmax(0, 1fr); }
+  .app-shell .threshold-default-actions { justify-content: flex-start; }
+  .app-shell .audit-summary-item { min-height: 92px; padding: 14px; }
+  .app-shell .audit-summary-item:first-child { grid-column: auto; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { scroll-behavior: auto !important; transition: none !important; }
+}

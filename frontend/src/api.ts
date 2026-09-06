@@ -1,4 +1,4 @@
-import type { CarrierPolicy, CostDetail, DashboardData, FulfilledOrderPage, FulfillmentAuditPage, FundsFlow, InventoryAlertPage, InventoryCorrection, InventoryKind, InventoryRecord, InventoryThresholdPage, InventoryThresholds, OMSAccountSummary, PackingPlan, PackingPlanRequest, PageData, PendingPlatformOrderPage, PlatformInventoryThresholds, PlatformOrderAccountOption, PlatformOrderAssignmentResult, PlatformOrderRoutingPreview, PlatformSKUFulfillmentPolicy, PlatformSKUFulfillmentPolicyPage, PlatformSKUOMSAccount, PlatformSKUOMSAccountPage, ProductPairingMutationResult, ProductPairingPage, ProductPairingPayload, SKUCombination, SKUCombinationPayload, SKUInventoryThreshold, SKUStockLevelPage, SyncRun, Warehouse, WarehouseAPICredentialGroup, WarehouseCarrierPolicies, WarehouseCarrierRules, WarehouseSKUInventoryAlertThreshold, WarehouseSKUSpec } from "./types";
+import type { CarrierPolicy, CostDetail, DashboardData, FulfilledOrderPage, FulfillmentAuditPage, FundsFlow, InventoryAlertPage, InventoryCorrection, InventoryKind, InventoryRecord, InventoryThresholdPage, InventoryThresholds, OMSAccountSummary, OMSMFAPrompt, PackingPlan, PackingPlanRequest, PageData, PendingPlatformOrderPage, PlatformInventoryThresholds, PlatformOrderAccountOption, PlatformOrderAssignmentResult, PlatformOrderRoutingPreview, PlatformSKUFulfillmentPolicy, PlatformSKUFulfillmentPolicyPage, ProductPairingMutationResult, ProductPairingPage, ProductPairingPayload, SKUCombination, SKUCombinationPayload, SKUInventoryThreshold, SKUStockLevelPage, SyncRun, Warehouse, WarehouseAPICredentialGroup, WarehouseCarrierPolicies, WarehouseCarrierRules, WarehouseSKUInventoryAlertThreshold, WarehouseSKUSpec } from "./types";
 
 type Envelope<T> = { success: boolean; data?: T; error?: string; code?: string };
 const apiBase = `${import.meta.env.BASE_URL}api`;
@@ -58,19 +58,17 @@ export const api = {
   platformOrderAccounts: () => request<PlatformOrderAccountOption[]>("/platform-orders/accounts"),
   updatePlatformOrderAccount: (account: string, payload: { username: string; password: string }) =>
     request<PlatformOrderAccountOption[]>(`/platform-orders/accounts/${encodeURIComponent(account)}`, { method: "PATCH", body: JSON.stringify(payload) }),
+  beginPlatformOrderAccountMFA: (account: string) =>
+    request<OMSMFAPrompt>(`/platform-orders/accounts/${encodeURIComponent(account)}/mfa-challenge`, { method: "POST" }),
+  completePlatformOrderAccountMFA: (account: string, code: string) =>
+    request<PlatformOrderAccountOption[]>(`/platform-orders/accounts/${encodeURIComponent(account)}/mfa-verify`, { method: "POST", body: JSON.stringify({ code }) }),
   fulfillmentAccounts: (includeDisabled = false) => request<OMSAccountSummary[]>(`/fulfillment-policies/accounts${query({ include_disabled: includeDisabled ? "true" : undefined })}`),
-  createFulfillmentAccount: (payload: { key: string; label: string; username: string; password: string; warehouse_codes: string[] }) =>
+  createFulfillmentAccount: (payload: { key: string; label: string; username: string; password: string; api_credential_keys: string[] }) =>
     request<OMSAccountSummary>("/fulfillment-policies/accounts", { method: "POST", body: JSON.stringify(payload) }),
   updateFulfillmentAccount: (account: string, payload: { label?: string; enabled?: boolean }) =>
     request<OMSAccountSummary>(`/fulfillment-policies/accounts/${encodeURIComponent(account)}`, { method: "PATCH", body: JSON.stringify(payload) }),
-  updateFulfillmentAccountWarehouses: (account: string, warehouseCodes: string[]) =>
-    request<OMSAccountSummary>(`/fulfillment-policies/accounts/${encodeURIComponent(account)}/warehouses`, { method: "PATCH", body: JSON.stringify({ warehouse_codes: warehouseCodes }) }),
-  platformSKUOMSAccounts: (params: { platform: string; q?: string; page: number; pageSize: number }) =>
-    request<PlatformSKUOMSAccountPage>(`/fulfillment-policies/account-routes${query({ platform: params.platform, q: params.q, page: params.page, page_size: params.pageSize })}`),
-  updatePlatformSKUOMSAccount: (platform: string, warehouseSKU: string, accountKey: string) =>
-    request<PlatformSKUOMSAccount>(`/fulfillment-policies/account-routes/${encodeURIComponent(warehouseSKU)}${query({ platform })}`, { method: "PATCH", body: JSON.stringify({ account_key: accountKey }) }),
-  resetPlatformSKUOMSAccount: (platform: string, warehouseSKU: string) =>
-    request<{ deleted: boolean }>(`/fulfillment-policies/account-routes/${encodeURIComponent(warehouseSKU)}/reset${query({ platform })}`, { method: "POST" }),
+  updateFulfillmentAccountAPICredentials: (account: string, credentialKeys: string[]) =>
+    request<OMSAccountSummary>(`/fulfillment-policies/accounts/${encodeURIComponent(account)}/api-credentials`, { method: "PATCH", body: JSON.stringify({ api_credential_keys: credentialKeys }) }),
   upgradePlatformOrderAccountPassword: (account: string, payload: { username: string; current_password: string; new_password: string; confirm_new_password: string }) =>
     request<PlatformOrderAccountOption[]>(`/platform-orders/accounts/${encodeURIComponent(account)}/password-upgrade`, { method: "POST", body: JSON.stringify(payload) }),
   productPairings: (params: { account: string; storeCode?: string; q?: string; queryField?: "platform_sku" | "system_sku" | "product_name"; page: number; pageSize: number }) =>

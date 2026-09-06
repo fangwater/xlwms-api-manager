@@ -135,6 +135,9 @@
 .account-card-actions .policy-toggle { margin-right: 3px; }
 .account-card-summary { display: flex; align-items: center; gap: 14px; padding: 10px 13px 0; color: #778087; font-size: 9px; }
 .account-card-summary span { display: inline-flex; align-items: center; gap: 5px; }
+.account-card-summary .account-health { margin-left: auto; font-weight: 650; }
+.account-health.ready { color: #247057; }
+.account-health.blocked { color: #ae4650; }
 .account-warehouse-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 7px; padding: 11px 13px 13px; }
 .account-warehouse-grid label { min-width: 0; min-height: 50px; display: grid; grid-template-columns: 18px minmax(0, 1fr); align-items: center; gap: 7px; padding: 7px; border: 1px solid #e0e4e6; border-radius: 6px; background: #fafbfb; cursor: pointer; }
 .account-warehouse-grid label.active { border-color: #82ad9d; background: #edf5f1; }
@@ -145,7 +148,9 @@
 .account-warehouse-grid strong, .account-warehouse-grid small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .account-warehouse-grid strong { color: #343a3e; font-size: 9px; }
 .account-warehouse-grid small { margin-top: 2px; color: #949ba0; font-size: 8px; }
-.account-policy-card > footer { min-height: 54px; display: flex; align-items: center; justify-content: flex-end; padding: 8px 13px; border-top: 1px solid #e6e9ea; background: #fafbfb; }
+.account-policy-card > footer { min-height: 54px; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 13px; border-top: 1px solid #e6e9ea; background: #fafbfb; }
+.account-policy-card > footer > small { min-width: 0; color: #737c82; }
+.account-policy-card > footer > div { display: flex; align-items: center; justify-content: flex-end; gap: 5px; flex-wrap: wrap; }
 .account-management-toolbar { min-height: 54px; display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-bottom: 12px; padding: 8px 11px; border: 1px solid #dfe3e5; border-radius: 8px; background: #fff; }
 .account-management-toolbar > div { display: flex; align-items: center; gap: 8px; }
 .account-management-toolbar > div:first-child { color: #7a8389; font-size: 10px; }
@@ -163,6 +168,8 @@
 .account-credential-modal { width: min(500px, calc(100vw - 24px)); }
 .account-create-modal { width: min(680px, calc(100vw - 24px)); }
 .account-label-modal { width: min(460px, calc(100vw - 24px)); }
+.account-mfa-modal { width: min(430px, calc(100vw - 24px)); }
+.mfa-code-input { font-size: 22px; font-variant-numeric: tabular-nums; text-align: center; }
 .account-create-warehouses { margin-top: 16px; border: 1px solid #e1e5e7; border-radius: 7px; }
 .account-create-warehouses > span { display: block; padding: 10px 13px 0; color: #697178; font-size: 10px; font-weight: 650; }
 .account-create-warehouses .account-warehouse-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
@@ -196,6 +203,8 @@
   .account-management-toolbar { align-items: stretch; flex-direction: column; }
   .account-management-toolbar > div:last-child .primary-button { flex: 1; }
   .account-policy-card > header { align-items: flex-start; }
+  .account-policy-card > footer { align-items: flex-start; flex-direction: column; }
+  .account-policy-card > footer > div { width: 100%; justify-content: flex-start; }
   .account-card-actions { flex-wrap: wrap; justify-content: flex-end; }
   .account-create-warehouses .account-warehouse-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .policy-section-title { align-items: flex-start; flex-direction: column; }

@@ -49,8 +49,8 @@ func TestProductPairingHandlersUseSelectedAccount(t *testing.T) {
 		},
 	}
 	accounts := &fakeSelectablePlatformAccounts{accountOperators: map[string]platformOrderAccount{
-		defaultPlatformOrderAccountKey: arp,
-		"warehouse:DPSCA004":           dps,
+		"arp":                arp,
+		"warehouse:DPSCA004": dps,
 	}}
 	handler := newWithPlatformOrderAccountOperations(nil, nil, nil, arp, nil, nil, accounts, time.Second, slog.Default())
 

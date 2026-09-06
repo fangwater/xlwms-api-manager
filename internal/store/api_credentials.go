@@ -124,12 +124,16 @@ SELECT credential.credential_key,credential.credential_label,credential.api_base
        credential.app_key_hint,credential.is_active,credential.last_verified_at,credential.updated_at,
        coalesce(array_agg(DISTINCT inventory.wh_code ORDER BY inventory.wh_code)
            FILTER (WHERE inventory.wh_code<>''),'{}'::text[]),
-       count(*) FILTER (WHERE inventory.warehouse_sku<>'')
+       count(DISTINCT inventory.warehouse_sku) FILTER (WHERE inventory.warehouse_sku<>''),
+       coalesce(binding.account_key,''),coalesce(account.account_label,'')
 FROM xlwms_api_credentials credential
 LEFT JOIN xlwms_api_credential_inventory inventory
   ON inventory.credential_key=credential.credential_key
+LEFT JOIN xlwms_oms_account_api_credentials binding
+  ON binding.credential_key=credential.credential_key
+LEFT JOIN xlwms_oms_accounts account ON account.account_key=binding.account_key
 `+where+`
-GROUP BY credential.credential_key
+GROUP BY credential.credential_key,binding.account_key,account.account_label
 ORDER BY credential.credential_label,credential.credential_key
 `)
 	if err != nil {
@@ -139,7 +143,8 @@ ORDER BY credential.credential_label,credential.credential_key
 	for rows.Next() {
 		var item model.WarehouseAPICredentialGroup
 		if err := rows.Scan(&item.Key, &item.Label, &item.APIBaseURL, &item.AppKeyHint, &item.Active,
-			&item.LastVerifiedAt, &item.UpdatedAt, &item.WarehouseCodes, &item.SKUCount); err != nil {
+			&item.LastVerifiedAt, &item.UpdatedAt, &item.WarehouseCodes, &item.SKUCount,
+			&item.OMSAccountKey, &item.OMSAccountLabel); err != nil {
 			return nil, fmt.Errorf("scan warehouse API credential: %w", err)
 		}
 		items = append(items, item)
@@ -228,14 +233,19 @@ SELECT credential.credential_key,credential.credential_label,credential.api_base
        credential.app_key_hint,credential.is_active,credential.last_verified_at,credential.updated_at,
        coalesce(array_agg(DISTINCT inventory.wh_code ORDER BY inventory.wh_code)
            FILTER (WHERE inventory.wh_code<>''),'{}'::text[]),
-       count(*) FILTER (WHERE inventory.warehouse_sku<>'')
+       count(DISTINCT inventory.warehouse_sku) FILTER (WHERE inventory.warehouse_sku<>''),
+       coalesce(binding.account_key,''),coalesce(account.account_label,'')
 FROM xlwms_api_credentials credential
 LEFT JOIN xlwms_api_credential_inventory inventory
   ON inventory.credential_key=credential.credential_key
+LEFT JOIN xlwms_oms_account_api_credentials binding
+  ON binding.credential_key=credential.credential_key
+LEFT JOIN xlwms_oms_accounts account ON account.account_key=binding.account_key
 WHERE credential.credential_key=$1
-GROUP BY credential.credential_key
+GROUP BY credential.credential_key,binding.account_key,account.account_label
 `, key).Scan(&item.Key, &item.Label, &item.APIBaseURL, &item.AppKeyHint, &item.Active,
-		&item.LastVerifiedAt, &item.UpdatedAt, &item.WarehouseCodes, &item.SKUCount)
+		&item.LastVerifiedAt, &item.UpdatedAt, &item.WarehouseCodes, &item.SKUCount,
+		&item.OMSAccountKey, &item.OMSAccountLabel)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return model.WarehouseAPICredentialGroup{}, errors.New("warehouse API credential was not found")
 	}

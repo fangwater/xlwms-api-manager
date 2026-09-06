@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/cookiejar"
 	"net/url"
 	"strconv"
 	"strings"
@@ -49,6 +50,8 @@ type Client struct {
 
 	tokenMu sync.Mutex
 	token   string
+	mfaMu   sync.Mutex
+	mfa     *mfaVerificationSession
 
 	platformOrderGate *platformOrderQueryGate
 }
@@ -262,13 +265,17 @@ type loginPayload struct {
 }
 
 type loginData struct {
-	Token                   string `json:"token"`
-	LoginAction             string `json:"loginAction"`
-	SecuritySessionToken    string `json:"securitySessionToken"`
-	NeedVerify              bool   `json:"needVerify"`
-	NeedSetupMFA            bool   `json:"needSetupMfa"`
-	NeedUpdatePassword      bool   `json:"needUpdatePassword"`
-	NeedForceUpdatePassword bool   `json:"needForceUpdatePassword"`
+	Token                   string      `json:"token"`
+	LoginAction             string      `json:"loginAction"`
+	ChallengeID             string      `json:"challengeId"`
+	MFAChannel              string      `json:"mfaChannel"`
+	MFAMaskedTarget         string      `json:"mfaMaskedTarget"`
+	AvailableTargets        []mfaTarget `json:"availableTargets"`
+	SecuritySessionToken    string      `json:"securitySessionToken"`
+	NeedVerify              bool        `json:"needVerify"`
+	NeedSetupMFA            bool        `json:"needSetupMfa"`
+	NeedUpdatePassword      bool        `json:"needUpdatePassword"`
+	NeedForceUpdatePassword bool        `json:"needForceUpdatePassword"`
 }
 
 type listPayload struct {
@@ -318,11 +325,12 @@ func NewClient(baseURL, username, password string, timeout time.Duration) *Clien
 	if timeout <= 0 {
 		timeout = 30 * time.Second
 	}
+	jar, _ := cookiejar.New(nil)
 	return &Client{
 		baseURL:           strings.TrimRight(baseURL, "/"),
 		username:          strings.TrimSpace(username),
 		password:          password,
-		httpClient:        &http.Client{Timeout: timeout},
+		httpClient:        &http.Client{Timeout: timeout, Jar: jar},
 		platformOrderGate: newPlatformOrderQueryGate(platformOrderQueryConcurrency, platformOrderQueryMinInterval),
 	}
 }
@@ -546,10 +554,16 @@ func (c *Client) pendingOrderByPlatformOrderNo(ctx context.Context, platformOrde
 }
 
 func (c *Client) accessToken(ctx context.Context) (string, error) {
+	c.mfaMu.Lock()
+	defer c.mfaMu.Unlock()
 	c.tokenMu.Lock()
 	defer c.tokenMu.Unlock()
 	if c.token != "" {
 		return c.token, nil
+	}
+	// Account refreshes must not start another login while a code is pending.
+	if c.mfa != nil {
+		return "", ErrMFAVerificationRequired
 	}
 	token, err := c.login(ctx)
 	if err != nil {
@@ -569,7 +583,12 @@ func AuthErrorMessage(err error) string {
 		return ""
 	}
 	message := err.Error()
+	var mfaErr *MFARequestError
 	switch {
+	case errors.As(err, &mfaErr):
+		return mfaErr.PublicMessage()
+	case errors.Is(err, ErrMFAVerificationRequired):
+		return "需要短信、邮箱或验证器二次验证"
 	case errors.Is(err, ErrPasswordUpdateRequired):
 		return "请更新登录密码"
 	case strings.Contains(message, "账号已锁定"):
@@ -578,8 +597,12 @@ func AuthErrorMessage(err error) string {
 		return "请更新登录密码"
 	case strings.Contains(message, "用户名或密码错误"):
 		return "用户名或密码错误"
-	case strings.Contains(message, "password update"), strings.Contains(message, "verification"):
-		return "需要更新登录密码或完成验证"
+	case strings.Contains(message, "send OMS MFA verification code"):
+		return "发送验证码请求失败，请稍后重新发起验证"
+	case strings.Contains(message, "verify OMS MFA code"):
+		return "验证码校验请求失败，请稍后重试"
+	case strings.Contains(message, "OMS login requires interactive verification"):
+		return "领星要求设置二次验证，请在领星官网完成绑定后重试"
 	case errors.Is(err, ErrAuthentication), strings.Contains(message, "OMS login"), strings.Contains(message, "OMS authentication"):
 		return "领星登录失败"
 	default:
@@ -609,27 +632,35 @@ func (c *Client) login(ctx context.Context) (string, error) {
 	if c.username == "" || c.password == "" {
 		return "", errors.New("OMS username and password are not configured")
 	}
-	flowID, err := randomHex(16)
+	session, err := newLoginSession()
 	if err != nil {
-		return "", fmt.Errorf("generate OMS login flow ID: %w", err)
+		return "", err
 	}
-	fingerprint := deviceFingerprint()
+	return c.loginWithSession(ctx, session)
+}
+
+func (c *Client) loginWithSession(ctx context.Context, session mfaLoginSession) (string, error) {
 	payload := loginPayload{
-		BusinessType: "oms", DeviceFingerprint: fingerprint, DeviceInfo: deviceInfo(),
-		LoginAccount: c.username, LoginFlowID: flowID, Password: c.password,
+		BusinessType: "oms", DeviceFingerprint: session.deviceFingerprint, DeviceInfo: session.deviceInfo,
+		LoginAccount: c.username, LoginFlowID: session.loginFlowID, Password: c.password,
 	}
 	headers := map[string]string{
-		"X-Client-Type": "web", "X-Device-Fingerprint": fingerprint, "X-Login-Flow-Id": flowID,
+		"X-Client-Type": "web", "X-Device-Fingerprint": session.deviceFingerprint, "X-Login-Flow-Id": session.loginFlowID,
 	}
 	envelope, status, err := postJSON[loginData](ctx, c, "/gateway/woms/auth/login", payload, headers)
 	if err != nil {
 		return "", fmt.Errorf("login to OMS: %w", err)
 	}
 	passwordUpdateRequired := envelope.Data.NeedUpdatePassword || envelope.Data.NeedForceUpdatePassword ||
-		strings.EqualFold(envelope.Data.LoginAction, "NEED_UPDATE_PASSWORD") || envelope.Code == 4011 ||
+		strings.EqualFold(envelope.Data.LoginAction, "NEED_UPDATE_PASSWORD") ||
 		strings.Contains(envelope.Msg, "请更新登录密码")
 	if passwordUpdateRequired {
 		return "", &passwordUpdateRequiredError{securitySessionToken: envelope.Data.SecuritySessionToken}
+	}
+	mfaRequired := envelope.Data.NeedVerify || strings.EqualFold(envelope.Data.LoginAction, "NEED_MFA_VERIFY") ||
+		strings.Contains(envelope.Msg, "二次验证")
+	if mfaRequired {
+		return "", &mfaVerificationRequiredError{session: session, data: envelope.Data}
 	}
 	if status == http.StatusUnauthorized || envelope.Code == http.StatusUnauthorized {
 		return "", ErrAuthentication
@@ -637,7 +668,7 @@ func (c *Client) login(ctx context.Context) (string, error) {
 	if status < 200 || status >= 300 || envelope.Code != http.StatusOK {
 		return "", remoteError("OMS login", status, envelope.Code, envelope.Msg)
 	}
-	if envelope.Data.NeedVerify || envelope.Data.NeedSetupMFA || envelope.Data.NeedUpdatePassword || envelope.Data.NeedForceUpdatePassword {
+	if envelope.Data.NeedSetupMFA && envelope.Data.Token == "" {
 		return "", errors.New("OMS login requires interactive verification or a password update")
 	}
 	if envelope.Data.Token == "" {
@@ -724,7 +755,7 @@ func postJSON[T any](ctx context.Context, client *Client, path string, payload a
 	request.Header.Set("Content-Type", "application/json;charset=UTF-8")
 	request.Header.Set("Origin", client.baseURL)
 	referer := client.baseURL + "/platform/order/list"
-	if strings.HasSuffix(path, "/auth/login") {
+	if strings.Contains(path, "/auth/") {
 		referer = client.baseURL + "/login"
 	}
 	request.Header.Set("Referer", referer)

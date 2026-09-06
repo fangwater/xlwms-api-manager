@@ -1,27 +1,27 @@
-import { KeyRound, ListOrdered, PackageSearch, ShieldCheck, UsersRound } from "lucide-react";
-import { useState } from "react";
+import { KeyRound, ListOrdered, PackageSearch, ShieldCheck } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 import { PageHeader } from "../components/Common";
 import SKUShippingRulesView from "./shipping-policies/SKUShippingRulesView";
 import WarehouseRulesView from "./shipping-policies/WarehouseRulesView";
-import AccountRoutesView from "./shipping-policies/AccountRoutesView";
 import AccountManagementView from "./shipping-policies/AccountManagementView";
 import "./ShippingPoliciesPage.css";
 
 const platforms = ["temu", "shein"];
 const platformLabel = (value: string) => value === "shein" ? "SHEIN" : "Temu";
 
-export type ShippingPolicyView = "base-rules" | "selection" | "sku-rules" | "account-management" | "account-routes";
+export type ShippingPolicyView = "base-rules" | "selection" | "sku-rules" | "account-management";
 
 const views = [
   { key: "base-rules", path: "/shipping-policies/base-rules", label: "基础快递限制", title: "基础快递限制", subtitle: "按平台和仓库维护可用快递、签名服务及报价币种", scope: "平台 + 仓库", icon: ShieldCheck },
   { key: "selection", path: "/shipping-policies/selection", label: "快递选择算法", title: "快递选择算法", subtitle: "按平台和仓库维护选价方式、价差范围与快递优先级", scope: "平台 + 仓库", icon: ListOrdered },
   { key: "sku-rules", path: "/shipping-policies/sku-rules", label: "SKU 发货规则", title: "SKU 发货规则", subtitle: "按平台和 SKU 维护可发仓库与快递覆盖", scope: "平台 + SKU", icon: PackageSearch },
-  { key: "account-management", path: "/shipping-policies/accounts", label: "账号管理", title: "OMS 账号管理", subtitle: "发货账号、登录状态与可操作仓库", scope: "全局账号", icon: KeyRound },
-  { key: "account-routes", path: "/shipping-policies/account-routes", label: "账户路由", title: "OMS 账户路由", subtitle: "按平台和仓库 SKU 确定发货账户", scope: "平台 + SKU", icon: UsersRound }
+  { key: "account-management", path: "/shipping-policies/accounts", label: "账号管理", title: "OMS 账号管理", subtitle: "发货账号与 OpenAPI SKU 范围", scope: "全局账号", icon: KeyRound }
 ] as const;
 
 export default function ShippingPoliciesPage({ view, onNavigate }: { view: ShippingPolicyView; onNavigate: (path: string) => void }) {
   const [platform, setPlatform] = useState(() => localStorage.getItem("xlwms-policy-platform") || "temu");
+  const activeTab = useRef<HTMLButtonElement>(null);
+  useEffect(() => { activeTab.current?.scrollIntoView({ block: "nearest", inline: "nearest" }); }, [view]);
   const choosePlatform = (value: string) => {
     setPlatform(value);
     localStorage.setItem("xlwms-policy-platform", value);
@@ -29,11 +29,11 @@ export default function ShippingPoliciesPage({ view, onNavigate }: { view: Shipp
   const current = views.find((item) => item.key === view) ?? views[0];
 
   return <>
-    <PageHeader title={current.title} subtitle={current.subtitle} />
+    <PageHeader title={current.title} />
     <div className="policy-workspace-bar">
-      <nav className="policy-view-nav" aria-label="发货策略目录">{views.map((item) => { const Icon = item.icon; return <button key={item.key} className={view === item.key ? "active" : ""} onClick={() => onNavigate(item.path)}><Icon size={17}/><span>{item.label}</span></button>; })}</nav>
-      <div className="policy-context"><span className="policy-scope">{current.scope}</span>{view !== "account-management" && <div className="segmented-control" aria-label="选择平台">{platforms.map((item) => <button key={item} className={platform === item ? "active" : ""} onClick={() => choosePlatform(item)}>{platformLabel(item)}</button>)}</div>}</div>
+      <nav className="policy-view-nav" aria-label="发货策略目录">{views.map((item) => { const Icon = item.icon; return <button ref={view === item.key ? activeTab : undefined} aria-current={view === item.key ? "page" : undefined} key={item.key} className={view === item.key ? "active" : ""} onClick={() => onNavigate(item.path)}><Icon size={17}/><span>{item.label}</span></button>; })}</nav>
+      {view !== "account-management" && <div className="policy-context"><div className="segmented-control" aria-label="选择平台">{platforms.map((item) => <button key={item} className={platform === item ? "active" : ""} onClick={() => choosePlatform(item)}>{platformLabel(item)}</button>)}</div></div>}
     </div>
-    {view === "account-management" ? <AccountManagementView /> : view === "account-routes" ? <AccountRoutesView platform={platform} platformLabel={platformLabel(platform)} /> : view === "sku-rules" ? <SKUShippingRulesView platform={platform} platformLabel={platformLabel(platform)} /> : <WarehouseRulesView platform={platform} mode={view} />}
+    {view === "account-management" ? <AccountManagementView /> : view === "sku-rules" ? <SKUShippingRulesView platform={platform} platformLabel={platformLabel(platform)} /> : <WarehouseRulesView platform={platform} mode={view} />}
   </>;
 }

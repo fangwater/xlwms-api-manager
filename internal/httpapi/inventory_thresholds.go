@@ -18,6 +18,30 @@ type inventoryThresholdRequest struct {
 	TotalThreshold *float64 `json:"total_threshold"`
 }
 
+type fulfillmentShopStore interface {
+	ListFulfillmentShops(context.Context, bool) ([]model.FulfillmentShop, error)
+	UpsertFulfillmentShop(context.Context, string, string, string, bool, string) (model.FulfillmentShop, bool, error)
+	UpdateFulfillmentShop(context.Context, string, string, *string, *bool, string) (model.FulfillmentShop, error)
+}
+
+type fulfillmentShopRequest struct {
+	Platform string `json:"platform"`
+	ShopCode string `json:"shop_code"`
+	ShopName string `json:"shop_name"`
+	Enabled  *bool  `json:"enabled,omitempty"`
+}
+
+type fulfillmentShopPatchRequest struct {
+	ShopName *string `json:"shop_name,omitempty"`
+	Enabled  *bool   `json:"enabled,omitempty"`
+}
+
+func (s *Server) registerFulfillmentShopRoutes(mux *http.ServeMux) {
+	mux.HandleFunc("GET /v1/fulfillment-shops", s.listFulfillmentShops)
+	mux.HandleFunc("POST /v1/fulfillment-shops", s.requireConsoleAuth(s.upsertFulfillmentShop))
+	mux.HandleFunc("PATCH /v1/fulfillment-shops/{platform}/{shopCode}", s.requireConsoleAuth(s.updateFulfillmentShop))
+}
+
 func (payload inventoryThresholdRequest) thresholds() (model.InventoryThresholds, error) {
 	if payload.EastThreshold == nil || payload.WestThreshold == nil || payload.TotalThreshold == nil {
 		return model.InventoryThresholds{}, errors.New("east_threshold, west_threshold and total_threshold are required")
@@ -34,12 +58,67 @@ func (payload inventoryThresholdRequest) thresholds() (model.InventoryThresholds
 func (s *Server) listFulfillmentShops(writer http.ResponseWriter, request *http.Request) {
 	ctx, cancel := context.WithTimeout(request.Context(), s.requestTimeout)
 	defer cancel()
-	items, err := s.store.ListFulfillmentShops(ctx)
+	items, err := s.fulfillmentShops.ListFulfillmentShops(ctx, request.URL.Query().Get("include_disabled") == "true")
 	if err != nil {
 		s.internalError(writer, "list fulfillment shops", err)
 		return
 	}
 	writeJSON(writer, http.StatusOK, response{Success: true, Data: items})
+}
+
+func (s *Server) upsertFulfillmentShop(writer http.ResponseWriter, request *http.Request) {
+	var payload fulfillmentShopRequest
+	if !decodeJSON(writer, request, &payload) {
+		return
+	}
+	enabled := true
+	if payload.Enabled != nil {
+		enabled = *payload.Enabled
+	}
+	actor, _, _ := request.BasicAuth()
+	ctx, cancel := context.WithTimeout(request.Context(), s.requestTimeout)
+	defer cancel()
+	item, created, err := s.fulfillmentShops.UpsertFulfillmentShop(ctx, payload.Platform, payload.ShopCode, payload.ShopName, enabled, actor)
+	if err != nil {
+		s.writeFulfillmentShopError(writer, err)
+		return
+	}
+	status := http.StatusOK
+	if created {
+		status = http.StatusCreated
+	}
+	writeJSON(writer, status, response{Success: true, Data: item})
+}
+
+func (s *Server) updateFulfillmentShop(writer http.ResponseWriter, request *http.Request) {
+	var payload fulfillmentShopPatchRequest
+	if !decodeJSON(writer, request, &payload) {
+		return
+	}
+	if payload.ShopName == nil && payload.Enabled == nil {
+		writeJSON(writer, http.StatusBadRequest, response{Success: false, Error: "shop_name or enabled is required"})
+		return
+	}
+	actor, _, _ := request.BasicAuth()
+	ctx, cancel := context.WithTimeout(request.Context(), s.requestTimeout)
+	defer cancel()
+	item, err := s.fulfillmentShops.UpdateFulfillmentShop(ctx, request.PathValue("platform"), request.PathValue("shopCode"), payload.ShopName, payload.Enabled, actor)
+	if err != nil {
+		s.writeFulfillmentShopError(writer, err)
+		return
+	}
+	writeJSON(writer, http.StatusOK, response{Success: true, Data: item})
+}
+
+func (s *Server) writeFulfillmentShopError(writer http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, store.ErrInvalidFulfillmentShop):
+		writeJSON(writer, http.StatusBadRequest, response{Success: false, Error: err.Error()})
+	case errors.Is(err, store.ErrFulfillmentShopNotFound):
+		writeJSON(writer, http.StatusNotFound, response{Success: false, Error: err.Error()})
+	default:
+		s.internalError(writer, "save fulfillment shop", err)
+	}
 }
 
 func (s *Server) listInventoryThresholds(writer http.ResponseWriter, request *http.Request) {

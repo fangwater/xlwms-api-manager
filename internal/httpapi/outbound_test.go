@@ -76,7 +76,7 @@ func newParcelUpstream(t *testing.T, expected parcelUpstreamExpectation) (*httpt
 }
 
 func validParcelCreateBody(credentialWarehouse, orderWarehouse string) string {
-	return fmt.Sprintf(`{"warehouse":%q,"data":[{"whCode":%q,"thirdOrderNo":"ORDER-1","subOrderType":1,"logisticsChannel":"CHANNEL-1","receiver":"Test","countryRegionCode":"US","provinceCode":"CA","provinceName":"California","cityName":"Los Angeles","postCode":"90001","addressOne":"Test address","productList":[{"sku":"SKU-1","quantity":1}]}]}`, credentialWarehouse, orderWarehouse)
+	return fmt.Sprintf(`{"warehouse":%q,"data":[{"whCode":%q,"thirdOrderNo":"ORDER-1","salesPlatform":"SHEIN","storeName":"Beauty Hangers home","subOrderType":1,"logisticsChannel":"CHANNEL-1","receiver":"Test","countryRegionCode":"US","provinceCode":"CA","provinceName":"California","cityName":"Los Angeles","postCode":"90001","addressOne":"Test address","productList":[{"sku":"SKU-1","quantity":1}]}]}`, credentialWarehouse, orderWarehouse)
 }
 
 func parcelHandler(credentials warehouseCredentialSource) http.Handler {

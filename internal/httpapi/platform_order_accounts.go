@@ -18,7 +18,6 @@ import (
 
 type platformOrderAccountStore interface {
 	ListOMSAccountSummaries(context.Context, bool) ([]model.OMSAccountSummary, error)
-	ExistingWarehouseCodes(context.Context, []string) ([]string, error)
 	OMSAccount(context.Context, string) (model.OMSLoginAccount, error)
 	SetOMSAccount(context.Context, string, string, string) (model.OMSLoginAccount, error)
 	CreateOMSAccount(context.Context, string, string, string, string, []string) (model.OMSAccountSummary, error)
@@ -34,13 +33,13 @@ type platformOrderAccount interface {
 }
 
 type platformOrderAccountOption struct {
-	Key            string   `json:"key"`
-	Label          string   `json:"label"`
-	WarehouseCodes []string `json:"warehouse_codes"`
-	UsernameHint   string   `json:"username_hint,omitempty"`
-	Available      bool     `json:"available"`
-	Status         string   `json:"status,omitempty"`
-	Error          string   `json:"error,omitempty"`
+	Key               string   `json:"key"`
+	Label             string   `json:"label"`
+	APICredentialKeys []string `json:"api_credential_keys"`
+	UsernameHint      string   `json:"username_hint,omitempty"`
+	Available         bool     `json:"available"`
+	Status            string   `json:"status,omitempty"`
+	Error             string   `json:"error,omitempty"`
 }
 
 type platformOrderAccountSelector interface {
@@ -53,8 +52,7 @@ var (
 	errPlatformOrderAccountUnavailable = errors.New("platform order account is unavailable")
 )
 
-const defaultPlatformOrderAccountKey = "arp"
-const dpsPlatformOrderAccountKey = "dps"
+const defaultPlatformOrderAccountSelector = "default"
 const platformOrderAccountHeader = "X-OMS-Account"
 
 func requestedPlatformOrderAccount(request *http.Request) (string, error) {
@@ -75,10 +73,10 @@ func requestedPlatformOrderAccountWithBody(request *http.Request, bodyKey string
 		}
 		selected = key
 	}
-	if selected != "" {
-		return selected, nil
+	if selected == "" {
+		return defaultPlatformOrderAccountSelector, nil
 	}
-	return defaultPlatformOrderAccountKey, nil
+	return selected, nil
 }
 
 type fixedPlatformOrderAccounts struct {
@@ -87,21 +85,18 @@ type fixedPlatformOrderAccounts struct {
 
 func (f fixedPlatformOrderAccounts) OperatorForAccount(_ context.Context, key string) (platformOrderAccount, error) {
 	account, ok := f.operator.(platformOrderAccount)
-	if !ok || (strings.TrimSpace(key) != "" && !strings.EqualFold(key, defaultPlatformOrderAccountKey)) {
+	if !ok || strings.TrimSpace(key) == "" {
 		return nil, errPlatformOrderAccountNotFound
 	}
 	return account, nil
 }
 
 type postgresPlatformOrderAccounts struct {
-	store          platformOrderAccountStore
-	baseURL        string
-	timeout        time.Duration
-	shared         platformOrderAccount
-	sharedUsername string
-	sharedPassword string
-	clientMu       sync.Mutex
-	clients        map[[sha256.Size]byte]platformOrderAccount
+	store    platformOrderAccountStore
+	baseURL  string
+	timeout  time.Duration
+	clientMu sync.Mutex
+	clients  map[[sha256.Size]byte]platformOrderAccount
 }
 
 func (p *postgresPlatformOrderAccounts) PlatformOrderAccounts(ctx context.Context) ([]platformOrderAccountOption, error) {
@@ -112,7 +107,7 @@ func (p *postgresPlatformOrderAccounts) PlatformOrderAccounts(ctx context.Contex
 	options := make([]platformOrderAccountOption, 0, len(accounts))
 	for _, account := range accounts {
 		options = append(options, platformOrderAccountOption{
-			Key: account.Key, Label: account.Label, WarehouseCodes: account.WarehouseCodes,
+			Key: account.Key, Label: account.Label, APICredentialKeys: account.APICredentialKeys,
 			UsernameHint: account.UsernameHint,
 		})
 	}
@@ -121,9 +116,8 @@ func (p *postgresPlatformOrderAccounts) PlatformOrderAccounts(ctx context.Contex
 
 func (p *postgresPlatformOrderAccounts) OperatorForAccount(ctx context.Context, key string) (platformOrderAccount, error) {
 	key = strings.TrimSpace(key)
-	if key == "" || strings.EqualFold(key, defaultPlatformOrderAccountKey) {
-		account, _, _, err := p.resolveShared(ctx)
-		return account, err
+	if key == "" {
+		return nil, errPlatformOrderAccountNotFound
 	}
 	account, err := p.store.OMSAccount(ctx, key)
 	if errors.Is(err, store.ErrOMSAccountNotFound) || errors.Is(err, store.ErrOMSAccountDisabled) {
@@ -135,29 +129,8 @@ func (p *postgresPlatformOrderAccounts) OperatorForAccount(ctx context.Context, 
 	return p.clientForCredentials(account.Username, account.Password), nil
 }
 
-func (p *postgresPlatformOrderAccounts) resolveShared(ctx context.Context) (platformOrderAccount, string, string, error) {
-	stored, err := p.store.OMSAccount(ctx, defaultPlatformOrderAccountKey)
-	if err == nil {
-		return p.clientForCredentials(stored.Username, stored.Password), stored.Username, stored.Password, nil
-	}
-	if !errors.Is(err, store.ErrOMSAccountNotFound) {
-		if errors.Is(err, store.ErrOMSAccountDisabled) {
-			return nil, "", "", errPlatformOrderAccountUnavailable
-		}
-		return nil, "", "", err
-	}
-	if p.shared == nil {
-		return nil, "", "", errPlatformOrderAccountUnavailable
-	}
-	return p.shared, p.sharedUsername, p.sharedPassword, nil
-}
-
 func (p *postgresPlatformOrderAccounts) clientForCredentials(username, password string) platformOrderAccount {
 	fingerprint := platformOrderCredentialFingerprint(username, password)
-	if p.shared != nil && p.sharedUsername != "" && p.sharedPassword != "" &&
-		fingerprint == platformOrderCredentialFingerprint(p.sharedUsername, p.sharedPassword) {
-		return p.shared
-	}
 	p.clientMu.Lock()
 	defer p.clientMu.Unlock()
 	if p.clients == nil {
@@ -180,7 +153,7 @@ func (s *Server) selectedPlatformOrderAccount(ctx context.Context, key string) (
 		return selector.OperatorForAccount(ctx, key)
 	}
 	key = strings.TrimSpace(key)
-	if key != "" && !strings.EqualFold(key, defaultPlatformOrderAccountKey) {
+	if key == "" {
 		return nil, errPlatformOrderAccountNotFound
 	}
 	account, ok := s.platformOrders.(platformOrderAccount)
@@ -209,11 +182,11 @@ func (s *Server) availablePlatformOrderAccounts(ctx context.Context) ([]platform
 	if selector, ok := s.platformAccounts.(platformOrderAccountSelector); ok {
 		accounts, err = selector.PlatformOrderAccounts(ctx)
 	} else {
-		if _, err = s.selectedPlatformOrderAccount(ctx, defaultPlatformOrderAccountKey); err != nil {
+		if _, err = s.selectedPlatformOrderAccount(ctx, "default"); err != nil {
 			return nil, err
 		}
 		accounts = []platformOrderAccountOption{{
-			Key: defaultPlatformOrderAccountKey, Label: "ARP 账户", WarehouseCodes: []string{},
+			Key: "default", Label: "OMS 账户", APICredentialKeys: []string{},
 		}}
 	}
 	if err != nil {
@@ -248,7 +221,14 @@ func (s *Server) annotatePlatformOrderAccountHealth(ctx context.Context, account
 			}
 			if checkErr := checker.CheckAccess(ctx); checkErr != nil {
 				accounts[index].Available = false
-				accounts[index].Status = "offline"
+				switch {
+				case errors.Is(checkErr, oms.ErrMFAVerificationRequired):
+					accounts[index].Status = "mfa_required"
+				case errors.Is(checkErr, oms.ErrPasswordUpdateRequired):
+					accounts[index].Status = "password_update_required"
+				default:
+					accounts[index].Status = "offline"
+				}
 				accounts[index].Error = oms.PublicAuthError(checkErr)
 			} else {
 				accounts[index].Status = "ready"
@@ -377,6 +357,83 @@ func (s *Server) upgradePlatformOrderAccountPassword(writer http.ResponseWriter,
 	writeJSON(writer, http.StatusOK, response{Success: true, Data: accounts})
 }
 
+func (s *Server) beginPlatformOrderAccountMFA(writer http.ResponseWriter, request *http.Request) {
+	verifier, ok := s.platformAccounts.(platformOrderAccountMFAVerifier)
+	if !ok {
+		writeJSON(writer, http.StatusServiceUnavailable, response{Success: false, Error: "OMS 二次验证暂不可用"})
+		return
+	}
+	ctx, cancel := context.WithTimeout(request.Context(), s.requestTimeout)
+	defer cancel()
+	prompt, err := verifier.BeginAccountMFA(ctx, request.PathValue("accountKey"))
+	if err != nil {
+		s.writePlatformOrderAccountMFAError(writer, err)
+		return
+	}
+	writeJSON(writer, http.StatusOK, response{Success: true, Data: prompt})
+}
+
+type platformOrderAccountMFACodeRequest struct {
+	Code string `json:"code"`
+}
+
+func (s *Server) completePlatformOrderAccountMFA(writer http.ResponseWriter, request *http.Request) {
+	var payload platformOrderAccountMFACodeRequest
+	if !decodeJSON(writer, request, &payload) {
+		return
+	}
+	verifier, ok := s.platformAccounts.(platformOrderAccountMFAVerifier)
+	if !ok {
+		writeJSON(writer, http.StatusServiceUnavailable, response{Success: false, Error: "OMS 二次验证暂不可用"})
+		return
+	}
+	ctx, cancel := context.WithTimeout(request.Context(), s.requestTimeout)
+	defer cancel()
+	if err := verifier.CompleteAccountMFA(ctx, request.PathValue("accountKey"), payload.Code); err != nil {
+		s.writePlatformOrderAccountMFAError(writer, err)
+		return
+	}
+	accounts, err := s.availablePlatformOrderAccounts(ctx)
+	if err != nil {
+		s.logger.Warn("reload OMS accounts after MFA", "error", err)
+		writeJSON(writer, http.StatusOK, response{Success: true, Data: []platformOrderAccountOption{}})
+		return
+	}
+	writeJSON(writer, http.StatusOK, response{Success: true, Data: accounts})
+}
+
+func (s *Server) writePlatformOrderAccountMFAError(writer http.ResponseWriter, err error) {
+	var upstream *oms.MFARequestError
+	switch {
+	case errors.As(err, &upstream):
+		if s.logger != nil {
+			s.logger.Warn("OMS MFA request rejected", "stage", upstream.Stage, "http_status", upstream.HTTPStatus, "code", upstream.Code, "attempts_exceeded", upstream.AttemptsExceeded)
+		}
+		status := http.StatusBadGateway
+		if upstream.Stage == "verify" && (upstream.Code == 4012 || upstream.Code == 4013) {
+			status = http.StatusBadRequest
+		}
+		writeJSON(writer, status, response{Success: false, Error: upstream.PublicMessage(), Code: fmt.Sprintf("OMS_MFA_%d", upstream.Code)})
+	case errors.Is(err, errPlatformOrderAccountNotFound):
+		writePlatformOrderAccountError(writer, err)
+	case errors.Is(err, oms.ErrInvalidMFACode):
+		writeJSON(writer, http.StatusBadRequest, response{Success: false, Error: "请输入 6 位数字验证码"})
+	case errors.Is(err, oms.ErrMFAChallengeNotStarted):
+		writeJSON(writer, http.StatusConflict, response{Success: false, Error: "验证码会话已失效，请重新发送"})
+	case errors.Is(err, oms.ErrMFANotRequired):
+		writeJSON(writer, http.StatusConflict, response{Success: false, Error: "该账号当前不需要二次验证"})
+	case errors.Is(err, oms.ErrPasswordUpdateRequired):
+		writeJSON(writer, http.StatusConflict, response{Success: false, Error: "领星要求更新登录密码", Code: "OMS_PASSWORD_UPDATE_REQUIRED"})
+	case oms.AuthErrorMessage(err) != "":
+		writeJSON(writer, http.StatusBadGateway, response{Success: false, Error: oms.AuthErrorMessage(err)})
+	default:
+		if s.logger != nil {
+			s.logger.Warn("OMS MFA verification", "error", err)
+		}
+		writeJSON(writer, http.StatusBadRequest, response{Success: false, Error: "验证码错误、过期或验证次数已用完"})
+	}
+}
+
 type platformOrderAccountUpdater interface {
 	UpdateAccountCredentials(context.Context, string, string, string) error
 }
@@ -385,11 +442,16 @@ type platformOrderAccountPasswordUpgrader interface {
 	UpgradeAccountPassword(context.Context, string, string, string, string) error
 }
 
+type platformOrderAccountMFAVerifier interface {
+	BeginAccountMFA(context.Context, string) (oms.MFAPrompt, error)
+	CompleteAccountMFA(context.Context, string, string) error
+}
+
 type platformOrderAccountCreator interface {
 	CreateAccount(context.Context, string, string, string, string, []string) (model.OMSAccountSummary, error)
 }
 
-func (p *postgresPlatformOrderAccounts) CreateAccount(ctx context.Context, key, label, username, password string, _ []string) (model.OMSAccountSummary, error) {
+func (p *postgresPlatformOrderAccounts) CreateAccount(ctx context.Context, key, label, username, password string, credentialKeys []string) (model.OMSAccountSummary, error) {
 	key, label, err := store.NormalizeOMSAccountIdentity(key, label)
 	if err != nil {
 		return model.OMSAccountSummary{}, err
@@ -408,19 +470,11 @@ func (p *postgresPlatformOrderAccounts) CreateAccount(ctx context.Context, key, 
 		}
 	}
 	probe := oms.NewClient(p.baseURL, username, password, p.timeout)
-	warehouses, err := probe.WarehouseOptions(ctx)
-	if err != nil {
+	if err := probe.CheckAccess(ctx); err != nil &&
+		!errors.Is(err, oms.ErrPasswordUpdateRequired) && !errors.Is(err, oms.ErrMFAVerificationRequired) {
 		return model.OMSAccountSummary{}, err
 	}
-	discoveredCodes := make([]string, 0, len(warehouses))
-	for _, warehouse := range warehouses {
-		discoveredCodes = append(discoveredCodes, warehouse.WarehouseCode)
-	}
-	warehouseCodes, err := p.store.ExistingWarehouseCodes(ctx, discoveredCodes)
-	if err != nil {
-		return model.OMSAccountSummary{}, err
-	}
-	item, err := p.store.CreateOMSAccount(ctx, key, label, username, password, warehouseCodes)
+	item, err := p.store.CreateOMSAccount(ctx, key, label, username, password, credentialKeys)
 	if err != nil {
 		return model.OMSAccountSummary{}, err
 	}
@@ -434,10 +488,10 @@ func (p *postgresPlatformOrderAccounts) UpdateAccountCredentials(ctx context.Con
 		return errors.New("OMS username and password are required")
 	}
 	probe := oms.NewClient(p.baseURL, username, password, p.timeout)
-	if err := probe.CheckAccess(ctx); err != nil {
+	if err := probe.CheckAccess(ctx); err != nil && !errors.Is(err, oms.ErrMFAVerificationRequired) {
 		return err
 	}
-	return p.saveVerifiedAccountCredentials(ctx, key, username, password, probe)
+	return p.saveVerifiedAccountCredentials(ctx, key, username, password)
 }
 
 func (p *postgresPlatformOrderAccounts) UpgradeAccountPassword(ctx context.Context, key, username, currentPassword, newPassword string) error {
@@ -452,13 +506,41 @@ func (p *postgresPlatformOrderAccounts) UpgradeAccountPassword(ctx context.Conte
 	if err := probe.UpgradeRequiredPassword(ctx, newPassword); err != nil {
 		return err
 	}
-	return p.saveVerifiedAccountCredentials(ctx, key, username, newPassword, probe)
+	return p.saveVerifiedAccountCredentials(ctx, key, username, newPassword)
+}
+
+func (p *postgresPlatformOrderAccounts) BeginAccountMFA(ctx context.Context, key string) (oms.MFAPrompt, error) {
+	account, err := p.OperatorForAccount(ctx, key)
+	if err != nil {
+		return oms.MFAPrompt{}, err
+	}
+	verifier, ok := account.(interface {
+		BeginMFAVerification(context.Context) (oms.MFAPrompt, error)
+	})
+	if !ok {
+		return oms.MFAPrompt{}, errPlatformOrderAccountUnavailable
+	}
+	return verifier.BeginMFAVerification(ctx)
+}
+
+func (p *postgresPlatformOrderAccounts) CompleteAccountMFA(ctx context.Context, key, code string) error {
+	account, err := p.OperatorForAccount(ctx, key)
+	if err != nil {
+		return err
+	}
+	verifier, ok := account.(interface {
+		CompleteMFAVerification(context.Context, string) error
+	})
+	if !ok {
+		return errPlatformOrderAccountUnavailable
+	}
+	return verifier.CompleteMFAVerification(ctx, code)
 }
 
 func (p *postgresPlatformOrderAccounts) validateAccountKey(ctx context.Context, key string) error {
 	key = strings.TrimSpace(key)
 	if key == "" {
-		key = defaultPlatformOrderAccountKey
+		return errPlatformOrderAccountNotFound
 	}
 	if _, err := p.store.OMSAccount(ctx, key); err != nil {
 		if errors.Is(err, store.ErrOMSAccountNotFound) || errors.Is(err, store.ErrOMSAccountDisabled) {
@@ -469,10 +551,10 @@ func (p *postgresPlatformOrderAccounts) validateAccountKey(ctx context.Context, 
 	return nil
 }
 
-func (p *postgresPlatformOrderAccounts) saveVerifiedAccountCredentials(ctx context.Context, key, username, password string, verified platformOrderAccount) error {
+func (p *postgresPlatformOrderAccounts) saveVerifiedAccountCredentials(ctx context.Context, key, username, password string) error {
 	key = strings.TrimSpace(key)
 	if key == "" {
-		key = defaultPlatformOrderAccountKey
+		return errPlatformOrderAccountNotFound
 	}
 	if err := p.validateAccountKey(ctx, key); err != nil {
 		return err
@@ -480,21 +562,8 @@ func (p *postgresPlatformOrderAccounts) saveVerifiedAccountCredentials(ctx conte
 	if _, err := p.store.SetOMSAccount(ctx, key, username, password); err != nil {
 		return err
 	}
-	if strings.EqualFold(key, defaultPlatformOrderAccountKey) {
-		p.replaceShared(username, password, verified)
-	} else {
-		p.forgetClients()
-	}
+	p.forgetClients()
 	return nil
-}
-
-func (p *postgresPlatformOrderAccounts) replaceShared(username, password string, client platformOrderAccount) {
-	p.clientMu.Lock()
-	defer p.clientMu.Unlock()
-	p.shared = client
-	p.sharedUsername = username
-	p.sharedPassword = password
-	p.clients = nil
 }
 
 func (p *postgresPlatformOrderAccounts) forgetClients() {

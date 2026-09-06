@@ -1,4 +1,4 @@
-import { Boxes, Database, KeyRound, LockKeyhole, Plus, ShieldCheck, Trash2, TriangleAlert, Warehouse as WarehouseIcon, X } from "lucide-react";
+import { KeyRound, LockKeyhole, Plus, ShieldCheck, Trash2, TriangleAlert, Warehouse as WarehouseIcon, X } from "lucide-react";
 import { useEffect, useState, type FormEvent } from "react";
 import { api } from "../api";
 import { EmptyState, ErrorState, PageHeader, dateTime } from "../components/Common";
@@ -100,26 +100,20 @@ export default function WarehousesPage({ warehouses, onChanged }: { warehouses: 
   return <>
     <PageHeader
       title="仓库管理"
-      subtitle="仓库、OpenAPI 凭据组与数据覆盖范围"
       actions={<div className="warehouse-header-actions"><button className="secondary-button" onClick={() => setWarehouseOpen(true)}><Plus size={17} />添加仓库</button><button className="primary-button" onClick={() => setCredentialOpen(true)}><KeyRound size={17} />新增 API 凭据</button></div>}
     />
     {error && <ErrorState message={error} />}
 
-    <div className="warehouse-summary-bar">
-      <div><span><Database size={17} /></span><div><strong>{credentials.length}</strong><small>组 OpenAPI 凭据</small></div></div>
-      <div><span><WarehouseIcon size={17} /></span><div><strong>{warehouses.length}</strong><small>个仓库编码</small></div></div>
-      <div><span><Boxes size={17} /></span><div><strong>{credentials.reduce((total, item) => total + (item.last_verified_at ? item.sku_count : 0), 0)}</strong><small>条已扫描 SKU 覆盖</small></div></div>
-    </div>
-
     <section className="warehouse-section">
-      <div className="warehouse-section-heading"><div><h2>OpenAPI 凭据组</h2><p>同一仓库可由多组凭据覆盖不同货品</p></div><span>{credentials.length} 组</span></div>
+      <div className="warehouse-section-heading"><h2>API 凭据</h2><span>{credentials.length} 组</span></div>
       {credentials.length ? <div className="table-panel"><div className="table-scroll"><table className="data-table api-credential-table">
-        <thead><tr><th>凭据组</th><th>App Key</th><th>覆盖仓库</th><th>发现 SKU</th><th>验证状态</th><th>操作</th></tr></thead>
+        <thead><tr><th>凭据组</th><th>App Key</th><th>覆盖仓库</th><th>发现 SKU</th><th>发货账号</th><th>验证状态</th><th>操作</th></tr></thead>
         <tbody>{credentials.map(item => <tr key={item.key}>
           <td><div className="primary-cell"><strong>{item.label}</strong><small>{item.key}</small></div></td>
           <td><span className="key-hint"><KeyRound size={14} />{item.app_key_hint}</span></td>
           <td><div className="warehouse-code-list">{item.warehouse_codes.length ? item.warehouse_codes.map(code => <span key={code}>{code}</span>) : <small>待发现</small>}</div></td>
           <td><strong>{item.last_verified_at ? item.sku_count : "-"}</strong></td>
+          <td>{item.oms_account_label || <span className="muted-text">待绑定</span>}</td>
           <td><div className="primary-cell"><strong className={item.active && item.last_verified_at ? "verified-text" : "muted-text"}>{!item.active ? "已停用" : item.last_verified_at ? "已验证" : "旧配置已归并"}</strong><small>{dateTime(item.last_verified_at || item.updated_at)}</small></div></td>
           <td>{item.deletable
             ? <button className="icon-button credential-delete" type="button" title={`删除 ${item.label}`} aria-label={`删除 ${item.label}`} onClick={() => { setError(""); setDeleting(item); }}><Trash2 size={16} /></button>
@@ -130,7 +124,7 @@ export default function WarehousesPage({ warehouses, onChanged }: { warehouses: 
     </section>
 
     <section className="warehouse-section">
-      <div className="warehouse-section-heading"><div><h2>仓库编码</h2><p>业务请求使用的实际 wh_code</p></div><span>{warehouses.length} 个</span></div>
+      <div className="warehouse-section-heading"><h2>仓库</h2><span>{warehouses.length} 个</span></div>
     {warehouses.length ? <div className="table-panel"><div className="table-scroll"><table className="data-table warehouse-table">
       <thead><tr><th>仓库</th><th>连接地址</th><th>OpenAPI App Key</th><th>更新时间</th><th>状态</th></tr></thead>
       <tbody>{warehouses.map(item => <tr key={item.wh_code}>

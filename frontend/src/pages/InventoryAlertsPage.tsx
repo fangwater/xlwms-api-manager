@@ -61,7 +61,7 @@ export default function InventoryAlertsPage({ warehouse }: { warehouse: string }
   };
 
   return <>
-    <PageHeader title="库存警告" subtitle="按仓库监控正品可用库存" actions={<button className="icon-button bordered" onClick={() => void load()} title="刷新库存警告"><RefreshCw size={17}/></button>} />
+    <PageHeader title="库存警告" actions={<button className="icon-button bordered" onClick={() => void load()} title="刷新库存警告"><RefreshCw size={17}/></button>} />
     <div className="inventory-alert-default">
       <div className="inventory-alert-default-title"><SlidersHorizontal size={19}/><div><strong>默认告警线</strong><small>未单独配置的仓库 SKU</small></div></div>
       <form onSubmit={saveDefault}>

@@ -19,6 +19,30 @@ func TestInitSQLDefinesSKUCombinationTablesAndRelationships(t *testing.T) {
 	}
 }
 
+func TestInitSQLSeedsTemuFulfillmentShops(t *testing.T) {
+	for _, fragment := range []string{
+		"('temu', 'panda-homes', 'PANDA HOMES')",
+		"('temu', 'panda-buy', 'PANDA BUY')",
+		"('temu', 'hans-living', 'Hans Living')",
+		"('temu', 'woven-whispers', 'WovenWhispers')",
+	} {
+		if !strings.Contains(InitSQL, fragment) {
+			t.Fatalf("InitSQL missing fulfillment shop seed %q", fragment)
+		}
+	}
+	for _, fragment := range []string{
+		"ON CONFLICT (platform, shop_code) DO NOTHING",
+		"CREATE TABLE IF NOT EXISTS xlwms_fulfillment_shop_audits",
+		"previous_state jsonb",
+		"current_state jsonb NOT NULL",
+		"actor text NOT NULL",
+	} {
+		if !strings.Contains(InitSQL, fragment) {
+			t.Fatalf("InitSQL missing fulfillment shop management fragment %q", fragment)
+		}
+	}
+}
+
 func TestInitSQLMigratesInventoryThresholdsToPlatformScopeBeforeDroppingLegacyTables(t *testing.T) {
 	for _, fragment := range []string{
 		"CREATE TABLE IF NOT EXISTS xlwms_platform_inventory_thresholds",
@@ -73,12 +97,13 @@ func TestInitSQLDefinesPlatformSKUWarehousePoliciesWithoutShopScope(t *testing.T
 	}
 }
 
-func TestInitSQLMigratesWarehouseAccountsToPlatformSKURoutes(t *testing.T) {
+func TestInitSQLMigratesOMSAccountsToOpenAPIBindings(t *testing.T) {
 	for _, fragment := range []string{
-		"CREATE TABLE IF NOT EXISTS xlwms_oms_account_warehouses",
-		"PRIMARY KEY (account_key, wh_code)",
-		"CREATE TABLE IF NOT EXISTS xlwms_platform_sku_oms_accounts",
-		"PRIMARY KEY (platform, warehouse_sku)",
+		"CREATE TABLE IF NOT EXISTS xlwms_oms_account_api_credentials",
+		"credential_key text PRIMARY KEY REFERENCES xlwms_api_credentials",
+		"idx_xlwms_oms_account_api_credentials_account",
+		"DROP TABLE IF EXISTS xlwms_platform_sku_oms_accounts",
+		"DROP TABLE IF EXISTS xlwms_oms_account_warehouses",
 		"DROP COLUMN oms_username_ciphertext",
 		"DROP COLUMN oms_password_ciphertext",
 		"DROP COLUMN oms_account_hint",

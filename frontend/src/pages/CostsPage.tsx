@@ -56,7 +56,7 @@ export default function CostsPage({ warehouse, warehouses, onWarehouseChange }: 
   const active = tab === "flows" ? flows : details;
 
   return <>
-    <PageHeader title="费用中心" subtitle="资金流水与费用项目明细" actions={<button className="icon-button bordered" onClick={() => void load()} title="刷新"><RefreshCw size={18} className={loading ? "spin" : ""} /></button>} />
+    <PageHeader title="费用中心" actions={<button className="icon-button bordered" onClick={() => void load()} title="刷新"><RefreshCw size={18} className={loading ? "spin" : ""} /></button>} />
     <div className="segmented-tabs compact-tabs"><button className={tab === "flows" ? "active" : ""} onClick={() => changeTab("flows")}>资金流水</button><button className={tab === "details" ? "active" : ""} onClick={() => changeTab("details")}>费用明细</button></div>
     <div className="filter-bar cost-filters">
       <label className="search-field"><Search size={17} /><input value={search} onChange={event => { setSearch(event.target.value); setPage(1); }} placeholder="订单号、平台单号或费用单号" /></label>

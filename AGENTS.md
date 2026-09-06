@@ -10,6 +10,7 @@
 
 - Store real credentials only in the local `.env` file.
 - Load credentials from `XLWMS_APP_KEY` and `XLWMS_APP_SECRET`.
+- Protect fulfillment-shop write APIs with HTTP Basic Auth loaded from `XLWMS_CONSOLE_USER` and `XLWMS_CONSOLE_PASSWORD`; keep reads credential-free.
 - Never copy credential values into source code, tests, documentation, logs, or command output.
 - Keep `.env` ignored by Git and restricted to the current user with file mode `600`.
 
@@ -29,10 +30,16 @@
 
 ## Warehouse Registry
 
-- Store per-warehouse credentials encrypted in `xlwms_warehouses`.
+- Treat OpenAPI credentials as independent SKU data scopes. A credential can expose multiple warehouses,
+  and one warehouse can be exposed by multiple credentials with different SKUs.
+- Store OpenAPI credentials encrypted in `xlwms_api_credentials`; use
+  `xlwms_api_credential_inventory` only for the warehouse and SKU scope discovered from that API.
+- Bind each OpenAPI credential to one OMS shipping account through
+  `xlwms_oms_account_api_credentials`; one OMS account may bind multiple OpenAPI credentials.
+- OMS accounts are shipping operators, not warehouse partitions. Do not infer an account from warehouse
+  codes or `arp`/`dps` prefixes, and do not add per-SKU account routing alongside the API binding.
 - Keep the Fernet master key only in `.warehouse_credentials_key` with mode `600`.
-- Never print decrypted app keys or secrets; warehouse lists show only an app-key hint.
-- Synchronization must obtain credentials through `list_active_warehouse_credentials` so disabled warehouses are skipped.
+- Never print decrypted app keys, OMS usernames, passwords, or tokens; lists show only credential hints.
 
 ## Production Deployment
 

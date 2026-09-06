@@ -35,13 +35,6 @@ SET account_label=CASE lower(account_key)
 END
 WHERE btrim(account_label)='';
 
-CREATE TABLE IF NOT EXISTS xlwms_oms_account_warehouses (
-    account_key text NOT NULL REFERENCES xlwms_oms_accounts(account_key) ON DELETE CASCADE,
-    wh_code text NOT NULL REFERENCES xlwms_warehouses(wh_code) ON DELETE CASCADE,
-    created_at timestamptz NOT NULL DEFAULT now(),
-    PRIMARY KEY (account_key, wh_code)
-);
-
 DO $$
 BEGIN
     IF EXISTS (
@@ -68,12 +61,6 @@ BEGIN
         ) legacy
         WHERE position=1
         ON CONFLICT (account_key) DO NOTHING;
-
-        INSERT INTO xlwms_oms_account_warehouses(account_key, wh_code)
-        SELECT CASE WHEN upper(wh_code) LIKE 'DPS%' THEN 'dps' ELSE 'arp' END, wh_code
-        FROM xlwms_warehouses
-        WHERE oms_username_ciphertext IS NOT NULL AND oms_password_ciphertext IS NOT NULL
-        ON CONFLICT DO NOTHING;
 
         ALTER TABLE xlwms_warehouses
             DROP COLUMN oms_username_ciphertext,
@@ -353,11 +340,24 @@ INSERT INTO xlwms_fulfillment_shops (platform, shop_code, shop_name)
 VALUES
     ('temu', 'panda-homes', 'PANDA HOMES'),
     ('temu', 'panda-buy', 'PANDA BUY'),
+    ('temu', 'hans-living', 'Hans Living'),
+    ('temu', 'woven-whispers', 'WovenWhispers'),
     ('shein', 'beauty-hangers-home', 'Beauty Hangers home')
-ON CONFLICT (platform, shop_code) DO UPDATE SET
-    shop_name = EXCLUDED.shop_name,
-    enabled = true,
-    updated_at = now();
+ON CONFLICT (platform, shop_code) DO NOTHING;
+
+CREATE TABLE IF NOT EXISTS xlwms_fulfillment_shop_audits (
+    id bigserial PRIMARY KEY,
+    platform text NOT NULL CHECK (platform IN ('temu', 'shein')),
+    shop_code text NOT NULL,
+    action text NOT NULL CHECK (action IN ('created', 'updated')),
+    previous_state jsonb,
+    current_state jsonb NOT NULL,
+    actor text NOT NULL,
+    created_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS xlwms_fulfillment_shop_audits_shop_idx
+    ON xlwms_fulfillment_shop_audits(platform, shop_code, created_at DESC);
 
 CREATE TABLE IF NOT EXISTS xlwms_platform_inventory_thresholds (
     platform text PRIMARY KEY CHECK (platform IN ('temu', 'shein')),
@@ -460,17 +460,6 @@ CREATE TABLE IF NOT EXISTS xlwms_platform_sku_disabled_warehouses (
     updated_at timestamptz NOT NULL DEFAULT now(),
     PRIMARY KEY (platform, warehouse_sku, warehouse_key)
 );
-
-CREATE TABLE IF NOT EXISTS xlwms_platform_sku_oms_accounts (
-    platform text NOT NULL CHECK (platform IN ('temu', 'shein')),
-    warehouse_sku text NOT NULL REFERENCES xlwms_warehouse_sku_specs(warehouse_sku) ON DELETE CASCADE,
-    account_key text NOT NULL REFERENCES xlwms_oms_accounts(account_key) ON DELETE RESTRICT,
-    updated_at timestamptz NOT NULL DEFAULT now(),
-    PRIMARY KEY (platform, warehouse_sku)
-);
-
-CREATE INDEX IF NOT EXISTS idx_xlwms_platform_sku_oms_accounts_account
-    ON xlwms_platform_sku_oms_accounts(account_key, platform, warehouse_sku);
 
 CREATE INDEX IF NOT EXISTS xlwms_platform_sku_disabled_warehouse_lookup_idx
     ON xlwms_platform_sku_disabled_warehouses(platform, warehouse_sku);
@@ -839,3 +828,40 @@ CREATE TABLE IF NOT EXISTS xlwms_api_credential_inventory (
 
 CREATE INDEX IF NOT EXISTS idx_xlwms_api_credential_inventory_warehouse_sku
     ON xlwms_api_credential_inventory(wh_code, warehouse_sku, credential_key);
+
+-- An OpenAPI credential defines a SKU data scope. Exactly one OMS account is
+-- responsible for shipping that scope; one OMS account may operate many scopes.
+CREATE TABLE IF NOT EXISTS xlwms_oms_account_api_credentials (
+    credential_key text PRIMARY KEY REFERENCES xlwms_api_credentials(credential_key) ON DELETE CASCADE,
+    account_key text NOT NULL REFERENCES xlwms_oms_accounts(account_key) ON DELETE CASCADE,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_xlwms_oms_account_api_credentials_account
+    ON xlwms_oms_account_api_credentials(account_key, credential_key);
+
+-- Preserve legacy assignments once, then remove the two obsolete routing models.
+DO $oms_api_binding_migration$
+BEGIN
+    IF to_regclass('xlwms_oms_account_warehouses') IS NOT NULL THEN
+        INSERT INTO xlwms_oms_account_api_credentials(credential_key,account_key)
+        SELECT inventory.credential_key,min(relation.account_key)
+        FROM xlwms_oms_account_warehouses relation
+        JOIN xlwms_api_credential_inventory inventory ON inventory.wh_code=relation.wh_code
+        GROUP BY inventory.credential_key
+        ON CONFLICT(credential_key) DO NOTHING;
+    END IF;
+
+    IF to_regclass('xlwms_platform_sku_oms_accounts') IS NOT NULL THEN
+        INSERT INTO xlwms_oms_account_api_credentials(credential_key,account_key)
+        SELECT inventory.credential_key,min(route.account_key)
+        FROM xlwms_platform_sku_oms_accounts route
+        JOIN xlwms_api_credential_inventory inventory ON inventory.warehouse_sku=route.warehouse_sku
+        GROUP BY inventory.credential_key
+        ON CONFLICT(credential_key) DO NOTHING;
+    END IF;
+
+    DROP TABLE IF EXISTS xlwms_platform_sku_oms_accounts;
+    DROP TABLE IF EXISTS xlwms_oms_account_warehouses;
+END $oms_api_binding_migration$;

@@ -86,25 +86,6 @@ func (p *Postgres) OMSAccount(ctx context.Context, key string) (model.OMSLoginAc
 	return model.OMSLoginAccount{Key: key, Label: label, Username: username, Password: password, Hint: hint, Enabled: true}, nil
 }
 
-func (p *Postgres) EnsureOMSAccount(ctx context.Context, key, username, password string) error {
-	key = normalizeOMSAccountKey(key)
-	if key == "" {
-		return errors.New("OMS account key is required")
-	}
-	if err := validateOMSLogin(username, password); err != nil {
-		return err
-	}
-	var exists bool
-	if err := p.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM xlwms_oms_accounts WHERE account_key = $1)`, key).Scan(&exists); err != nil {
-		return fmt.Errorf("check OMS account: %w", err)
-	}
-	if exists {
-		return nil
-	}
-	_, err := p.SetOMSAccount(ctx, key, username, password)
-	return err
-}
-
 func (p *Postgres) SetOMSAccount(ctx context.Context, key, username, password string) (model.OMSLoginAccount, error) {
 	key = normalizeOMSAccountKey(key)
 	username = strings.TrimSpace(username)
@@ -140,7 +121,7 @@ func (p *Postgres) SetOMSAccount(ctx context.Context, key, username, password st
 	return model.OMSLoginAccount{Key: key, Label: label, Username: username, Password: password, Hint: hint, Enabled: true}, nil
 }
 
-func (p *Postgres) CreateOMSAccount(ctx context.Context, key, label, username, password string, warehouseCodes []string) (model.OMSAccountSummary, error) {
+func (p *Postgres) CreateOMSAccount(ctx context.Context, key, label, username, password string, credentialKeys []string) (model.OMSAccountSummary, error) {
 	key, label, err := validateOMSAccountIdentity(key, label)
 	if err != nil {
 		return model.OMSAccountSummary{}, err
@@ -149,7 +130,7 @@ func (p *Postgres) CreateOMSAccount(ctx context.Context, key, label, username, p
 	if err := validateOMSLogin(username, password); err != nil {
 		return model.OMSAccountSummary{}, fmt.Errorf("%w: %v", ErrInvalidFulfillmentAccount, err)
 	}
-	warehouseCodes, err = normalizeWarehouseCodes(warehouseCodes)
+	credentialKeys, err = normalizeAPICredentialKeys(credentialKeys)
 	if err != nil {
 		return model.OMSAccountSummary{}, err
 	}
@@ -167,13 +148,13 @@ func (p *Postgres) CreateOMSAccount(ctx context.Context, key, label, username, p
 		return model.OMSAccountSummary{}, fmt.Errorf("begin OMS account create: %w", err)
 	}
 	defer tx.Rollback(ctx)
-	if len(warehouseCodes) > 0 {
-		var warehouseCount int
-		if err := tx.QueryRow(ctx, `SELECT count(*) FROM xlwms_warehouses WHERE wh_code=ANY($1)`, warehouseCodes).Scan(&warehouseCount); err != nil {
-			return model.OMSAccountSummary{}, fmt.Errorf("check OMS account warehouses: %w", err)
+	if len(credentialKeys) > 0 {
+		var credentialCount int
+		if err := tx.QueryRow(ctx, `SELECT count(*) FROM xlwms_api_credentials WHERE credential_key=ANY($1)`, credentialKeys).Scan(&credentialCount); err != nil {
+			return model.OMSAccountSummary{}, fmt.Errorf("check OMS account API credentials: %w", err)
 		}
-		if warehouseCount != len(warehouseCodes) {
-			return model.OMSAccountSummary{}, fmt.Errorf("%w: unknown warehouse", ErrInvalidFulfillmentAccount)
+		if credentialCount != len(credentialKeys) {
+			return model.OMSAccountSummary{}, fmt.Errorf("%w: unknown OpenAPI credential", ErrInvalidFulfillmentAccount)
 		}
 	}
 	var createdKey string
@@ -190,9 +171,13 @@ RETURNING account_key
 	if err != nil {
 		return model.OMSAccountSummary{}, fmt.Errorf("create OMS account: %w", err)
 	}
-	for _, warehouseCode := range warehouseCodes {
-		if _, err := tx.Exec(ctx, `INSERT INTO xlwms_oms_account_warehouses(account_key,wh_code) VALUES($1,$2)`, key, warehouseCode); err != nil {
-			return model.OMSAccountSummary{}, fmt.Errorf("save OMS account warehouse: %w", err)
+	for _, credentialKey := range credentialKeys {
+		if _, err := tx.Exec(ctx, `
+INSERT INTO xlwms_oms_account_api_credentials(credential_key,account_key,updated_at)
+VALUES($1,$2,now())
+ON CONFLICT(credential_key) DO UPDATE SET account_key=EXCLUDED.account_key,updated_at=now()
+`, credentialKey, key); err != nil {
+			return model.OMSAccountSummary{}, fmt.Errorf("save OMS account API credential: %w", err)
 		}
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -232,12 +217,5 @@ WHERE account_key=$1
 }
 
 func defaultOMSAccountLabel(key string) string {
-	switch strings.ToLower(strings.TrimSpace(key)) {
-	case "arp":
-		return "ARP 账户"
-	case "dps":
-		return "DPS 账户"
-	default:
-		return strings.TrimSpace(key)
-	}
+	return strings.TrimSpace(key)
 }

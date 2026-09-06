@@ -2,9 +2,11 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
+	"unicode/utf8"
 
 	"xlwms-api-manager/internal/model"
 
@@ -16,6 +18,11 @@ type InventoryThresholdFilter struct {
 	Page     int
 	PageSize int
 }
+
+var (
+	ErrInvalidFulfillmentShop  = errors.New("invalid fulfillment shop")
+	ErrFulfillmentShopNotFound = errors.New("fulfillment shop not found")
+)
 
 func NormalizeFulfillmentPlatform(platform string) (string, error) {
 	switch strings.ToLower(strings.TrimSpace(platform)) {
@@ -47,16 +54,16 @@ func NormalizeFulfillmentShopCode(shopCode string) (string, error) {
 	return shopCode, nil
 }
 
-func (p *Postgres) ListFulfillmentShops(ctx context.Context) ([]model.FulfillmentShop, error) {
+func (p *Postgres) ListFulfillmentShops(ctx context.Context, includeDisabled bool) ([]model.FulfillmentShop, error) {
 	if err := p.ensureFulfillmentShopThresholds(ctx); err != nil {
 		return nil, err
 	}
 	rows, err := p.pool.Query(ctx, `
 SELECT platform, shop_code, shop_name, enabled
 FROM xlwms_fulfillment_shops
-WHERE enabled
+WHERE enabled OR $1
 ORDER BY platform, shop_name, shop_code
-`)
+`, includeDisabled)
 	if err != nil {
 		return nil, fmt.Errorf("list fulfillment shops: %w", err)
 	}
@@ -70,6 +77,192 @@ ORDER BY platform, shop_name, shop_code
 		items = append(items, item)
 	}
 	return items, rows.Err()
+}
+
+func (p *Postgres) UpsertFulfillmentShop(ctx context.Context, platform, shopCode, shopName string, enabled bool, actor string) (model.FulfillmentShop, bool, error) {
+	platform, shopCode, shopName, actor, err := normalizeFulfillmentShopMutation(platform, shopCode, shopName, actor)
+	if err != nil {
+		return model.FulfillmentShop{}, false, err
+	}
+	tx, err := p.pool.Begin(ctx)
+	if err != nil {
+		return model.FulfillmentShop{}, false, fmt.Errorf("begin fulfillment shop update: %w", err)
+	}
+	defer tx.Rollback(ctx)
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, platform+"/"+shopCode); err != nil {
+		return model.FulfillmentShop{}, false, fmt.Errorf("lock fulfillment shop: %w", err)
+	}
+	previous, found, err := fulfillmentShopForUpdate(ctx, tx, platform, shopCode)
+	if err != nil {
+		return model.FulfillmentShop{}, false, err
+	}
+	if found && previous.ShopName == shopName && previous.Enabled == enabled {
+		if err := tx.Commit(ctx); err != nil {
+			return model.FulfillmentShop{}, false, fmt.Errorf("commit fulfillment shop update: %w", err)
+		}
+		return previous, false, nil
+	}
+	current := model.FulfillmentShop{Platform: platform, ShopCode: shopCode, ShopName: shopName, Enabled: enabled}
+	if found {
+		err = tx.QueryRow(ctx, `
+UPDATE xlwms_fulfillment_shops
+SET shop_name=$3,enabled=$4,updated_at=now()
+WHERE platform=$1 AND shop_code=$2
+RETURNING platform,shop_code,shop_name,enabled
+`, platform, shopCode, shopName, enabled).Scan(&current.Platform, &current.ShopCode, &current.ShopName, &current.Enabled)
+	} else {
+		err = tx.QueryRow(ctx, `
+INSERT INTO xlwms_fulfillment_shops(platform,shop_code,shop_name,enabled)
+VALUES($1,$2,$3,$4)
+RETURNING platform,shop_code,shop_name,enabled
+`, platform, shopCode, shopName, enabled).Scan(&current.Platform, &current.ShopCode, &current.ShopName, &current.Enabled)
+	}
+	if err != nil {
+		return model.FulfillmentShop{}, false, fmt.Errorf("save fulfillment shop: %w", err)
+	}
+	var previousPointer *model.FulfillmentShop
+	action := "created"
+	if found {
+		previousPointer = &previous
+		action = "updated"
+	}
+	if err := recordFulfillmentShopAudit(ctx, tx, action, previousPointer, current, actor); err != nil {
+		return model.FulfillmentShop{}, false, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return model.FulfillmentShop{}, false, fmt.Errorf("commit fulfillment shop update: %w", err)
+	}
+	return current, !found, nil
+}
+
+func (p *Postgres) UpdateFulfillmentShop(ctx context.Context, platform, shopCode string, shopName *string, enabled *bool, actor string) (model.FulfillmentShop, error) {
+	platform, shopCode, err := normalizeShopIdentity(platform, shopCode)
+	if err != nil {
+		return model.FulfillmentShop{}, fmt.Errorf("%w: %v", ErrInvalidFulfillmentShop, err)
+	}
+	actor = strings.TrimSpace(actor)
+	if actor == "" {
+		return model.FulfillmentShop{}, fmt.Errorf("%w: actor is required", ErrInvalidFulfillmentShop)
+	}
+	if shopName == nil && enabled == nil {
+		return model.FulfillmentShop{}, fmt.Errorf("%w: shop_name or enabled is required", ErrInvalidFulfillmentShop)
+	}
+	var normalizedName string
+	if shopName != nil {
+		normalizedName, err = normalizeFulfillmentShopName(*shopName)
+		if err != nil {
+			return model.FulfillmentShop{}, err
+		}
+	}
+	tx, err := p.pool.Begin(ctx)
+	if err != nil {
+		return model.FulfillmentShop{}, fmt.Errorf("begin fulfillment shop update: %w", err)
+	}
+	defer tx.Rollback(ctx)
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, platform+"/"+shopCode); err != nil {
+		return model.FulfillmentShop{}, fmt.Errorf("lock fulfillment shop: %w", err)
+	}
+	previous, found, err := fulfillmentShopForUpdate(ctx, tx, platform, shopCode)
+	if err != nil {
+		return model.FulfillmentShop{}, err
+	}
+	if !found {
+		return model.FulfillmentShop{}, fmt.Errorf("%w: %s/%s", ErrFulfillmentShopNotFound, platform, shopCode)
+	}
+	current := previous
+	if shopName != nil {
+		current.ShopName = normalizedName
+	}
+	if enabled != nil {
+		current.Enabled = *enabled
+	}
+	if current == previous {
+		if err := tx.Commit(ctx); err != nil {
+			return model.FulfillmentShop{}, fmt.Errorf("commit fulfillment shop update: %w", err)
+		}
+		return current, nil
+	}
+	if err := tx.QueryRow(ctx, `
+UPDATE xlwms_fulfillment_shops
+SET shop_name=$3,enabled=$4,updated_at=now()
+WHERE platform=$1 AND shop_code=$2
+RETURNING platform,shop_code,shop_name,enabled
+`, platform, shopCode, current.ShopName, current.Enabled).Scan(&current.Platform, &current.ShopCode, &current.ShopName, &current.Enabled); err != nil {
+		return model.FulfillmentShop{}, fmt.Errorf("update fulfillment shop: %w", err)
+	}
+	if err := recordFulfillmentShopAudit(ctx, tx, "updated", &previous, current, actor); err != nil {
+		return model.FulfillmentShop{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return model.FulfillmentShop{}, fmt.Errorf("commit fulfillment shop update: %w", err)
+	}
+	return current, nil
+}
+
+func normalizeFulfillmentShopMutation(platform, shopCode, shopName, actor string) (string, string, string, string, error) {
+	platform, shopCode, err := normalizeShopIdentity(platform, shopCode)
+	if err != nil {
+		return "", "", "", "", fmt.Errorf("%w: %v", ErrInvalidFulfillmentShop, err)
+	}
+	shopName, err = normalizeFulfillmentShopName(shopName)
+	if err != nil {
+		return "", "", "", "", err
+	}
+	actor = strings.TrimSpace(actor)
+	if actor == "" {
+		return "", "", "", "", fmt.Errorf("%w: actor is required", ErrInvalidFulfillmentShop)
+	}
+	return platform, shopCode, shopName, actor, nil
+}
+
+func normalizeFulfillmentShopName(shopName string) (string, error) {
+	shopName = strings.TrimSpace(shopName)
+	if shopName == "" {
+		return "", fmt.Errorf("%w: shop_name is required", ErrInvalidFulfillmentShop)
+	}
+	if utf8.RuneCountInString(shopName) > 120 {
+		return "", fmt.Errorf("%w: shop_name must not exceed 120 characters", ErrInvalidFulfillmentShop)
+	}
+	return shopName, nil
+}
+
+func fulfillmentShopForUpdate(ctx context.Context, tx pgx.Tx, platform, shopCode string) (model.FulfillmentShop, bool, error) {
+	var item model.FulfillmentShop
+	err := tx.QueryRow(ctx, `
+SELECT platform,shop_code,shop_name,enabled
+FROM xlwms_fulfillment_shops
+WHERE platform=$1 AND shop_code=$2
+FOR UPDATE
+`, platform, shopCode).Scan(&item.Platform, &item.ShopCode, &item.ShopName, &item.Enabled)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return model.FulfillmentShop{}, false, nil
+	}
+	if err != nil {
+		return model.FulfillmentShop{}, false, fmt.Errorf("get fulfillment shop for update: %w", err)
+	}
+	return item, true, nil
+}
+
+func recordFulfillmentShopAudit(ctx context.Context, tx pgx.Tx, action string, previous *model.FulfillmentShop, current model.FulfillmentShop, actor string) error {
+	var previousJSON any
+	if previous != nil {
+		encoded, err := json.Marshal(previous)
+		if err != nil {
+			return fmt.Errorf("encode previous fulfillment shop: %w", err)
+		}
+		previousJSON = string(encoded)
+	}
+	currentJSON, err := json.Marshal(current)
+	if err != nil {
+		return fmt.Errorf("encode current fulfillment shop: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `
+INSERT INTO xlwms_fulfillment_shop_audits(platform,shop_code,action,previous_state,current_state,actor)
+VALUES($1,$2,$3,$4::jsonb,$5::jsonb,$6)
+`, current.Platform, current.ShopCode, action, previousJSON, string(currentJSON), actor); err != nil {
+		return fmt.Errorf("record fulfillment shop audit: %w", err)
+	}
+	return nil
 }
 
 func (p *Postgres) FulfillmentShop(ctx context.Context, platform, shopCode string) (model.FulfillmentShop, error) {
@@ -328,18 +521,19 @@ WHERE s.warehouse_sku=$2
 	return item, nil
 }
 
-func (p *Postgres) ensureFulfillmentShopThresholds(ctx context.Context) error {
-	if _, err := p.pool.Exec(ctx, `
+const fulfillmentShopSeedSQL = `
 INSERT INTO xlwms_fulfillment_shops (platform, shop_code, shop_name)
 VALUES
     ('temu', 'panda-homes', 'PANDA HOMES'),
     ('temu', 'panda-buy', 'PANDA BUY'),
+    ('temu', 'hans-living', 'Hans Living'),
+    ('temu', 'woven-whispers', 'WovenWhispers'),
     ('shein', 'beauty-hangers-home', 'Beauty Hangers home')
-ON CONFLICT (platform, shop_code) DO UPDATE SET
-    shop_name = EXCLUDED.shop_name,
-    enabled = true,
-    updated_at = now()
-`); err != nil {
+ON CONFLICT (platform, shop_code) DO NOTHING
+`
+
+func (p *Postgres) ensureFulfillmentShopThresholds(ctx context.Context) error {
+	if _, err := p.pool.Exec(ctx, fulfillmentShopSeedSQL); err != nil {
 		return fmt.Errorf("ensure fulfillment shops: %w", err)
 	}
 	return nil

@@ -21,16 +21,18 @@ type WarehouseCredentials struct {
 }
 
 type WarehouseAPICredentialGroup struct {
-	Key            string     `json:"key"`
-	Label          string     `json:"label"`
-	APIBaseURL     string     `json:"api_base_url"`
-	AppKeyHint     string     `json:"app_key_hint"`
-	WarehouseCodes []string   `json:"warehouse_codes"`
-	SKUCount       int        `json:"sku_count"`
-	Active         bool       `json:"active"`
-	Deletable      bool       `json:"deletable"`
-	LastVerifiedAt *time.Time `json:"last_verified_at,omitempty"`
-	UpdatedAt      time.Time  `json:"updated_at"`
+	Key             string     `json:"key"`
+	Label           string     `json:"label"`
+	APIBaseURL      string     `json:"api_base_url"`
+	AppKeyHint      string     `json:"app_key_hint"`
+	WarehouseCodes  []string   `json:"warehouse_codes"`
+	SKUCount        int        `json:"sku_count"`
+	OMSAccountKey   string     `json:"oms_account_key,omitempty"`
+	OMSAccountLabel string     `json:"oms_account_label,omitempty"`
+	Active          bool       `json:"active"`
+	Deletable       bool       `json:"deletable"`
+	LastVerifiedAt  *time.Time `json:"last_verified_at,omitempty"`
+	UpdatedAt       time.Time  `json:"updated_at"`
 }
 
 type OMSLoginAccount struct {
@@ -43,34 +45,13 @@ type OMSLoginAccount struct {
 }
 
 type OMSAccountSummary struct {
-	Key            string    `json:"key"`
-	Label          string    `json:"label"`
-	UsernameHint   string    `json:"username_hint"`
-	Enabled        bool      `json:"enabled"`
-	WarehouseCodes []string  `json:"warehouse_codes"`
-	RouteCount     int       `json:"route_count"`
-	UpdatedAt      time.Time `json:"updated_at"`
-}
-
-type PlatformSKUOMSAccount struct {
-	Platform     string    `json:"platform"`
-	WarehouseSKU string    `json:"warehouse_sku"`
-	ProductName  string    `json:"product_name"`
-	AccountKey   string    `json:"account_key,omitempty"`
-	AccountLabel string    `json:"account_label,omitempty"`
-	Configured   bool      `json:"configured"`
-	UpdatedAt    time.Time `json:"updated_at"`
-}
-
-type FulfillmentAccountDecision struct {
-	Platform       string   `json:"platform"`
-	WarehouseSKUs  []string `json:"warehouse_skus"`
-	AccountKey     string   `json:"account_key,omitempty"`
-	WarehouseCodes []string `json:"warehouse_codes"`
-	Configured     bool     `json:"configured"`
-	RequiresManual bool     `json:"requires_manual"`
-	DecisionCode   string   `json:"decision_code"`
-	Reason         string   `json:"reason"`
+	Key               string    `json:"key"`
+	Label             string    `json:"label"`
+	UsernameHint      string    `json:"username_hint"`
+	Enabled           bool      `json:"enabled"`
+	APICredentialKeys []string  `json:"api_credential_keys"`
+	SKUCount          int       `json:"sku_count"`
+	UpdatedAt         time.Time `json:"updated_at"`
 }
 
 type FundsFlow struct {

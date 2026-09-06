@@ -166,7 +166,7 @@ export default function DeliveryEvaluationPage() {
   }, [data]);
 
   if (loading && !data) return <LoadingState label="正在读取履约、快递与费用模型" />;
-  if (error || !data) return <><PageHeader title="快递评价" subtitle="履约、承运商与运费数据模型" /><ErrorState message={error || "暂无数据模型"} onRetry={() => void load()} /></>;
+  if (error || !data) return <><PageHeader title="快递评价" /><ErrorState message={error || "暂无数据模型"} onRetry={() => void load()} /></>;
 
   const coverage = Object.fromEntries(data.snapshot.coverage.map((item) => [item.id, item]));
   const quoteRecords = data.snapshot.resources.filter((item) => item.id.includes("shipping_quotes")).reduce((sum, item) => sum + item.record_count, 0);

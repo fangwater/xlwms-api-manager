@@ -14,6 +14,8 @@ export type WarehouseAPICredentialGroup = {
   app_key_hint: string;
   warehouse_codes: string[];
   sku_count: number;
+  oms_account_key?: string;
+  oms_account_label?: string;
   active: boolean;
   deletable: boolean;
   last_verified_at?: string;
@@ -489,11 +491,18 @@ export type FulfilledOrderPage = PageData<FulfillmentAudit> & {
 export type PlatformOrderAccountOption = {
   key: string;
   label: string;
-  warehouse_codes: string[];
+  api_credential_keys: string[];
   username_hint?: string;
   available?: boolean;
   status?: string;
   error?: string;
+};
+
+export type OMSMFAPrompt = {
+  channel: string;
+  masked_target?: string;
+  code_sent: boolean;
+  code_length: number;
 };
 
 export type OMSAccountSummary = {
@@ -501,22 +510,10 @@ export type OMSAccountSummary = {
   label: string;
   username_hint: string;
   enabled: boolean;
-  warehouse_codes: string[];
-  route_count: number;
+  api_credential_keys: string[];
+  sku_count: number;
   updated_at: string;
 };
-
-export type PlatformSKUOMSAccount = {
-  platform: string;
-  warehouse_sku: string;
-  product_name: string;
-  account_key?: string;
-  account_label?: string;
-  configured: boolean;
-  updated_at: string;
-};
-
-export type PlatformSKUOMSAccountPage = PageData<PlatformSKUOMSAccount>;
 
 export type ProductPairingItem = {
   system_sku: string;

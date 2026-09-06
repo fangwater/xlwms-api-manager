@@ -474,7 +474,7 @@ func TestWarehouseAssignmentsAPI(t *testing.T) {
 	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
 		t.Fatal(err)
 	}
-	if !payload.Success || payload.Data.Account != defaultPlatformOrderAccountKey ||
+	if !payload.Success || payload.Data.Account != defaultPlatformOrderAccountSelector ||
 		payload.Data.Total != 2 || payload.Data.Success != 2 || payload.Data.Failed != 0 ||
 		len(payload.Data.Routes) != 2 || payload.Data.Routes[0].PlatformOrderNo != "PO-A" ||
 		payload.Data.Routes[0].WarehouseCode != "WH-1" {

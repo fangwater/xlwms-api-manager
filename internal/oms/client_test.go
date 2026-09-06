@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -35,6 +36,231 @@ func TestCheckAccessReportsForcedPasswordUpdate(t *testing.T) {
 	}
 	if got := AuthErrorMessage(errors.New("query OMS pending platform orders: timeout")); got != "" {
 		t.Fatalf("non-auth error should stay empty, got %q", got)
+	}
+}
+
+func TestCheckAccessReportsMFAVerificationSeparatelyFromPasswordUpdate(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != "/gateway/woms/auth/login" {
+			http.NotFound(writer, request)
+			return
+		}
+		writeOMSJSON(writer, apiEnvelope[loginData]{
+			Code: 4011, Msg: "需要短信/邮箱二次验证",
+			Data: loginData{LoginAction: "NEED_MFA_VERIFY", NeedVerify: true, ChallengeID: "challenge"},
+		})
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, "operator", "password", time.Second)
+	err := client.CheckAccess(context.Background())
+	if !errors.Is(err, ErrMFAVerificationRequired) || errors.Is(err, ErrPasswordUpdateRequired) {
+		t.Fatalf("CheckAccess error = %v, want MFA verification only", err)
+	}
+	if got := PublicAuthError(err); got != "需要短信、邮箱或验证器二次验证" {
+		t.Fatalf("PublicAuthError = %q", got)
+	}
+}
+
+func TestMFAVerificationUsesOfficialChallengeFlowAndCachesToken(t *testing.T) {
+	var loginCount atomic.Int32
+	var originalFlow, originalFingerprint string
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		var payload map[string]any
+		if err := json.NewDecoder(request.Body).Decode(&payload); err != nil {
+			t.Fatal(err)
+		}
+		switch request.URL.Path {
+		case "/gateway/woms/auth/login":
+			loginCount.Add(1)
+			flow, _ := payload["loginFlowId"].(string)
+			fingerprint, _ := payload["deviceFingerprint"].(string)
+			if loginCount.Load() == 1 {
+				originalFlow, originalFingerprint = flow, fingerprint
+				http.SetCookie(writer, &http.Cookie{Name: "login-session", Value: "test-session", Path: "/"})
+				writeOMSJSON(writer, apiEnvelope[loginData]{Code: 4011, Msg: "需要短信/邮箱二次验证", Data: loginData{
+					LoginAction: "NEED_MFA_VERIFY", NeedVerify: true, ChallengeID: "challenge-1",
+					MFAChannel: "EMAIL", MFAMaskedTarget: "m***@example.com",
+				}})
+				return
+			}
+			if flow != originalFlow || fingerprint != originalFingerprint {
+				t.Fatalf("replayed login changed flow or fingerprint")
+			}
+			if cookie, err := request.Cookie("verified-session"); err != nil || cookie.Value != "test-verified" {
+				t.Error("replayed login did not retain verification cookie")
+			}
+			writeOMSJSON(writer, apiEnvelope[loginData]{Code: http.StatusOK, Data: loginData{Token: "verified-token"}})
+		case mfaSendCodePath:
+			if cookie, err := request.Cookie("login-session"); err != nil || cookie.Value != "test-session" {
+				t.Error("send-code request did not retain login cookie")
+			}
+			if payload["challengeId"] != "challenge-1" || payload["channel"] != "EMAIL" || payload["language"] != "zh" {
+				t.Fatalf("unexpected send-code payload: %#v", payload)
+			}
+			writeOMSJSON(writer, apiEnvelope[any]{Code: http.StatusOK})
+		case mfaVerifyPath:
+			if cookie, err := request.Cookie("login-session"); err != nil || cookie.Value != "test-session" {
+				t.Error("verification request did not retain login cookie")
+			}
+			http.SetCookie(writer, &http.Cookie{Name: "verified-session", Value: "test-verified", Path: "/"})
+			if payload["challengeId"] != "challenge-1" || payload["verifyCode"] != "123456" {
+				t.Fatalf("unexpected verification payload: %#v", payload)
+			}
+			writeOMSJSON(writer, apiEnvelope[any]{Code: http.StatusOK})
+		default:
+			http.NotFound(writer, request)
+		}
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, "operator", "password", time.Second)
+	prompt, err := client.BeginMFAVerification(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if prompt.Channel != "EMAIL" || prompt.MaskedTarget != "m***@example.com" || !prompt.CodeSent || prompt.CodeLength != 6 {
+		t.Fatalf("prompt = %#v", prompt)
+	}
+	if err := client.CheckAccess(context.Background()); !errors.Is(err, ErrMFAVerificationRequired) {
+		t.Fatalf("pending challenge status = %v", err)
+	}
+	if loginCount.Load() != 1 {
+		t.Fatal("account refresh started a new login during verification")
+	}
+	if err := client.CompleteMFAVerification(context.Background(), "123456"); err != nil {
+		t.Fatal(err)
+	}
+	if err := client.CheckAccess(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if loginCount.Load() != 2 {
+		t.Fatalf("login count = %d, want 2", loginCount.Load())
+	}
+	if _, err := client.BeginMFAVerification(context.Background()); !errors.Is(err, ErrMFANotRequired) {
+		t.Fatalf("verified account challenge = %v", err)
+	}
+	if loginCount.Load() != 2 {
+		t.Fatal("verified account started another login")
+	}
+}
+
+func TestLoginAcceptsSuccessfulTokenWithMFASetupAdvisory(t *testing.T) {
+	for _, code := range []int{http.StatusOK, 4011} {
+		t.Run(fmt.Sprint(code), func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				writeOMSJSON(w, apiEnvelope[loginData]{Code: code, Data: loginData{Token: "test-token", NeedSetupMFA: true}})
+			}))
+			defer server.Close()
+			err := NewClient(server.URL, "operator", "password", time.Second).CheckAccess(context.Background())
+			if (err == nil) != (code == http.StatusOK) {
+				t.Fatalf("login success = %v, response code = %d", err == nil, code)
+			}
+		})
+	}
+}
+
+func TestMFAVerificationRejectsMalformedCode(t *testing.T) {
+	client := NewClient("https://example.invalid", "operator", "password", time.Second)
+	for _, code := range []string{"12345", "12345x", "1234567"} {
+		if err := client.CompleteMFAVerification(context.Background(), code); !errors.Is(err, ErrInvalidMFACode) {
+			t.Fatalf("code %q error = %v", code, err)
+		}
+	}
+}
+
+func TestTOTPRequiresActivationBeforeVerification(t *testing.T) {
+	for _, activationCode := range []int{200, 4013} {
+		t.Run(fmt.Sprint(activationCode), func(t *testing.T) {
+			activated, verified := false, false
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch r.URL.Path {
+				case "/gateway/woms/auth/login":
+					if verified {
+						writeOMSJSON(w, apiEnvelope[loginData]{Code: 200, Data: loginData{Token: "test-token"}})
+						return
+					}
+					writeOMSJSON(w, apiEnvelope[loginData]{Code: 4011, Data: loginData{
+						LoginAction: "NEED_MFA_VERIFY", NeedVerify: true, ChallengeID: "totp-challenge",
+						AvailableTargets: []mfaTarget{{Channel: "TOTP"}},
+					}})
+				case mfaSendCodePath:
+					var payload mfaSendCodePayload
+					if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+						t.Error(err)
+					}
+					if payload.ChallengeID != "totp-challenge" || payload.Channel != "TOTP" || payload.Language != "zh" {
+						t.Error("incorrect TOTP activation payload")
+					}
+					activated = activationCode == 200
+					writeOMSJSON(w, apiEnvelope[any]{Code: activationCode})
+				case mfaVerifyPath:
+					if !activated {
+						t.Error("TOTP submitted before activation")
+						writeOMSJSON(w, apiEnvelope[any]{Code: 4013})
+						return
+					}
+					verified = true
+					writeOMSJSON(w, apiEnvelope[any]{Code: 200})
+				default:
+					http.NotFound(w, r)
+				}
+			}))
+			defer server.Close()
+			client := NewClient(server.URL, "operator", "password", time.Second)
+			prompt, err := client.BeginMFAVerification(context.Background())
+			if activationCode != 200 {
+				var rejected *MFARequestError
+				if !errors.As(err, &rejected) || client.mfa != nil {
+					t.Fatalf("failed activation left an active challenge: %v", err)
+				}
+				return
+			}
+			if err != nil || !activated || prompt.Channel != "TOTP" || prompt.CodeSent {
+				t.Fatalf("TOTP activation failed: %v", err)
+			}
+			if err := client.CompleteMFAVerification(context.Background(), "123456"); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
+func TestMFARejectionsPreserveReasonAndExpireChallenge(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		code     int
+		exceeded bool
+		cleared  bool
+		message  string
+	}{
+		{"incorrect", 4012, false, false, "验证码校验未通过"},
+		{"exhausted", 4012, true, true, "验证码尝试次数已用完"},
+		{"expired", 4013, false, true, "验证码会话已失效"},
+		{"upstream", 500, false, false, "错误码 500"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				writeOMSJSON(w, apiEnvelope[any]{Code: test.code, Msg: "private upstream message", Data: map[string]bool{"attemptsExceeded": test.exceeded}})
+			}))
+			defer server.Close()
+			client := NewClient(server.URL, "operator", "password", time.Second)
+			client.mfa = &mfaVerificationSession{challengeID: "test-challenge"}
+			err := client.CompleteMFAVerification(context.Background(), "123456")
+			var upstream *MFARequestError
+			if !errors.As(err, &upstream) || upstream.Code != test.code {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if (client.mfa == nil) != test.cleared {
+				t.Fatalf("challenge cleared = %v", client.mfa == nil)
+			}
+			if got := PublicAuthError(err); !strings.Contains(got, test.message) || strings.Contains(got, "private") {
+				t.Fatalf("public error = %q", got)
+			}
+			if strings.Contains(err.Error(), "private") {
+				t.Fatal("diagnostic error exposed upstream message")
+			}
+		})
 	}
 }
 

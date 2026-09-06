@@ -564,7 +564,7 @@ test("outbound tracking classifies pickup exceptions and combines filters", asyn
   expect(combinedURL.searchParams.get("tracking_category")).toBe("pickup_exception");
   await page.screenshot({ path: "/tmp/xlwms-outbound-tracking-desktop.png", fullPage: true });
   await page.setViewportSize({ width: 390, height: 844 });
-  await expect(page.locator(".sidebar")).toHaveCSS("transform", "matrix(1, 0, 0, 1, -232, 0)");
+  await expect.poll(() => page.locator(".sidebar").evaluate(element => Math.round(element.getBoundingClientRect().right))).toBeLessThanOrEqual(0);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBeTruthy();
   await expect(page.getByRole("heading", { name: "出库物流跟踪" })).toBeVisible();
   await page.screenshot({ path: "/tmp/xlwms-outbound-tracking-mobile.png", fullPage: true });
@@ -576,9 +576,9 @@ test("warehouse page separates API credential groups from warehouse codes", asyn
   await page.goto("./warehouses");
 
   await expect(page.getByRole("heading", { name: "仓库管理" })).toBeVisible();
-  await expect(page.getByText("仓库、OpenAPI 凭据组与数据覆盖范围")).toBeVisible();
-  await expect(page.getByText("1").first()).toBeVisible();
-  await expect(page.getByText("组 OpenAPI 凭据")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "API 凭据", exact: true })).toBeVisible();
+  await expect(page.locator(".warehouse-summary-bar")).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "仓库", exact: true })).toBeVisible();
   await expect(page.getByText("演示 OpenAPI")).toBeVisible();
   await expect(page.getByText("26").first()).toBeVisible();
   await expect(page.getByText("EAST-01")).toHaveCount(2);

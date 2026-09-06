@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"context"
+	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"io"
@@ -22,6 +23,7 @@ import (
 
 type Server struct {
 	store                *store.Postgres
+	fulfillmentShops     fulfillmentShopStore
 	warehouseCredentials warehouseCredentialSource
 	syncer               *syncer.Service
 	requestTimeout       time.Duration
@@ -33,6 +35,8 @@ type Server struct {
 	platformSheinLabels  platformOrderSheinLabelSource
 	platformFulfillment  platformOrderFulfillmentSource
 	platformAccounts     platformOrderAccountSource
+	consoleUser          string
+	consolePassword      string
 	platformOrderMu      sync.Mutex
 	productPairingMu     sync.Mutex
 }
@@ -56,16 +60,11 @@ func NewWithPlatformOrderOperations(destination *store.Postgres, service *syncer
 	return newWithPlatformOrderOperations(destination, service, fulfillmentAuditor, platformOrders, platformMappings, destination, requestTimeout, logger)
 }
 
-func NewWithWarehousePlatformOrderOperations(destination *store.Postgres, service *syncer.Service, fulfillmentAuditor *auditor.Service, platformOrders platformOrderSource, platformMappings platformWarehouseMappingSource, omsBaseURL, omsUsername, omsPassword string, requestTimeout time.Duration, logger *slog.Logger) http.Handler {
-	shared, _ := platformOrders.(platformOrderAccount)
-	if !platformOrderAccountAvailable(shared) {
-		shared = nil
-	}
+func NewWithWarehousePlatformOrderOperations(destination *store.Postgres, service *syncer.Service, fulfillmentAuditor *auditor.Service, platformMappings platformWarehouseMappingSource, omsBaseURL, consoleUser, consolePassword string, requestTimeout time.Duration, logger *slog.Logger) http.Handler {
 	accounts := &postgresPlatformOrderAccounts{
-		store: destination, baseURL: omsBaseURL, timeout: requestTimeout, shared: shared,
-		sharedUsername: omsUsername, sharedPassword: omsPassword,
+		store: destination, baseURL: omsBaseURL, timeout: requestTimeout,
 	}
-	return newWithPlatformOrderAccountOperations(destination, service, fulfillmentAuditor, platformOrders, platformMappings, destination, accounts, requestTimeout, logger)
+	return newWithPlatformOrderAccountOperationsAuthenticated(destination, service, fulfillmentAuditor, nil, platformMappings, destination, accounts, consoleUser, consolePassword, requestTimeout, logger)
 }
 
 func newWithPlatformOrderOperations(destination *store.Postgres, service *syncer.Service, fulfillmentAuditor *auditor.Service, platformOrders platformOrderSource, platformMappings platformWarehouseMappingSource, platformFulfillment platformOrderFulfillmentSource, requestTimeout time.Duration, logger *slog.Logger) http.Handler {
@@ -77,6 +76,10 @@ func newWithPlatformOrderOperations(destination *store.Postgres, service *syncer
 }
 
 func newWithPlatformOrderAccountOperations(destination *store.Postgres, service *syncer.Service, fulfillmentAuditor *auditor.Service, platformOrders platformOrderSource, platformMappings platformWarehouseMappingSource, platformFulfillment platformOrderFulfillmentSource, platformAccounts platformOrderAccountSource, requestTimeout time.Duration, logger *slog.Logger) http.Handler {
+	return newWithPlatformOrderAccountOperationsAuthenticated(destination, service, fulfillmentAuditor, platformOrders, platformMappings, platformFulfillment, platformAccounts, "", "", requestTimeout, logger)
+}
+
+func newWithPlatformOrderAccountOperationsAuthenticated(destination *store.Postgres, service *syncer.Service, fulfillmentAuditor *auditor.Service, platformOrders platformOrderSource, platformMappings platformWarehouseMappingSource, platformFulfillment platformOrderFulfillmentSource, platformAccounts platformOrderAccountSource, consoleUser, consolePassword string, requestTimeout time.Duration, logger *slog.Logger) http.Handler {
 	var platformShipments platformOrderShipmentSource
 	if source, ok := platformMappings.(platformOrderShipmentSource); ok {
 		platformShipments = source
@@ -86,10 +89,10 @@ func newWithPlatformOrderAccountOperations(destination *store.Postgres, service 
 		platformSheinLabels = source
 	}
 	server := &Server{
-		store: destination, warehouseCredentials: destination, syncer: service, fulfillmentAuditor: fulfillmentAuditor, platformOrders: platformOrders,
+		store: destination, fulfillmentShops: destination, warehouseCredentials: destination, syncer: service, fulfillmentAuditor: fulfillmentAuditor, platformOrders: platformOrders,
 		platformMappings: platformMappings, platformShipments: platformShipments, platformSheinLabels: platformSheinLabels,
 		platformFulfillment: platformFulfillment, platformAccounts: platformAccounts,
-		requestTimeout: requestTimeout, logger: logger,
+		consoleUser: consoleUser, consolePassword: consolePassword, requestTimeout: requestTimeout, logger: logger,
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", server.health)
@@ -97,6 +100,8 @@ func newWithPlatformOrderAccountOperations(destination *store.Postgres, service 
 	mux.HandleFunc("GET /v1/platform-orders/accounts", server.listPlatformOrderAccounts)
 	mux.HandleFunc("PATCH /v1/platform-orders/accounts/{accountKey}", server.updatePlatformOrderAccount)
 	mux.HandleFunc("POST /v1/platform-orders/accounts/{accountKey}/password-upgrade", server.upgradePlatformOrderAccountPassword)
+	mux.HandleFunc("POST /v1/platform-orders/accounts/{accountKey}/mfa-challenge", server.beginPlatformOrderAccountMFA)
+	mux.HandleFunc("POST /v1/platform-orders/accounts/{accountKey}/mfa-verify", server.completePlatformOrderAccountMFA)
 	mux.HandleFunc("GET /v1/platform-orders/pending", server.pendingPlatformOrders)
 	mux.HandleFunc("GET /v1/platform-orders/{platformOrderNo}", server.platformOrder)
 	mux.HandleFunc("GET /v1/temu/platform-orders/{platformOrderNo}", server.temuPlatformOrder)
@@ -138,7 +143,7 @@ func newWithPlatformOrderAccountOperations(destination *store.Postgres, service 
 	mux.HandleFunc("PUT /v1/packing/combinations/{id}", server.updateSKUCombination)
 	mux.HandleFunc("DELETE /v1/packing/combinations/{id}", server.deleteSKUCombination)
 	mux.HandleFunc("GET /v1/packing/substitutions/{warehouseSKU}", server.getSKUCombinationSubstitution)
-	mux.HandleFunc("GET /v1/fulfillment-shops", server.listFulfillmentShops)
+	server.registerFulfillmentShopRoutes(mux)
 	mux.HandleFunc("GET /v1/inventory-thresholds", server.listInventoryThresholds)
 	mux.HandleFunc("GET /v1/inventory-thresholds/defaults", server.inventoryThresholdDefaults)
 	mux.HandleFunc("PATCH /v1/inventory-thresholds/defaults", server.updateInventoryThresholdDefaults)
@@ -156,12 +161,8 @@ func newWithPlatformOrderAccountOperations(destination *store.Postgres, service 
 	mux.HandleFunc("GET /v1/fulfillment-policies/accounts", server.listFulfillmentAccounts)
 	mux.HandleFunc("POST /v1/fulfillment-policies/accounts", server.createFulfillmentAccount)
 	mux.HandleFunc("PATCH /v1/fulfillment-policies/accounts/{accountKey}", server.updateFulfillmentAccount)
-	mux.HandleFunc("PUT /v1/fulfillment-policies/accounts/{accountKey}/warehouses", server.updateFulfillmentAccountWarehouses)
-	mux.HandleFunc("PATCH /v1/fulfillment-policies/accounts/{accountKey}/warehouses", server.updateFulfillmentAccountWarehouses)
-	mux.HandleFunc("GET /v1/fulfillment-policies/account-routes", server.listPlatformSKUOMSAccounts)
-	mux.HandleFunc("PUT /v1/fulfillment-policies/account-routes/{warehouseSKU}", server.updatePlatformSKUOMSAccount)
-	mux.HandleFunc("PATCH /v1/fulfillment-policies/account-routes/{warehouseSKU}", server.updatePlatformSKUOMSAccount)
-	mux.HandleFunc("POST /v1/fulfillment-policies/account-routes/{warehouseSKU}/reset", server.resetPlatformSKUOMSAccount)
+	mux.HandleFunc("PUT /v1/fulfillment-policies/accounts/{accountKey}/api-credentials", server.updateFulfillmentAccountAPICredentials)
+	mux.HandleFunc("PATCH /v1/fulfillment-policies/accounts/{accountKey}/api-credentials", server.updateFulfillmentAccountAPICredentials)
 	mux.HandleFunc("POST /v1/temu/warehouse-availability/query", server.temuWarehouseAvailability)
 	mux.HandleFunc("GET /v1/fulfillment-audits", server.listFulfillmentAudits)
 	mux.HandleFunc("GET /v1/fulfillment-audits/archived", server.listArchivedFulfillmentAudits)
@@ -606,4 +607,22 @@ func securityHeaders(next http.Handler) http.Handler {
 		writer.Header().Set("Referrer-Policy", "same-origin")
 		next.ServeHTTP(writer, request)
 	})
+}
+
+func (s *Server) requireConsoleAuth(next http.HandlerFunc) http.HandlerFunc {
+	return func(writer http.ResponseWriter, request *http.Request) {
+		if s.consoleUser == "" || s.consolePassword == "" {
+			writeJSON(writer, http.StatusServiceUnavailable, response{Success: false, Error: "fulfillment shop writes are not configured"})
+			return
+		}
+		user, password, ok := request.BasicAuth()
+		validUser := len(user) == len(s.consoleUser) && subtle.ConstantTimeCompare([]byte(user), []byte(s.consoleUser)) == 1
+		validPassword := len(password) == len(s.consolePassword) && subtle.ConstantTimeCompare([]byte(password), []byte(s.consolePassword)) == 1
+		if !ok || !validUser || !validPassword {
+			writer.Header().Set("WWW-Authenticate", `Basic realm="XLWMS fulfillment shops", charset="UTF-8"`)
+			writeJSON(writer, http.StatusUnauthorized, response{Success: false, Error: "invalid console credentials"})
+			return
+		}
+		next(writer, request)
+	}
 }

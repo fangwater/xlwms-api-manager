@@ -6,14 +6,10 @@ import { EmptyState, ErrorState, LoadingState, PageHeader, Pagination, dateTime,
 import type { PendingPlatformOrder, PlatformOrderAccountOption, PlatformOrderAssignmentResult, PlatformOrderProduct, PendingPlatformOrderPage, PlatformOrderRoutingPreview } from "../types";
 import "./PlatformOrdersPage.css";
 
-const defaultPlatformOrderAccounts: PlatformOrderAccountOption[] = [{
-  key: "arp", label: "ARP 账户", warehouse_codes: []
-}];
-
 export default function PlatformOrdersPage() {
   const [page, setPage] = useState(1);
-  const [account, setAccount] = useState("arp");
-  const [accounts, setAccounts] = useState(defaultPlatformOrderAccounts);
+  const [account, setAccount] = useState("");
+  const [accounts, setAccounts] = useState<PlatformOrderAccountOption[]>([]);
   const [accountError, setAccountError] = useState("");
   const [searchInput, setSearchInput] = useState("");
   const [query, setQuery] = useState("");
@@ -32,6 +28,7 @@ export default function PlatformOrdersPage() {
   const loadSequence = useRef(0);
 
   const load = useCallback(async () => {
+    if (!account) return;
     const sequence = ++loadSequence.current;
     setLoading(true);
     setError("");
@@ -50,8 +47,11 @@ export default function PlatformOrdersPage() {
 
   useEffect(() => { void load(); }, [load]);
   const applyAccounts = useCallback((next: PlatformOrderAccountOption[]) => {
-    if (next.length === 0) return;
     setAccounts(next);
+    if (next.length === 0) {
+      setAccount("");
+      return;
+    }
     const ready = next.filter((item) => item.available !== false);
     setAccount((current) => {
       const selected = next.find((item) => item.key === current);
@@ -191,9 +191,10 @@ export default function PlatformOrdersPage() {
       <button className="icon-button" onClick={() => setAssignmentResult(null)} title="关闭结果"><X size={16} /></button>
     </section>}
     <form className="filter-bar platform-order-filters" onSubmit={submitSearch}>
-      <label className="select-field platform-order-account-select" title={selectedAccount?.warehouse_codes.join("、") || selectedAccountLabel}>
+      <label className="select-field platform-order-account-select" title={selectedAccountLabel}>
         <Store size={16} />
         <select aria-label="OMS 账户" value={account} onChange={(event) => switchAccount(event.target.value)}>
+          {!accounts.length && <option value="">暂无可用账户</option>}
           {accounts.map((item) => <option key={item.key} value={item.key}>{item.available === false ? item.label + "（已掉线）" : item.label}</option>)}
         </select>
       </label>

@@ -6,7 +6,7 @@
 
 ## 已实现功能
 
-- 多仓库注册、启停和凭据加密存储
+- OpenAPI 凭据组、SKU 覆盖范围和 OMS 发货账号管理
 - 综合库存、产品库龄、产品库存流水
 - 箱库存、箱库龄、箱分段库龄、箱库存流水
 - 资金流水同步、费用明细补全和失败重试
@@ -75,7 +75,10 @@ chmod 600 .env
 npm --prefix frontend ci
 ```
 
-在 `.env` 中配置 `DATABASE_URL`。全局 `XLWMS_APP_KEY` 和 `XLWMS_APP_SECRET` 只用于本地初始配置；日常同步从加密仓库注册表读取每个启用仓库的凭据。平台订单栏目仅由后端读取 `XLWMS_OMS_USERNAME` 和 `XLWMS_OMS_PASSWORD`；前端不接触凭据或 OMS Token。物流匹配根据订单的平台仓 ID 和 Temu Go 中已有的仓库映射自动确定实际发货仓，无法精确映射时禁止审核。
+在 `.env` 中配置 `DATABASE_URL`。OpenAPI 与 OMS 登录凭据通过管理页面验证后使用 Fernet
+加密写入数据库，前端不会读取明文凭据或 OMS Token。OpenAPI 凭据组定义其实际可见的
+仓库和 SKU 数据范围；OMS 账号仅用于查询订单和执行发货操作。物流匹配根据订单的平台仓
+ID 和 Temu Go 中已有的仓库映射确定实际发货仓，无法精确映射时禁止审核。
 
 分别启动后端和前端：
 
@@ -106,6 +109,8 @@ GET    /healthz
 GET    /v1/dashboard/summary
 GET    /v1/platform-orders/accounts
 PATCH  /v1/platform-orders/accounts/{accountKey}
+POST   /v1/platform-orders/accounts/{accountKey}/mfa-challenge
+POST   /v1/platform-orders/accounts/{accountKey}/mfa-verify
 GET    /v1/platform-orders/pending
 GET    /v1/platform-orders/{platformOrderNo}
 GET    /v1/temu/platform-orders/{platformOrderNo}
@@ -118,6 +123,10 @@ PATCH  /v1/warehouses/{code}/status
 GET    /v1/warehouse-api-credentials
 POST   /v1/warehouse-api-credentials
 DELETE /v1/warehouse-api-credentials/{credentialKey}
+GET    /v1/fulfillment-policies/accounts
+POST   /v1/fulfillment-policies/accounts
+PATCH  /v1/fulfillment-policies/accounts/{accountKey}
+PATCH  /v1/fulfillment-policies/accounts/{accountKey}/api-credentials
 GET    /v1/inventory
 GET    /v1/inventory/sku-levels
 GET    /v1/inventory-corrections
@@ -128,6 +137,9 @@ PATCH  /v1/inventory-alerts/default
 PATCH  /v1/inventory-alerts/config
 POST   /v1/inventory-alerts/config/reset
 POST   /v1/inventory/query/{kind}
+GET    /v1/fulfillment-shops
+POST   /v1/fulfillment-shops
+PATCH  /v1/fulfillment-shops/{platform}/{shopCode}
 POST   /v1/temu/warehouse-availability/query
 GET    /v1/fulfillment-audits
 GET    /v1/fulfillment-audits/archived
@@ -143,6 +155,22 @@ POST   /v1/outbound/{operation}
 GET    /v1/sync/runs
 ```
 
+`GET /v1/fulfillment-shops` 默认只返回启用店铺；管理场景可传
+`include_disabled=true`。新增或幂等更新店铺使用：
+
+```http
+POST /v1/fulfillment-shops
+Authorization: Basic <XLWMS console credentials>
+Content-Type: application/json
+
+{"platform":"temu","shop_code":"new-shop","shop_name":"New Shop","enabled":true}
+```
+
+修改名称或启停用使用 `PATCH /v1/fulfillment-shops/{platform}/{shopCode}`，请求体至少包含
+`shop_name` 或 `enabled`。两个写接口均使用 `XLWMS_CONSOLE_USER` 和
+`XLWMS_CONSOLE_PASSWORD` 做 HTTP Basic Auth，并记录变更前后状态及操作者；重复提交相同
+数据不会产生额外审计记录。
+
 库存修正支持指定仓库、指定 SKU 的两种规则：`直接设为` 固定发货可用库存，或
 `比 OMS 少` 按 `max(OMS 实时库存 - 扣减量, 0)` 动态计算；新增时默认选择直接设为 `0`。
 实时领星查询成功后，SHEIN 和 Temu 的仓库决策使用修正值；撤销修正后立即恢复使用领星原始值。
@@ -155,15 +183,21 @@ GET    /v1/sync/runs
 是否存在这个平台单号，`records` 保留 OMS 返回的匹配订单及 `orderTime`、
 `createTime`、`status` 等字段。
 
-账户选择方式与 Temu 服务的 `X-Temu-Shop` 模式一致，优先使用
-`X-OMS-Account`；也可以使用 `account` 查询参数。两者同时提供时必须一致。
-缺省账户为 `arp`，可选键通过 `GET /v1/platform-orders/accounts` 获取。
+账户选择方式与 Temu 服务的 `X-Temu-Shop` 模式一致，使用
+`X-OMS-Account` 或 `account` 查询参数传递账号管理中返回的稳定账户标识；两者同时提供时
+必须一致。生产请求应显式选择账号，不根据仓库代码或账户名称前缀推断。
+可选键通过 `GET /v1/platform-orders/accounts` 获取。
 该接口会探测每个账户的领星登录，并返回 `available`、`status` 和 `error`；
 已配置但无法换票的账户仍会出现在列表里，但 `available=false`：
+新建账号时，普通认证失败不会保存；如果领星已确认账号但要求强制改密，则会加密保存配置，
+同时保持不可用状态，直到通过账号管理更新为可正常登录的新密码。
+如果状态为 `mfa_required`，账号管理页可直接发起领星二次验证并提交 6 位验证码。
+后端不向浏览器返回 `challengeId`、登录 flow、设备指纹或 token；验证会话仅保存在服务内存中，
+服务重启或会话失效后需要重新发送验证码。
 
 ```bash
 curl -sS \
-  -H 'X-OMS-Account: warehouse:DPSCA004' \
+  -H 'X-OMS-Account: fhzarp-laundry' \
   'http://127.0.0.1:18083/v1/platform-orders/PO-DEMO-1001'
 ```
 
@@ -171,7 +205,7 @@ curl -sS \
 {
   "success": true,
   "data": {
-    "account": "warehouse:DPSCA004",
+    "account": "fhzarp-laundry",
     "platform_order_no": "PO-DEMO-1001",
     "found": true,
     "records": [
@@ -189,20 +223,19 @@ curl -sS \
 ```
 
 Temu Go 服务使用 `GET /v1/temu/platform-orders/{platformOrderNo}` 查询领星确认状态。
-该服务间端点必须显式传入 `X-OMS-Account` 或 `account`，不会默认查询 ARP，避免在
-ARP、DPS 数据隔离时误查账户。端点实时查询 OMS“全部订单”，不读取或写入本地订单表，
+该服务间端点必须显式传入 `X-OMS-Account` 或 `account`。端点实时查询 OMS“全部订单”，不读取或写入本地订单表，
 并只返回后续核验所需的最小字段：
 
-服务间调用使用稳定的账户归属键 `dps` 或 `arp`。`warehouse:<实际仓库代码>` 仍可作为
-人工查询别名，例如 `warehouse:DPSNY002` 和 `warehouse:DPSCA004` 会选择同一个 DPS
-凭据组，`warehouse:HYTX30` 会选择 ARP 凭据组。
+账号标识与显示别名是两项独立字段。显示别名可随时修改，账号标识用于 API 调用；不再支持
+`warehouse:<仓库代码>`、`arp`/`dps` 前缀或任何仓库到 OMS 账号的隐式映射。
+历史记录中的 `arp`、`dps` 仅作为兼容既有调用的稳定账号标识保留，不是账号分类，管理界面不展示它们。
 
 “全部订单”精确查询在每个 OMS 凭据组内最多并发 2 个请求，请求启动间隔至少 500ms。
 等待限频槽位时遵守调用方上下文超时，超时后由上层账本按既有节奏重试。
 
 ```bash
 curl -sS \
-  -H 'X-OMS-Account: dps' \
+  -H 'X-OMS-Account: fhzarp-laundry' \
   'http://127.0.0.1:18083/v1/temu/platform-orders/PO-DEMO-1001'
 ```
 
@@ -210,7 +243,7 @@ curl -sS \
 {
   "success": true,
   "data": {
-    "account": "dps",
+    "account": "fhzarp-laundry",
     "platform_order_no": "PO-DEMO-1001",
     "found": true,
     "match_count": 1,
@@ -252,7 +285,7 @@ POST /v1/platform-orders/warehouse-assignments
 curl -sS \
   -X POST \
   -H 'Content-Type: application/json' \
-  -H 'X-OMS-Account: dps' \
+  -H 'X-OMS-Account: fhzarp-laundry' \
   'http://127.0.0.1:18083/v1/platform-orders/warehouse-assignments' \
   --data '{
     "platform_order_nos": ["PO-DEMO-1001", "PO-DEMO-1002"],
@@ -271,7 +304,7 @@ curl -sS \
 {
   "success": true,
   "data": {
-    "account": "dps",
+    "account": "fhzarp-laundry",
     "total": 2,
     "success": 2,
     "failed": 0,
@@ -318,6 +351,8 @@ curl -sS \
     {
       "whCode": "WH_CODE",
       "thirdOrderNo": "ORDER-10001",
+      "salesPlatform": "SHEIN",
+      "storeName": "Beauty Hangers home",
       "subOrderType": 1,
       "logisticsChannel": "CHANNEL_CODE",
       "receiver": "Test Receiver",
@@ -394,12 +429,15 @@ watermark 轮转，互不挤占批次；Temu 查询失败会保存本次查询�
 `XLWMS_FULFILLMENT_TRACKING_LIMIT`、`XLWMS_FULFILLMENT_TRACKING_CONCURRENCY` 控制。
 
 - 真实凭据只保存在模式为 `600` 的本地 `.env` 中。
-- 仓库凭据使用 Fernet 加密后写入 `xlwms_warehouses`。
+- 多个 OMS 账号使用独立的密码环境变量，禁止用一个全局密码覆盖所有账号。
+- OpenAPI 和 OMS 凭据使用 Fernet 加密后写入对应凭据表。
 - Fernet 主密钥仅保存在模式为 `600` 的 `.warehouse_credentials_key`。
 - 仓库列表只返回 App Key 提示，不返回可解密凭据。
 - OpenAPI 凭据按实际 `api_base_url + App Key` 独立分组；同一组可覆盖多个
   `wh_code`，同一个 `wh_code` 也可出现在多组凭据中。新增凭据时会通过综合库存接口
   自动发现并记录其仓库与 SKU 覆盖范围，凭据本身仍使用 Fernet 加密。
+- 每个 OpenAPI 凭据组绑定一个 OMS 发货账号，一个 OMS 发货账号可以绑定多个凭据组。
+  绑定描述的是 SKU 数据范围由哪个账号负责发货，不限制仓库库存，也不建立账号到仓库的映射。
 ## 安全约束
 - 同步任务只读取启用仓库，服务仅允许监听回环地址。
 - 不要记录、提交或公开原始 API 响应中的客户、财务和物流数据。

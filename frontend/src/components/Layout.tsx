@@ -1,4 +1,4 @@
-import { Archive, Truck, Bell, Boxes, ChartNoAxesCombined, ChevronDown, ClipboardCheck, Database, ExternalLink, Gauge, KeyRound, Link2, ListOrdered, ListTodo, Menu, PackageSearch, PackageCheck, PanelLeftClose, RefreshCw, ScanBox, Settings, ShieldCheck, SlidersHorizontal, TriangleAlert, UsersRound, Warehouse as WarehouseIcon, Waypoints, type LucideIcon } from "lucide-react";
+import { Archive, Truck, Boxes, ChartNoAxesCombined, ChevronDown, ClipboardCheck, Database, ExternalLink, Gauge, KeyRound, Link2, ListOrdered, ListTodo, Menu, PackageSearch, PackageCheck, PanelLeftClose, RefreshCw, ScanBox, Settings, ShieldCheck, SlidersHorizontal, TriangleAlert, Warehouse as WarehouseIcon, Waypoints, type LucideIcon } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { Warehouse } from "../types";
 
@@ -27,8 +27,7 @@ const groups: Array<{ label: string; items: NavigationItem[] }> = [
       { path: "/shipping-policies/base-rules", label: "基础快递限制", icon: ShieldCheck },
       { path: "/shipping-policies/selection", label: "快递选择算法", icon: ListOrdered },
       { path: "/shipping-policies/sku-rules", label: "SKU 发货规则", icon: PackageSearch },
-      { path: "/shipping-policies/accounts", label: "账号管理", icon: KeyRound },
-      { path: "/shipping-policies/account-routes", label: "账户路由", icon: UsersRound }
+      { path: "/shipping-policies/accounts", label: "账号管理", icon: KeyRound }
     ] }
   ] },
   { label: "管理", items: [
@@ -39,10 +38,12 @@ const groups: Array<{ label: string; items: NavigationItem[] }> = [
     { path: "/sync", label: "同步中心", icon: RefreshCw }
   ] }
 ];
-const pageNames: Record<string, string> = { "/": "运营总览", "/inventory": "库存中心", "/outbound": "出库管理", "/platform-orders": "平台订单待处理", "/product-pairings": "组合配对", "/fulfillment-audits": "履约核查", "/fulfilled-orders": "出库物流跟踪", "/delivery-evaluation": "快递评价", "/costs": "费用中心", "/warehouses": "仓库管理", "/inventory-alerts": "库存警告", "/sku-specs": "SKU 规格", "/packing": "包装规划", "/inventory-thresholds": "库存安全线", "/shipping-policies": "发货策略", "/shipping-policies/base-rules": "基础快递限制", "/shipping-policies/selection": "快递选择算法", "/shipping-policies/sku-rules": "SKU 发货规则", "/shipping-policies/accounts": "OMS 账号管理", "/shipping-policies/account-routes": "OMS 账户路由", "/sync": "同步中心", "/settings": "系统设置" };
+const pageNames: Record<string, string> = { "/": "运营总览", "/inventory": "库存中心", "/outbound": "出库管理", "/platform-orders": "平台订单待处理", "/product-pairings": "组合配对", "/fulfillment-audits": "履约核查", "/fulfilled-orders": "出库物流跟踪", "/delivery-evaluation": "快递评价", "/costs": "费用中心", "/warehouses": "仓库管理", "/inventory-alerts": "库存警告", "/sku-specs": "SKU 规格", "/packing": "包装规划", "/inventory-thresholds": "库存安全线", "/shipping-policies": "发货策略", "/shipping-policies/base-rules": "基础快递限制", "/shipping-policies/selection": "快递选择算法", "/shipping-policies/sku-rules": "SKU 发货规则", "/shipping-policies/accounts": "OMS 账号管理", "/sync": "同步中心", "/settings": "系统设置" };
 
 export default function Layout({ children, warehouses, warehouse, onWarehouseChange, online, path, onNavigate }: { children: ReactNode; warehouses: Warehouse[]; warehouse: string; onWarehouseChange: (value: string) => void; online: boolean | null; path: string; onNavigate: (path: string) => void }) {
   const [open, setOpen] = useState(false);
+  const warehouseScoped = ["/", "/inventory", "/outbound", "/inventory-alerts"].includes(path);
+  const section = groups.find((group) => group.items.some((item) => item.path === path || item.children?.some((child) => child.path === path)))?.label ?? "管理";
   const activeNavRef = useRef<HTMLButtonElement>(null);
   useEffect(() => { activeNavRef.current?.scrollIntoView({ block: "nearest" }); }, [path]);
   const go = (path: string) => { onNavigate(path); setOpen(false); };
@@ -55,7 +56,7 @@ export default function Layout({ children, warehouses, warehouse, onWarehouseCha
           const childActive = item.children?.some((child) => child.path === path) ?? false;
           return <div className={`nav-entry ${item.children ? "has-children" : ""}`} key={`${item.path}-${item.label}`}>
             <button ref={path === item.path && !item.children ? activeNavRef : undefined} className={`nav-item ${path === item.path && !item.children ? "active" : ""} ${childActive ? "parent-active" : ""}`} onClick={() => go(item.path)}><Icon size={18} /><span>{item.label}</span>{item.children && <ChevronDown className="nav-caret" size={14}/>}</button>
-            {item.children && <div className="nav-submenu">{item.children.map((child) => { const ChildIcon = child.icon; return <button ref={path === child.path ? activeNavRef : undefined} key={child.path} className={`nav-item nav-subitem ${path === child.path ? "active" : ""}`} onClick={() => go(child.path)}><ChildIcon size={15}/><span>{child.label}</span></button>; })}</div>}
+            {item.children && childActive && <div className="nav-submenu">{item.children.map((child) => { const ChildIcon = child.icon; return <button aria-current={path === child.path ? "page" : undefined} ref={path === child.path ? activeNavRef : undefined} key={child.path} className={`nav-item nav-subitem ${path === child.path ? "active" : ""}`} onClick={() => go(child.path)}><ChildIcon size={15}/><span>{child.label}</span></button>; })}</div>}
           </div>;
         })}</div>)}
       </nav>
@@ -63,7 +64,7 @@ export default function Layout({ children, warehouses, warehouse, onWarehouseCha
     </aside>
     {open && <button className="backdrop" onClick={() => setOpen(false)} aria-label="关闭导航" />}
     <div className="workspace">
-      <header className="topbar"><div className="topbar-title"><button className="icon-button mobile-menu" onClick={() => setOpen(true)} title="打开导航"><Menu size={20} /></button><span>XLWMS</span><b>/</b><strong>{pageNames[path] ?? "运营中台"}</strong></div><div className="topbar-actions">{path !== "/fulfillment-audits" && path !== "/fulfilled-orders" && path !== "/delivery-evaluation" && path !== "/costs" && path !== "/platform-orders" && path !== "/product-pairings" && path !== "/packing" && <label className="warehouse-select"><WarehouseIcon size={16} /><select value={warehouse} onChange={(event) => onWarehouseChange(event.target.value)}><option value="">全部仓库</option>{warehouses.map((item) => <option key={item.wh_code} value={item.wh_code}>{item.name || item.wh_code}</option>)}</select><ChevronDown size={14} /></label>}<button className="icon-button notification" title="通知"><Bell size={19} /><span /></button><div className="profile"><div>WM</div><span>管理员</span></div></div></header>
+      <header className="topbar"><div className="topbar-title"><button className="icon-button mobile-menu" onClick={() => setOpen(true)} title="打开导航"><Menu size={20} /></button><span>{section}</span><b>/</b><strong>{pageNames[path] ?? "运营中台"}</strong></div><div className="topbar-actions">{warehouseScoped && <label className="warehouse-select"><WarehouseIcon size={16} /><select aria-label="当前仓库" value={warehouse} onChange={(event) => onWarehouseChange(event.target.value)}><option value="">全部仓库</option>{warehouses.map((item) => <option key={item.wh_code} value={item.wh_code}>{item.name || item.wh_code}</option>)}</select><ChevronDown size={14} /></label>}<button className="icon-button" title="系统设置" onClick={() => go("/settings")}><Settings size={19}/></button></div></header>
       <main className="main-content">{children}</main>
     </div>
   </div>;

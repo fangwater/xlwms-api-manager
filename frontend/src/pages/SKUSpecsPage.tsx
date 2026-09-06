@@ -88,7 +88,7 @@ export default function SKUSpecsPage() {
   };
 
   return <>
-    <PageHeader title="仓库 SKU 规格" subtitle="Temu 发货包裹的唯一重量与尺寸来源" actions={<button className="primary-button" onClick={create}><Plus size={16}/>新建规格</button>} />
+    <PageHeader title="仓库 SKU 规格" actions={<button className="primary-button" onClick={create}><Plus size={16}/>新建规格</button>} />
     <div className="sku-spec-summary">
       <div><AlertTriangle size={18}/><span>刚性规则</span><strong>缺任一字段即阻断发货</strong></div>
       <div><PackageCheck size={18}/><span>统一单位</span><strong>厘米 / 千克</strong></div>

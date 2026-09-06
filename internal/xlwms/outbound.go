@@ -87,7 +87,7 @@ func ValidateOutboundData(operation string, data any) error {
 	}
 	switch operation {
 	case "parcel-create":
-		if err := validateCreateOrders(data, 100, []string{"whCode", "thirdOrderNo", "subOrderType", "logisticsChannel", "receiver", "countryRegionCode", "provinceCode", "provinceName", "cityName", "postCode", "addressOne", "productList"}); err != nil {
+		if err := validateCreateOrders(data, 100, []string{"whCode", "thirdOrderNo", "salesPlatform", "storeName", "subOrderType", "logisticsChannel", "receiver", "countryRegionCode", "provinceCode", "provinceName", "cityName", "postCode", "addressOne", "productList"}); err != nil {
 			return err
 		}
 		return validateProductLines(data)

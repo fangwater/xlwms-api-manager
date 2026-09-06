@@ -110,7 +110,7 @@ export default function ProductPairingsPage() {
   };
 
   return <>
-    <PageHeader title="组合配对" subtitle="同步维护领星 OMS 的平台 SKU 与系统 SKU 组合映射" actions={<>
+    <PageHeader title="组合配对" actions={<>
       <button className="icon-button bordered" type="button" onClick={() => void load()} disabled={loading || !account} title="刷新组合配对"><RefreshCw className={loading ? "spin" : ""} size={17} /></button>
       <button className="primary-button" type="button" onClick={() => setEditorOpen(true)} disabled={!account || selectedAccount?.available === false}><Plus size={16} />新建配对</button>
     </>} />

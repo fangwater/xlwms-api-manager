@@ -31,9 +31,38 @@ func TestOutboundPathsCoverOfficialEndpoints(t *testing.T) {
 }
 
 func TestOutboundValidation(t *testing.T) {
-	emptyProducts := []any{map[string]any{"whCode": "WH1", "thirdOrderNo": "T1", "subOrderType": 1, "logisticsChannel": "L1", "receiver": "R", "countryRegionCode": "US", "provinceCode": "CA", "provinceName": "California", "cityName": "LA", "postCode": "90001", "addressOne": "A", "productList": []any{}}}
+	emptyProducts := []any{map[string]any{"whCode": "WH1", "thirdOrderNo": "T1", "salesPlatform": "SHEIN", "storeName": "Beauty Hangers home", "subOrderType": 1, "logisticsChannel": "L1", "receiver": "R", "countryRegionCode": "US", "provinceCode": "CA", "provinceName": "California", "cityName": "LA", "postCode": "90001", "addressOne": "A", "productList": []any{}}}
 	if err := ValidateOutboundData("parcel-create", emptyProducts); err == nil {
 		t.Fatal("empty productList must fail")
+	}
+	missingStore := []any{map[string]any{
+		"whCode": "WH1", "thirdOrderNo": "GSU-1", "platformOrderNo": "GSU-1", "salesPlatform": "SHEIN",
+		"subOrderType": 1, "logisticsChannel": "Upload_Shipping_Label", "receiver": "R", "countryRegionCode": "US",
+		"provinceCode": "CA", "provinceName": "California", "cityName": "LA", "postCode": "90001",
+		"addressOne": "A", "productList": []any{map[string]any{"sku": "SKU-1", "quantity": 1}},
+	}}
+	if err := ValidateOutboundData("parcel-create", missingStore); err == nil {
+		t.Fatal("parcel create without storeName must fail")
+	}
+	missingPlatform := []any{map[string]any{
+		"whCode": "WH1", "thirdOrderNo": "GSU-1", "platformOrderNo": "GSU-1",
+		"storeName": "Beauty Hangers home", "subOrderType": 1, "logisticsChannel": "Upload_Shipping_Label",
+		"receiver": "R", "countryRegionCode": "US", "provinceCode": "CA", "provinceName": "California",
+		"cityName": "LA", "postCode": "90001", "addressOne": "A",
+		"productList": []any{map[string]any{"sku": "SKU-1", "quantity": 1}},
+	}}
+	if err := ValidateOutboundData("parcel-create", missingPlatform); err == nil {
+		t.Fatal("parcel create without salesPlatform must fail")
+	}
+	withPlatformStoreAndThird := []any{map[string]any{
+		"whCode": "WH1", "thirdOrderNo": "GSU-1", "platformOrderNo": "GSU-1", "salesPlatform": "SHEIN",
+		"storeName": "Beauty Hangers home", "subOrderType": 1, "logisticsChannel": "Upload_Shipping_Label",
+		"receiver": "R", "countryRegionCode": "US", "provinceCode": "CA", "provinceName": "California",
+		"cityName": "LA", "postCode": "90001", "addressOne": "A",
+		"productList": []any{map[string]any{"sku": "SKU-1", "quantity": 1}},
+	}}
+	if err := ValidateOutboundData("parcel-create", withPlatformStoreAndThird); err != nil {
+		t.Fatalf("parcel create with sales platform and store must be accepted: %v", err)
 	}
 	if err := ValidateOutboundData("parcel-list", map[string]any{"page": 1, "pageSize": 100}); err != nil {
 		t.Fatal(err)
@@ -43,6 +72,12 @@ func TestOutboundValidation(t *testing.T) {
 	}
 	if err := ValidateOutboundData("tracking-label-update", map[string]any{"outboundOrderNo": "O1"}); err == nil {
 		t.Fatal("tracking or label must be required")
+	}
+	if err := ValidateOutboundData("tracking-label-update", map[string]any{
+		"outboundOrderNo": "O1", "trackingNumber": "1Z999",
+		"labelUrl": "https://pdf.example/label.pdf", "labelFileName": "GSU-1.pdf", "labelType": "pdf",
+	}); err != nil {
+		t.Fatalf("label upload payload must be accepted: %v", err)
 	}
 	if err := ValidateOutboundData("message-reply", map[string]any{"outboundOrderNo": "O1", "content": "done"}); err != nil {
 		t.Fatal(err)

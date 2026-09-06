@@ -145,7 +145,7 @@ export default function InventoryPage({ warehouse, warehouses }: { warehouse: st
   return <>
     <PageHeader
       title="库存中心"
-      subtitle={view === "sku_levels" ? "启用仓 SKU 综合库存水位" : view === "corrections" ? "按仓库和 SKU 覆盖发货可用库存，不回写领星" : "综合库存、库龄与库存流水"}
+      subtitle={view === "corrections" ? "修正仅用于发货计算，不回写领星" : undefined}
       actions={<>{view === "corrections" && <button className="secondary-button" onClick={openNewCorrection}><Plus size={16} />新增修正</button>}<button className="primary-button" disabled={syncDisabled} onClick={() => void sync()}><RefreshCw size={16} className={syncing ? "spin" : ""} />{syncing ? "提交中" : !warehouse ? "同步全部启用仓" : "同步当前视图"}</button></>}
     />
     <div className="segmented-tabs" role="tablist">{views.map((item) => <button key={item.key} className={view === item.key ? "active" : ""} onClick={() => changeView(item.key)}>{item.label}</button>)}</div>
@@ -199,8 +199,8 @@ function StockSummary({ data }: { data: SKUStockLevelPage }) {
     const Icon = item.icon;
     const detail = item.label === "发货有效库存" && data.summary.correction_count > 0
       ? `领星原值 ${number(data.summary.raw_fulfillment_available_amount)} · ${number(data.summary.correction_count)} 项修正`
-      : "综合库存口径";
-    return <div className="metric-card" key={item.label}><div className={"metric-icon " + item.tone}><Icon size={18} /></div><div><span>{item.label}</span><strong>{number(item.value)}</strong><small>{detail}</small></div></div>;
+      : "";
+    return <div className="metric-card" key={item.label}><div className={"metric-icon " + item.tone}><Icon size={18} /></div><div><span>{item.label}</span><strong>{number(item.value)}</strong>{detail && <small>{detail}</small>}</div></div>;
   })}</div>;
 }
 

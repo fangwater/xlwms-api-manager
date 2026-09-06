@@ -53,6 +53,9 @@ func (s *Server) outbound(writer http.ResponseWriter, request *http.Request) {
 	client := xlwms.NewClient(warehouse.APIBaseURL, warehouse.AppKey, warehouse.AppSecret, s.requestTimeout)
 	result, err := client.Outbound(ctx, operation, payload.Data)
 	if err != nil {
+		if s.logger != nil {
+			s.logger.Warn("outbound request failed", "operation", operation, "warehouse", strings.ToUpper(strings.TrimSpace(payload.Warehouse)), "error", err.Error())
+		}
 		var apiErr *xlwms.APIError
 		if errors.As(err, &apiErr) {
 			writeJSON(writer, http.StatusBadGateway, response{Success: false, Error: apiErr.Error()})

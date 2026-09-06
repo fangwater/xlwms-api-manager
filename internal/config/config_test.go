@@ -12,6 +12,8 @@ func TestLoadUsesXLWMSDefaults(t *testing.T) {
 	t.Setenv("XLWMS_OMS_BASE_URL", "")
 	t.Setenv("XLWMS_OMS_USERNAME", "")
 	t.Setenv("XLWMS_OMS_PASSWORD", "")
+	t.Setenv("XLWMS_CONSOLE_USER", "")
+	t.Setenv("XLWMS_CONSOLE_PASSWORD", "")
 	t.Setenv("TEMU_GO_BASE_URL", "")
 	t.Setenv("SHEIN_GO_BASE_URL", "")
 	t.Setenv("XLWMS_INVENTORY_SYNC_INTERVAL", "")
@@ -50,6 +52,32 @@ func TestLoadUsesXLWMSDefaults(t *testing.T) {
 	}
 	if filepath.Base(cfg.CredentialKeyFile) != ".warehouse_credentials_key" {
 		t.Fatalf("unexpected key path %q", cfg.CredentialKeyFile)
+	}
+}
+
+func TestLoadReadsConsoleCredentialsTogether(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgresql://example.test/xlwms")
+	t.Setenv("XLWMS_OMS_USERNAME", "")
+	t.Setenv("XLWMS_OMS_PASSWORD", "")
+	t.Setenv("XLWMS_CONSOLE_USER", "operator")
+	t.Setenv("XLWMS_CONSOLE_PASSWORD", "secret")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.ConsoleUser != "operator" || cfg.ConsolePassword != "secret" {
+		t.Fatal("console credentials were not loaded")
+	}
+}
+
+func TestLoadRejectsPartialConsoleCredentials(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgresql://example.test/xlwms")
+	t.Setenv("XLWMS_OMS_USERNAME", "")
+	t.Setenv("XLWMS_OMS_PASSWORD", "")
+	t.Setenv("XLWMS_CONSOLE_USER", "operator")
+	t.Setenv("XLWMS_CONSOLE_PASSWORD", "")
+	if _, err := Load(); err == nil || err.Error() != "XLWMS_CONSOLE_USER and XLWMS_CONSOLE_PASSWORD must be configured together" {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 

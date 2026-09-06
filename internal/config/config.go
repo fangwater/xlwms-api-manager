@@ -28,8 +28,8 @@ type Config struct {
 	AppKey                     string
 	AppSecret                  string
 	OMSBaseURL                 string
-	OMSUsername                string
-	OMSPassword                string
+	ConsoleUser                string
+	ConsolePassword            string
 	TemuGoBaseURL              string
 	SheinGoBaseURL             string
 	Listen                     string
@@ -54,8 +54,8 @@ func Load() (Config, error) {
 		AppKey:                     os.Getenv("XLWMS_APP_KEY"),
 		AppSecret:                  os.Getenv("XLWMS_APP_SECRET"),
 		OMSBaseURL:                 strings.TrimRight(envOrDefault("XLWMS_OMS_BASE_URL", DefaultOMSBaseURL), "/"),
-		OMSUsername:                strings.TrimSpace(os.Getenv("XLWMS_OMS_USERNAME")),
-		OMSPassword:                os.Getenv("XLWMS_OMS_PASSWORD"),
+		ConsoleUser:                strings.TrimSpace(os.Getenv("XLWMS_CONSOLE_USER")),
+		ConsolePassword:            os.Getenv("XLWMS_CONSOLE_PASSWORD"),
 		TemuGoBaseURL:              strings.TrimRight(envOrDefault("TEMU_GO_BASE_URL", DefaultTemuGoBaseURL), "/"),
 		SheinGoBaseURL:             strings.TrimRight(envOrDefault("SHEIN_GO_BASE_URL", DefaultSheinGoBaseURL), "/"),
 		Listen:                     envOrDefault("XLWMS_LISTEN", DefaultListen),
@@ -70,8 +70,8 @@ func Load() (Config, error) {
 	if cfg.DatabaseURL == "" {
 		return Config{}, errors.New("DATABASE_URL is required")
 	}
-	if (cfg.OMSUsername == "") != (cfg.OMSPassword == "") {
-		return Config{}, errors.New("XLWMS_OMS_USERNAME and XLWMS_OMS_PASSWORD must be configured together")
+	if (cfg.ConsoleUser == "") != (cfg.ConsolePassword == "") {
+		return Config{}, errors.New("XLWMS_CONSOLE_USER and XLWMS_CONSOLE_PASSWORD must be configured together")
 	}
 	if cfg.RequestTimeout, err = positiveDuration("XLWMS_REQUEST_TIMEOUT", cfg.RequestTimeout); err != nil {
 		return Config{}, err

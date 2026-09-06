@@ -172,7 +172,7 @@ export default function PackingPlannerPage() {
   };
 
   return <>
-    <PageHeader title="包装规划" subtitle={view === "planner" ? "按仓库 SKU 规格计算包裹，并保存组合与发货替代映射" : "已保存的 SKU 组合、人工包裹修正与发货替代映射"} actions={view === "planner" && editingCombination ? <button type="button" className="secondary-button" onClick={() => setEditingCombination(null)}><X size={15}/>退出修改</button> : undefined} />
+    <PageHeader title="包装规划" actions={view === "planner" && editingCombination ? <button type="button" className="secondary-button" onClick={() => setEditingCombination(null)}><X size={15}/>退出修改</button> : undefined} />
     <div className="segmented-tabs packing-mode-tabs" role="tablist" aria-label="包装功能">
       <button type="button" role="tab" aria-selected={view === "planner"} className={view === "planner" ? "active" : ""} onClick={() => setView("planner")}><Layers3 size={15}/>包装规划</button>
       <button type="button" role="tab" aria-selected={view === "combinations"} className={view === "combinations" ? "active" : ""} onClick={() => setView("combinations")}><Library size={15}/>组合库</button>

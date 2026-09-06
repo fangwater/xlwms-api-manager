@@ -124,7 +124,7 @@ export default function InventoryThresholdsPage() {
   };
 
   return <>
-    <PageHeader title="库存安全线" subtitle="按平台和仓库 SKU 维护四仓总库存转人工阈值" />
+    <PageHeader title="库存安全线" />
     <div className="filter-bar threshold-shop-bar">
       <label className="select-field"><select aria-label="选择平台" value={platform} onChange={(event) => selectPlatform(event.target.value)}>{platformOptions.map((item) => <option value={item} key={item}>{platformLabel(item)}</option>)}</select></label>
       <span className="table-note">当前正在编辑 {platformLabel(platform)} 全部店铺共用的安全线</span>
