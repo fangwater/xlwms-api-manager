@@ -8,6 +8,7 @@ export type Warehouse = {
 };
 
 export type WarehouseAPICredentialGroup = {
+  inventory_sync_status: "pending" | "ready" | "failed";
   key: string;
   label: string;
   api_base_url: string;
@@ -506,6 +507,7 @@ export type OMSMFAPrompt = {
 };
 
 export type OMSAccountSummary = {
+  sku_status: "pending" | "ready" | "failed" | "unbound";
   key: string;
   label: string;
   username_hint: string;

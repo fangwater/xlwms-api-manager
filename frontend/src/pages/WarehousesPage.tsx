@@ -112,7 +112,7 @@ export default function WarehousesPage({ warehouses, onChanged }: { warehouses: 
           <td><div className="primary-cell"><strong>{item.label}</strong><small>{item.key}</small></div></td>
           <td><span className="key-hint"><KeyRound size={14} />{item.app_key_hint}</span></td>
           <td><div className="warehouse-code-list">{item.warehouse_codes.length ? item.warehouse_codes.map(code => <span key={code}>{code}</span>) : <small>待发现</small>}</div></td>
-          <td><strong>{item.last_verified_at ? item.sku_count : "-"}</strong></td>
+          <td><strong>{item.inventory_sync_status === "ready" ? item.sku_count : item.inventory_sync_status === "failed" ? "同步失败" : "待同步"}</strong></td>
           <td>{item.oms_account_label || <span className="muted-text">待绑定</span>}</td>
           <td><div className="primary-cell"><strong className={item.active && item.last_verified_at ? "verified-text" : "muted-text"}>{!item.active ? "已停用" : item.last_verified_at ? "已验证" : "旧配置已归并"}</strong><small>{dateTime(item.last_verified_at || item.updated_at)}</small></div></td>
           <td>{item.deletable

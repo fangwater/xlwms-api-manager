@@ -118,6 +118,7 @@ func newWithPlatformOrderAccountOperationsAuthenticated(destination *store.Postg
 	mux.HandleFunc("PATCH /v1/warehouses/{code}/status", server.warehouseStatus)
 	mux.HandleFunc("GET /v1/warehouse-api-credentials", server.listWarehouseAPICredentials)
 	mux.HandleFunc("POST /v1/warehouse-api-credentials", server.createWarehouseAPICredential)
+	mux.HandleFunc("POST /v1/warehouse-api-credentials/{credentialKey}/sync", server.syncWarehouseAPIInventory)
 	mux.HandleFunc("DELETE /v1/warehouse-api-credentials/{credentialKey}", server.deleteWarehouseAPICredential)
 	mux.HandleFunc("GET /v1/funds-flows", server.fundsFlows)
 	mux.HandleFunc("GET /v1/cost-details", server.costDetails)

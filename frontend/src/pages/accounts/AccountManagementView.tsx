@@ -1,4 +1,4 @@
-import { Boxes, Check, Database, KeyRound, Pencil, Plus, Search, ShieldCheck, X } from "lucide-react";
+import { Boxes, Check, Database, KeyRound, Pencil, Plus, RefreshCw, Search, ShieldCheck, X } from "lucide-react";
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { api } from "../../api";
 import { EmptyState, ErrorState, LoadingState, dateTime } from "../../components/Common";
@@ -54,6 +54,15 @@ export default function AccountManagementView() {
   }, []);
 
   useEffect(() => { void load(); }, [load]);
+
+  async function syncSKU(account: OMSAccountSummary) {
+    setSaving(`sku:${account.key}`);
+    setError("");
+    const results = await Promise.allSettled(account.api_credential_keys.map((key) => api.syncWarehouseAPIInventory(key)));
+    await load();
+    if (results.some((result) => result.status === "rejected")) setError("SKU 同步未全部成功，已保留上次成功数据，请稍后重试");
+    setSaving("");
+  }
 
   const toggleKey = (values: string[], key: string) => values.includes(key)
     ? values.filter((value) => value !== key)
@@ -174,7 +183,7 @@ export default function AccountManagementView() {
       return <label className={active ? "active" : ""} key={credential.key}>
         <input type="checkbox" checked={active} onChange={() => onChange(toggleKey(selected, credential.key))}/>
         <span>{active && <Check size={13}/>}</span>
-        <div><strong>{credential.label}</strong><small>{credential.sku_count} 个 SKU{owner && owner.key !== currentAccountKey ? ` · 当前 ${owner.label}` : ""}</small></div>
+        <div><strong>{credential.label}</strong><small>{skuLabel(credential.inventory_sync_status, credential.sku_count)}{owner && owner.key !== currentAccountKey ? ` · 当前 ${owner.label}` : ""}</small></div>
       </label>;
     })}
   </div>;
@@ -195,7 +204,7 @@ export default function AccountManagementView() {
       const health = healthByKey[account.key];
       return <article className={`account-policy-card ${account.enabled ? "" : "disabled"}`} key={account.key}>
         <header><div className="account-identity"><span><KeyRound size={19}/></span><div><h3>{account.label}</h3><p>{account.username_hint || "未配置登录"}</p></div></div><button className="icon-button" title="编辑显示名称" onClick={() => { setLabelAccount(account); setLabel(account.label); setError(""); }}><Pencil size={15}/></button></header>
-        <div className="account-card-summary"><span><Database size={13}/>{bound.length} 组 OpenAPI</span><span><Boxes size={13}/>{account.sku_count} 个 SKU</span>{health && <span className={`account-health ${health.available ? "ready" : "blocked"}`}><ShieldCheck size={13}/>{health.available ? "登录正常" : health.error || "登录不可用"}</span>}</div>
+        <div className="account-card-summary"><span><Database size={13}/>{bound.length} 组 OpenAPI</span><span><Boxes size={13}/>{skuLabel(account.sku_status, account.sku_count)}</span>{bound.length > 0 && <button className="icon-button" title="同步 SKU" disabled={!!saving} onClick={() => void syncSKU(account)}><RefreshCw size={14}/></button>}{health && <span className={`account-health ${health.available ? "ready" : "blocked"}`}><ShieldCheck size={13}/>{health.available ? "登录正常" : health.error || "登录不可用"}</span>}</div>
         <div className="account-bindings">{bound.length ? bound.map((credential) => <span key={credential.key}><Database size={14}/><strong>{credential.label}</strong></span>) : <small>尚未绑定 API 凭据</small>}</div>
         <footer><small title="最近更新">{dateTime(account.updated_at)} 更新</small><div>{health?.status === "mfa_required" && <button className="secondary-button" onClick={() => void beginMFA(account)} disabled={saving === `mfa:${account.key}`}><ShieldCheck size={14}/>{saving === `mfa:${account.key}` ? "准备中" : "二次验证"}</button>}<button className="secondary-button" onClick={() => { setBindingAccount(account); setBindingKeys(account.api_credential_keys); setError(""); }} disabled={saving.startsWith("bindings:")}><Database size={14}/>绑定 API</button><button className="secondary-button" onClick={() => { setCredentialAccount(account); setCredentialsForm({ username: "", password: "" }); setError(""); }}><KeyRound size={14}/>登录凭据</button><label className="toggle"><input aria-label={`启用 ${account.label}`} type="checkbox" checked={account.enabled} onChange={(event) => void setEnabled(account, event.target.checked)}/><span/><b>{account.enabled ? "启用" : "停用"}</b></label></div></footer>
       </article>;
@@ -215,4 +224,11 @@ export default function AccountManagementView() {
     if (!bindingAccount) return null;
     return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setBindingAccount(null); }}><section className="modal account-create-modal" role="dialog" aria-modal="true" aria-labelledby="account-binding-title"><header><div><h2 id="account-binding-title">绑定 OpenAPI 凭据</h2><p>{bindingAccount.label}</p></div><button className="icon-button" type="button" title="关闭" onClick={() => setBindingAccount(null)}><X size={19}/></button></header>{credentialPicker(bindingKeys, setBindingKeys, bindingAccount.key)}<footer><button className="secondary-button" type="button" onClick={() => setBindingAccount(null)}>取消</button><button className="primary-button" type="button" disabled={saving.startsWith("bindings:")} onClick={async () => { await saveAPIBindings(bindingAccount, bindingKeys); setBindingAccount(null); }}>保存绑定</button></footer></section></div>;
   }
+}
+
+function skuLabel(status: string, count: number) {
+  if (status === "ready") return `${count} 个 SKU`;
+  if (status === "failed") return "SKU 同步失败";
+  if (status === "unbound") return "未绑定 API";
+  return "SKU 待同步";
 }

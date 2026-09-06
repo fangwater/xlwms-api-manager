@@ -27,10 +27,10 @@ const groups: Array<{ label: string; items: NavigationItem[] }> = [
       { path: "/shipping-policies/base-rules", label: "基础快递限制", icon: ShieldCheck },
       { path: "/shipping-policies/selection", label: "快递选择算法", icon: ListOrdered },
       { path: "/shipping-policies/sku-rules", label: "SKU 发货规则", icon: PackageSearch },
-      { path: "/shipping-policies/accounts", label: "账号管理", icon: KeyRound }
     ] }
   ] },
   { label: "管理", items: [
+    { path: "/accounts", label: "账号管理", icon: KeyRound },
     { path: "/warehouses", label: "仓库管理", icon: WarehouseIcon },
     { path: "/inventory-alerts", label: "库存警告", icon: TriangleAlert },
     { path: "/sku-specs", label: "SKU 规格", icon: PackageCheck },
@@ -38,7 +38,7 @@ const groups: Array<{ label: string; items: NavigationItem[] }> = [
     { path: "/sync", label: "同步中心", icon: RefreshCw }
   ] }
 ];
-const pageNames: Record<string, string> = { "/": "运营总览", "/inventory": "库存中心", "/outbound": "出库管理", "/platform-orders": "平台订单待处理", "/product-pairings": "组合配对", "/fulfillment-audits": "履约核查", "/fulfilled-orders": "出库物流跟踪", "/delivery-evaluation": "快递评价", "/costs": "费用中心", "/warehouses": "仓库管理", "/inventory-alerts": "库存警告", "/sku-specs": "SKU 规格", "/packing": "包装规划", "/inventory-thresholds": "库存安全线", "/shipping-policies": "发货策略", "/shipping-policies/base-rules": "基础快递限制", "/shipping-policies/selection": "快递选择算法", "/shipping-policies/sku-rules": "SKU 发货规则", "/shipping-policies/accounts": "OMS 账号管理", "/sync": "同步中心", "/settings": "系统设置" };
+const pageNames: Record<string, string> = { "/": "运营总览", "/inventory": "库存中心", "/outbound": "出库管理", "/platform-orders": "平台订单待处理", "/product-pairings": "组合配对", "/fulfillment-audits": "履约核查", "/fulfilled-orders": "出库物流跟踪", "/delivery-evaluation": "快递评价", "/costs": "费用中心", "/warehouses": "仓库管理", "/inventory-alerts": "库存警告", "/sku-specs": "SKU 规格", "/packing": "包装规划", "/inventory-thresholds": "库存安全线", "/shipping-policies": "发货策略", "/shipping-policies/base-rules": "基础快递限制", "/shipping-policies/selection": "快递选择算法", "/shipping-policies/sku-rules": "SKU 发货规则", "/accounts": "OMS 账号管理", "/sync": "同步中心", "/settings": "系统设置" };
 
 export default function Layout({ children, warehouses, warehouse, onWarehouseChange, online, path, onNavigate }: { children: ReactNode; warehouses: Warehouse[]; warehouse: string; onWarehouseChange: (value: string) => void; online: boolean | null; path: string; onNavigate: (path: string) => void }) {
   const [open, setOpen] = useState(false);

@@ -12,7 +12,7 @@ async function mockAPI(page: Page, options: {
 } = {}) {
   let apiCredentials = [{
     key: "api-demo", label: "演示 OpenAPI", api_base_url: "https://api.xlwms.com/openapi",
-    app_key_hint: "demo...key", warehouse_codes: ["EAST-01", "WEST-02"], sku_count: 26,
+    app_key_hint: "demo...key", warehouse_codes: ["EAST-01", "WEST-02"], sku_count: 26, inventory_sync_status: "ready",
     active: true, deletable: true, last_verified_at: "2026-08-01T08:00:00Z", updated_at: "2026-08-01T08:00:00Z"
   }];
   await page.route("**/warehouse-console/healthz", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ success: true, data: { status: "ok" } }) }));

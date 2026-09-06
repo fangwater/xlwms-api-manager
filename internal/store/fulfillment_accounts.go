@@ -20,9 +20,14 @@ SELECT account.account_key,account.account_label,account.account_hint,account.en
        coalesce(array_agg(DISTINCT binding.credential_key ORDER BY binding.credential_key)
            FILTER (WHERE binding.credential_key IS NOT NULL),'{}'::text[]),
        count(DISTINCT (inventory.credential_key,inventory.warehouse_sku))
-           FILTER (WHERE inventory.warehouse_sku<>''),account.updated_at
+           FILTER (WHERE inventory.warehouse_sku<>''),account.updated_at,
+       CASE WHEN count(binding.credential_key)=0 THEN 'unbound'
+            WHEN bool_or(credential.inventory_sync_status='failed') THEN 'failed'
+            WHEN bool_or(credential.inventory_sync_status<>'ready' OR NOT credential.is_active) THEN 'pending'
+            ELSE 'ready' END
 FROM xlwms_oms_accounts account
 LEFT JOIN xlwms_oms_account_api_credentials binding ON binding.account_key=account.account_key
+LEFT JOIN xlwms_api_credentials credential ON credential.credential_key=binding.credential_key
 LEFT JOIN xlwms_api_credential_inventory inventory ON inventory.credential_key=binding.credential_key
 WHERE account.enabled OR $1
 GROUP BY account.account_key,account.account_label,account.account_hint,account.enabled,account.updated_at
@@ -36,7 +41,7 @@ ORDER BY account.account_label,account.account_key
 	for rows.Next() {
 		var item model.OMSAccountSummary
 		if err := rows.Scan(&item.Key, &item.Label, &item.UsernameHint, &item.Enabled,
-			&item.APICredentialKeys, &item.SKUCount, &item.UpdatedAt); err != nil {
+			&item.APICredentialKeys, &item.SKUCount, &item.UpdatedAt, &item.SKUStatus); err != nil {
 			return nil, fmt.Errorf("scan OMS account: %w", err)
 		}
 		items = append(items, item)
@@ -52,14 +57,19 @@ SELECT account.account_key,account.account_label,account.account_hint,account.en
        coalesce(array_agg(DISTINCT binding.credential_key ORDER BY binding.credential_key)
            FILTER (WHERE binding.credential_key IS NOT NULL),'{}'::text[]),
        count(DISTINCT (inventory.credential_key,inventory.warehouse_sku))
-           FILTER (WHERE inventory.warehouse_sku<>''),account.updated_at
+           FILTER (WHERE inventory.warehouse_sku<>''),account.updated_at,
+       CASE WHEN count(binding.credential_key)=0 THEN 'unbound'
+            WHEN bool_or(credential.inventory_sync_status='failed') THEN 'failed'
+            WHEN bool_or(credential.inventory_sync_status<>'ready' OR NOT credential.is_active) THEN 'pending'
+            ELSE 'ready' END
 FROM xlwms_oms_accounts account
 LEFT JOIN xlwms_oms_account_api_credentials binding ON binding.account_key=account.account_key
+LEFT JOIN xlwms_api_credentials credential ON credential.credential_key=binding.credential_key
 LEFT JOIN xlwms_api_credential_inventory inventory ON inventory.credential_key=binding.credential_key
 WHERE account.account_key=$1
 GROUP BY account.account_key,account.account_label,account.account_hint,account.enabled,account.updated_at
 `, accountKey).Scan(&item.Key, &item.Label, &item.UsernameHint, &item.Enabled,
-		&item.APICredentialKeys, &item.SKUCount, &item.UpdatedAt)
+		&item.APICredentialKeys, &item.SKUCount, &item.UpdatedAt, &item.SKUStatus)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return model.OMSAccountSummary{}, ErrOMSAccountNotFound
 	}

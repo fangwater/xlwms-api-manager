@@ -15,6 +15,7 @@ const SKUSpecsPage = lazy(() => import("./pages/SKUSpecsPage"));
 const PackingPlannerPage = lazy(() => import("./pages/PackingPlannerPage"));
 const InventoryThresholdsPage = lazy(() => import("./pages/InventoryThresholdsPage"));
 const ShippingPoliciesPage = lazy(() => import("./pages/ShippingPoliciesPage"));
+const AccountManagementPage = lazy(() => import("./pages/AccountManagementPage"));
 const InventoryAlertsPage = lazy(() => import("./pages/InventoryAlertsPage"));
 const FulfillmentAuditsPage = lazy(() => import("./pages/FulfillmentAuditsPage"));
 const FulfilledOrdersPage = lazy(() => import("./pages/FulfilledOrdersPage"));
@@ -25,8 +26,7 @@ const SettingsPage = lazy(() => import("./pages/SettingsPage"));
 const shippingPolicyViews = {
   "/shipping-policies/base-rules": "base-rules",
   "/shipping-policies/selection": "selection",
-  "/shipping-policies/sku-rules": "sku-rules",
-  "/shipping-policies/accounts": "account-management"
+  "/shipping-policies/sku-rules": "sku-rules"
 } as const;
 const validPaths = new Set(["/", "/inventory", "/outbound", "/platform-orders", "/product-pairings", "/fulfillment-audits", "/fulfilled-orders", "/delivery-evaluation", "/costs", "/warehouses", "/inventory-alerts", "/sku-specs", "/packing", "/inventory-thresholds", "/shipping-policies", ...Object.keys(shippingPolicyViews), "/sync", "/settings"]);
 
@@ -48,7 +48,9 @@ export default function App() {
     void loadWarehouses();
   }, [loadWarehouses]);
   useEffect(() => {
-    if (path === "/shipping-policies") navigate("/shipping-policies/base-rules");
+    if (path === "/shipping-policies/accounts") navigate("/accounts", true);
+    else if (path === "/accounts") return;
+    else if (path === "/shipping-policies") navigate("/shipping-policies/base-rules");
     else if (!validPaths.has(path)) navigate("/");
   }, [path]);
 
@@ -70,6 +72,7 @@ export default function App() {
   else if (path === "/sku-specs") page = <SKUSpecsPage />;
   else if (path === "/packing") page = <PackingPlannerPage />;
   else if (path === "/inventory-thresholds") page = <InventoryThresholdsPage />;
+  else if (path === "/accounts" || path === "/shipping-policies/accounts") page = <AccountManagementPage />;
   else if (path === "/shipping-policies") page = <ShippingPoliciesPage view="base-rules" onNavigate={navigate} />;
   else if (path in shippingPolicyViews) page = <ShippingPoliciesPage view={shippingPolicyViews[path as keyof typeof shippingPolicyViews]} onNavigate={navigate} />;
   else if (path === "/warehouses") page = <WarehousesPage warehouses={warehouses} onChanged={loadWarehouses} />;

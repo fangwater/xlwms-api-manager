@@ -25,7 +25,7 @@ async function fulfill(route: Route, data: unknown) {
   await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ success: true, data }) });
 }
 
-async function mockPolicyAPI(page: Page) {
+async function mockPolicyAPI(page: Page, skuStatus = "ready") {
   const accounts = [
     { key: "arp", label: "FHZARP-衣架", username_hint: "FH***RP", enabled: true, api_credential_keys: ["api-hanger"], sku_count: 8, updated_at: "2026-09-03T08:00:00Z" },
     { key: "dps", label: "FHZDPS-衣架", username_hint: "FH***PS", enabled: true, api_credential_keys: ["api-dps"], sku_count: 6, updated_at: "2026-09-03T08:00:00Z" }
@@ -62,7 +62,11 @@ async function mockPolicyAPI(page: Page) {
         }
         return fulfill(route, created);
       }
-      return fulfill(route, accounts);
+      return fulfill(route, accounts.map((account) => ({ ...account, sku_status: skuStatus })));
+    }
+    if (/\/warehouse-api-credentials\/[^/]+\/sync$/.test(path)) {
+      skuStatus = "ready";
+      return fulfill(route, { synced: true });
     }
     if (path.endsWith("/platform-orders/accounts")) return fulfill(route, accountHealth);
     if (/\/platform-orders\/accounts\/[^/]+\/mfa-challenge$/.test(path)) {
@@ -187,6 +191,20 @@ test("account workspace filters accounts without redundant counters or warehouse
   await expect(page.locator(".account-policy-card")).toHaveCount(2);
 });
 
+test("account SKU sync distinguishes pending and failed from zero", async ({ page }) => {
+  await mockPolicyAPI(page, "pending");
+  await page.goto("./accounts");
+  const account = page.locator(".account-policy-card", { hasText: "FHZARP-衣架" });
+  await expect(account.getByText("SKU 待同步")).toBeVisible();
+  await expect(account.getByText("0 个 SKU", { exact: true })).toHaveCount(0);
+  await account.getByTitle("同步 SKU").click();
+  await expect(account.getByText("8 个 SKU", { exact: true })).toBeVisible();
+  await page.route("**/warehouse-console/api/fulfillment-policies/accounts?*", (route) => fulfill(route, [{ key: "arp", label: "FHZARP-衣架", api_credential_keys: ["api-hanger"], sku_count: 8, sku_status: "failed", enabled: true }]));
+  await page.reload();
+  await expect(account.getByText("SKU 同步失败")).toBeVisible();
+  await expect(account.getByText("0 个 SKU", { exact: true })).toHaveCount(0);
+});
+
 test("account management completes six-digit OMS verification", async ({ page }) => {
   await mockPolicyAPI(page);
   await page.goto("./shipping-policies/accounts");
@@ -204,7 +222,7 @@ test("mobile policy directory remains usable without horizontal overflow", async
   await mockPolicyAPI(page);
   await page.goto("./shipping-policies/selection");
   await page.getByTitle("打开导航").click();
-  await expect(page.locator(".nav-submenu").getByRole("button")).toHaveCount(4);
+  await expect(page.locator(".nav-submenu").getByRole("button")).toHaveCount(3);
   await page.screenshot({ path: "/tmp/xlwms-policy-directory-mobile.png" });
   await page.locator(".nav-submenu").getByRole("button", { name: "基础快递限制" }).click();
   await expect(page.getByRole("heading", { name: "基础快递限制", level: 1 })).toBeVisible();
@@ -217,7 +235,8 @@ test("mobile account management remains usable without horizontal overflow", asy
   await mockPolicyAPI(page);
   await page.goto("./shipping-policies/accounts");
   await expect(page.locator(".account-policy-card")).toHaveCount(2);
-  await expect(page.locator(".policy-view-nav button.active")).toBeInViewport();
+  await expect(page).toHaveURL(/\/accounts$/);
+  await expect(page.locator(".policy-view-nav")).toHaveCount(0);
   await page.screenshot({ path: "/tmp/xlwms-account-management-mobile.png", fullPage: true });
   const sizes = await page.evaluate(() => ({ viewport: document.documentElement.clientWidth, scrollWidth: document.documentElement.scrollWidth }));
   expect(sizes.scrollWidth).toBeLessThanOrEqual(sizes.viewport);

@@ -14,9 +14,9 @@ export function useRouter() {
     window.addEventListener("popstate", update);
     return () => window.removeEventListener("popstate", update);
   }, []);
-  const navigate = (next: string) => {
+  const navigate = (next: string, replace = false) => {
     const normalized = next.startsWith("/") ? next : `/${next}`;
-    window.history.pushState({}, "", `${base}${normalized}`);
+    window.history[replace ? "replaceState" : "pushState"]({}, "", `${base}${normalized}`);
     window.dispatchEvent(new PopStateEvent("popstate"));
   };
   return { path, navigate };

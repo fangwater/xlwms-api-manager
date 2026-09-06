@@ -100,7 +100,8 @@ ON CONFLICT(credential_key) DO NOTHING
 			if _, err := tx.Exec(ctx, `
 INSERT INTO xlwms_api_credential_inventory(
     credential_key,wh_code,warehouse_name,warehouse_sku,product_name,last_seen_at
-) VALUES($1,$2,$3,'','',now())
+) SELECT $1,$2,$3,'','',now()
+WHERE EXISTS (SELECT 1 FROM xlwms_api_credentials WHERE credential_key=$1 AND last_verified_at IS NULL)
 ON CONFLICT(credential_key,wh_code,warehouse_sku) DO UPDATE SET
     warehouse_name=EXCLUDED.warehouse_name,last_seen_at=now()
 `, group.key, code, name); err != nil {
@@ -121,7 +122,7 @@ func (p *Postgres) ListWarehouseAPICredentialGroups(ctx context.Context, include
 	}
 	rows, err := p.pool.Query(ctx, `
 SELECT credential.credential_key,credential.credential_label,credential.api_base_url,
-       credential.app_key_hint,credential.is_active,credential.last_verified_at,credential.updated_at,
+       credential.app_key_hint,credential.is_active,credential.last_verified_at,credential.updated_at,credential.inventory_sync_status,
        coalesce(array_agg(DISTINCT inventory.wh_code ORDER BY inventory.wh_code)
            FILTER (WHERE inventory.wh_code<>''),'{}'::text[]),
        count(DISTINCT inventory.warehouse_sku) FILTER (WHERE inventory.warehouse_sku<>''),
@@ -143,7 +144,7 @@ ORDER BY credential.credential_label,credential.credential_key
 	for rows.Next() {
 		var item model.WarehouseAPICredentialGroup
 		if err := rows.Scan(&item.Key, &item.Label, &item.APIBaseURL, &item.AppKeyHint, &item.Active,
-			&item.LastVerifiedAt, &item.UpdatedAt, &item.WarehouseCodes, &item.SKUCount,
+			&item.LastVerifiedAt, &item.UpdatedAt, &item.InventorySyncStatus, &item.WarehouseCodes, &item.SKUCount,
 			&item.OMSAccountKey, &item.OMSAccountLabel); err != nil {
 			return nil, fmt.Errorf("scan warehouse API credential: %w", err)
 		}
@@ -199,12 +200,12 @@ func (p *Postgres) UpsertWarehouseAPICredentialGroup(
 	if _, err := tx.Exec(ctx, `
 INSERT INTO xlwms_api_credentials(
     credential_key,credential_label,api_base_url,app_key_ciphertext,
-    app_secret_ciphertext,app_key_hint,is_active,last_verified_at,updated_at
-) VALUES($1,$2,$3,$4,$5,$6,true,now(),now())
+    app_secret_ciphertext,app_key_hint,is_active,last_verified_at,updated_at,inventory_sync_status
+) VALUES($1,$2,$3,$4,$5,$6,true,now(),now(),'ready')
 ON CONFLICT(credential_key) DO UPDATE SET
     credential_label=EXCLUDED.credential_label,api_base_url=EXCLUDED.api_base_url,
     app_key_ciphertext=EXCLUDED.app_key_ciphertext,app_secret_ciphertext=EXCLUDED.app_secret_ciphertext,
-    app_key_hint=EXCLUDED.app_key_hint,is_active=true,last_verified_at=now(),updated_at=now()
+    app_key_hint=EXCLUDED.app_key_hint,is_active=true,last_verified_at=now(),updated_at=now(),inventory_sync_status='ready'
 `, key, label, baseURL, appKeyCiphertext, appSecretCiphertext, credentials.MaskAppKey(appKey)); err != nil {
 		return model.WarehouseAPICredentialGroup{}, fmt.Errorf("save warehouse API credential: %w", err)
 	}
@@ -230,7 +231,7 @@ func (p *Postgres) warehouseAPICredentialGroup(ctx context.Context, key string) 
 	var item model.WarehouseAPICredentialGroup
 	err := p.pool.QueryRow(ctx, `
 SELECT credential.credential_key,credential.credential_label,credential.api_base_url,
-       credential.app_key_hint,credential.is_active,credential.last_verified_at,credential.updated_at,
+       credential.app_key_hint,credential.is_active,credential.last_verified_at,credential.updated_at,credential.inventory_sync_status,
        coalesce(array_agg(DISTINCT inventory.wh_code ORDER BY inventory.wh_code)
            FILTER (WHERE inventory.wh_code<>''),'{}'::text[]),
        count(DISTINCT inventory.warehouse_sku) FILTER (WHERE inventory.warehouse_sku<>''),
@@ -244,7 +245,7 @@ LEFT JOIN xlwms_oms_accounts account ON account.account_key=binding.account_key
 WHERE credential.credential_key=$1
 GROUP BY credential.credential_key,binding.account_key,account.account_label
 `, key).Scan(&item.Key, &item.Label, &item.APIBaseURL, &item.AppKeyHint, &item.Active,
-		&item.LastVerifiedAt, &item.UpdatedAt, &item.WarehouseCodes, &item.SKUCount,
+		&item.LastVerifiedAt, &item.UpdatedAt, &item.InventorySyncStatus, &item.WarehouseCodes, &item.SKUCount,
 		&item.OMSAccountKey, &item.OMSAccountLabel)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return model.WarehouseAPICredentialGroup{}, errors.New("warehouse API credential was not found")

@@ -3,12 +3,12 @@ package httpapi
 import (
 	"context"
 	"errors"
-	"fmt"
 	"net/http"
 	"strings"
 
 	"xlwms-api-manager/internal/config"
 	"xlwms-api-manager/internal/store"
+	"xlwms-api-manager/internal/syncer"
 	"xlwms-api-manager/internal/xlwms"
 )
 
@@ -85,47 +85,24 @@ func (s *Server) deleteWarehouseAPICredential(writer http.ResponseWriter, reques
 }
 
 func discoverWarehouseAPIInventory(ctx context.Context, client *xlwms.Client) ([]map[string]any, error) {
-	records := make([]map[string]any, 0)
-	pages := 1
-	for page := 1; page <= pages; page++ {
-		if page > 1000 {
-			return nil, errors.New("warehouse API inventory discovery exceeded 1000 pages")
-		}
-		result, err := client.PageInventory(ctx, "integrated", map[string]any{}, page, 100)
-		if err != nil {
-			return nil, err
-		}
-		data, ok := result["data"].(map[string]any)
-		if !ok {
-			return nil, errors.New("warehouse API inventory response is missing data")
-		}
-		batch, ok := data["records"].([]any)
-		if !ok && data["records"] != nil {
-			return nil, errors.New("warehouse API inventory response has invalid records")
-		}
-		for _, raw := range batch {
-			record, ok := raw.(map[string]any)
-			if !ok {
-				return nil, errors.New("warehouse API inventory response contains an invalid record")
-			}
-			records = append(records, record)
-		}
-		if page == 1 {
-			pages = apiInteger(data["pages"])
-			if pages < 1 {
-				total := apiInteger(data["total"])
-				pages = (total + 99) / 100
-				if pages < 1 {
-					pages = 1
-				}
-			}
-		}
-	}
-	return records, nil
+	return client.DiscoverInventory(ctx)
 }
 
-func apiInteger(value any) int {
-	var result int
-	_, _ = fmt.Sscan(fmt.Sprint(value), &result)
-	return result
+func (s *Server) syncWarehouseAPIInventory(writer http.ResponseWriter, request *http.Request) {
+	if s.syncer == nil {
+		writeJSON(writer, http.StatusServiceUnavailable, response{Success: false, Error: "SKU 同步暂不可用"})
+		return
+	}
+	ctx, cancel := context.WithTimeout(request.Context(), s.requestTimeout)
+	defer cancel()
+	err := s.syncer.SyncAPICredentialInventory(ctx, request.PathValue("credentialKey"))
+	if errors.Is(err, syncer.ErrAlreadyRunning) {
+		writeJSON(writer, http.StatusConflict, response{Success: false, Error: "该 API 的 SKU 正在同步，请稍后刷新"})
+		return
+	}
+	if err != nil {
+		writeJSON(writer, http.StatusBadGateway, response{Success: false, Error: "SKU 同步失败，已保留上次成功数据"})
+		return
+	}
+	writeJSON(writer, http.StatusOK, response{Success: true, Data: map[string]bool{"synced": true}})
 }

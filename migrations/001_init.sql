@@ -826,6 +826,11 @@ CREATE TABLE IF NOT EXISTS xlwms_api_credential_inventory (
     PRIMARY KEY (credential_key, wh_code, warehouse_sku)
 );
 
+ALTER TABLE xlwms_api_credentials
+    ADD COLUMN IF NOT EXISTS inventory_sync_status text NOT NULL DEFAULT 'pending';
+UPDATE xlwms_api_credentials SET inventory_sync_status='ready'
+WHERE inventory_sync_status='pending' AND last_verified_at IS NOT NULL;
+
 CREATE INDEX IF NOT EXISTS idx_xlwms_api_credential_inventory_warehouse_sku
     ON xlwms_api_credential_inventory(wh_code, warehouse_sku, credential_key);
 

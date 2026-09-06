@@ -147,6 +147,7 @@ export const api = {
   saveWarehouse: (payload: Record<string, unknown>) => request<Warehouse>("/warehouses", { method: "POST", body: JSON.stringify(payload) }),
   setWarehouseActive: (code: string, active: boolean) => request<Warehouse>(`/warehouses/${encodeURIComponent(code)}/status`, { method: "PATCH", body: JSON.stringify({ active }) }),
   warehouseAPICredentials: () => request<WarehouseAPICredentialGroup[]>("/warehouse-api-credentials?include_disabled=true"),
+  syncWarehouseAPIInventory: (key: string) => request<{ synced: boolean }>(`/warehouse-api-credentials/${encodeURIComponent(key)}/sync`, { method: "POST" }),
   saveWarehouseAPICredential: (payload: { label: string; api_base_url: string; app_key: string; app_secret: string }) =>
     request<WarehouseAPICredentialGroup>("/warehouse-api-credentials", { method: "POST", body: JSON.stringify(payload) }),
   deleteWarehouseAPICredential: (key: string) =>
