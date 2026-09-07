@@ -52,6 +52,15 @@ func TestIntegratedInventoryIsSnapshotData(t *testing.T) {
 	}
 }
 
+func TestInventoryRecordKeySeparatesCredentialScopes(t *testing.T) {
+	raw := []byte(`{"sku":"SKU-1","stockType":0}`)
+	first := inventoryRecordKey("integrated", "ARPCA01", "api-first", raw)
+	second := inventoryRecordKey("integrated", "ARPCA01", "api-second", raw)
+	if first == second {
+		t.Fatal("inventory record keys must remain distinct across credential scopes")
+	}
+}
+
 func TestWarehouseSKUSpecMissingFieldsRequiresExactCompleteSpec(t *testing.T) {
 	length, width, height, weight := 41.0, 32.5, 7.0, 1.27
 	spec := model.WarehouseSKUSpec{

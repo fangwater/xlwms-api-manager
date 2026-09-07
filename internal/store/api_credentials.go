@@ -224,6 +224,9 @@ INSERT INTO xlwms_api_credential_inventory(
 	if err := tx.Commit(ctx); err != nil {
 		return model.WarehouseAPICredentialGroup{}, err
 	}
+	if err := p.registerDiscoveredWarehouses(ctx, key); err != nil {
+		return model.WarehouseAPICredentialGroup{}, err
+	}
 	return p.warehouseAPICredentialGroup(ctx, key)
 }
 

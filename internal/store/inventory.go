@@ -24,11 +24,12 @@ var inventoryKinds = map[string]bool{
 	"box_stock_flow":  true,
 }
 
-func (p *Postgres) SaveInventoryRecords(ctx context.Context, kind, warehouseCode string, records []map[string]any) (int, error) {
+func (p *Postgres) SaveInventoryRecords(ctx context.Context, kind, warehouseCode, credentialKey string, records []map[string]any) (int, error) {
 	if !inventoryKinds[kind] {
 		return 0, errors.New("unknown inventory kind")
 	}
 	warehouseCode = strings.ToUpper(strings.TrimSpace(warehouseCode))
+	credentialKey = strings.TrimSpace(credentialKey)
 	tx, err := p.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return 0, fmt.Errorf("begin inventory sync: %w", err)
@@ -57,7 +58,7 @@ func (p *Postgres) SaveInventoryRecords(ctx context.Context, kind, warehouseCode
 		if err != nil {
 			return 0, fmt.Errorf("encode inventory record: %w", err)
 		}
-		recordKey := inventoryRecordKey(kind, warehouseCode, raw)
+		recordKey := inventoryRecordKey(kind, warehouseCode, credentialKey, raw)
 		available, lockedAmount, transport := inventoryAmounts(kind, record)
 		productAvailable, productLocked, productTransport := inventoryDetailAmounts(record, "productStockDtl")
 		_, err = tx.Exec(ctx, `
@@ -70,13 +71,13 @@ func (p *Postgres) SaveInventoryRecords(ctx context.Context, kind, warehouseCode
 				stock_age, stock_age_status, statistic_date, shelf_date, operate_time,
 				relate_order_type, relate_order_type_name, relate_order_no, batch_no,
 				segment_one_quantity, segment_two_quantity, segment_three_quantity,
-				segment_four_quantity, segment_five_quantity, raw_payload, snapshot_token
+				segment_four_quantity, segment_five_quantity, raw_payload, snapshot_token, api_credential_key
 			) VALUES (
 				$1, $2, $3, NULLIF($4, ''), NULLIF($5, ''), NULLIF($6, ''), NULLIF($7, ''),
 				NULLIF($8, ''), NULLIF($9, ''), $10, $11, $12, $13, $14, $15,
 				$16, $17, $18, $19, $20, $21, $22, $23, $24, NULLIF($25, '')::date,
 				NULLIF($26, '')::date, NULLIF($27, '')::timestamp, $28, NULLIF($29, ''),
-				NULLIF($30, ''), NULLIF($31, ''), $32, $33, $34, $35, $36, $37::jsonb, $38::uuid
+				NULLIF($30, ''), NULLIF($31, ''), $32, $33, $34, $35, $36, $37::jsonb, $38::uuid, $39
 			)
 			ON CONFLICT (record_key) DO UPDATE SET
 					wh_name=EXCLUDED.wh_name, sku=EXCLUDED.sku, fnsku=EXCLUDED.fnsku,
@@ -115,7 +116,7 @@ func (p *Postgres) SaveInventoryRecords(ctx context.Context, kind, warehouseCode
 			stringValue(record["relateOrderNo"]), stringValue(record["batchNo"]),
 			nullableValue(record["segmentOneQuantity"]), nullableValue(record["segmentTwoQuantity"]),
 			nullableValue(record["segmentThreeQuantity"]), nullableValue(record["segmentFourQuantity"]),
-			nullableValue(record["segmentFiveQuantity"]), string(raw), snapshotToken)
+			nullableValue(record["segmentFiveQuantity"]), string(raw), snapshotToken, credentialKey)
 		if err != nil {
 			return 0, fmt.Errorf("upsert %s inventory: %w", kind, err)
 		}
@@ -136,8 +137,9 @@ func (p *Postgres) SaveInventoryRecords(ctx context.Context, kind, warehouseCode
 	if inventorySnapshotKind(kind) {
 		if _, err := tx.Exec(ctx, `
 			DELETE FROM xlwms_inventory_records
-			WHERE inventory_kind=$1 AND wh_code=$2 AND snapshot_token IS DISTINCT FROM $3::uuid
-		`, kind, warehouseCode, snapshotToken); err != nil {
+			WHERE inventory_kind=$1 AND wh_code=$2 AND api_credential_key=$3
+			  AND snapshot_token IS DISTINCT FROM $4::uuid
+		`, kind, warehouseCode, credentialKey, snapshotToken); err != nil {
 			return 0, fmt.Errorf("remove stale %s inventory: %w", kind, err)
 		}
 	}
@@ -255,6 +257,21 @@ func (p *Postgres) ListSKUStockLevels(ctx context.Context, filter InventoryFilte
 		where = append(where, "i.stock_type="+add(*filter.StockType))
 	}
 	clause := strings.Join(where, " AND ")
+	scopeWhere := []string{
+		"credential.is_active", "credential.inventory_sync_status='ready'", "warehouse.is_active",
+		"btrim(scope.warehouse_sku)<>''",
+	}
+	if warehouseCode != "" {
+		scopeWhere = append(scopeWhere, "scope.wh_code="+add(warehouseCode))
+	}
+	if query := strings.TrimSpace(filter.Query); query != "" {
+		placeholder := add("%" + query + "%")
+		scopeWhere = append(scopeWhere, "(scope.warehouse_sku ILIKE "+placeholder+" OR coalesce(scope.product_name,'') ILIKE "+placeholder+")")
+	}
+	if filter.StockType != nil && *filter.StockType != 0 {
+		scopeWhere = append(scopeWhere, "false")
+	}
+	scopeClause := strings.Join(scopeWhere, " AND ")
 	activeRows, err := p.pool.Query(ctx, `
 		SELECT wh_code
 		FROM xlwms_warehouses
@@ -279,7 +296,23 @@ func (p *Postgres) ListSKUStockLevels(ctx context.Context, filter InventoryFilte
 	}
 	var summary model.SKUStockSummary
 	if err := p.pool.QueryRow(ctx, `
-		WITH warehouse_stock AS (
+		WITH scoped_stock AS (
+			SELECT DISTINCT ON (scope.warehouse_sku,scope.wh_code)
+				scope.warehouse_sku AS sku,scope.wh_code,scope.product_name,NULL::integer AS product_type,
+				true AS has_sellable_stock,0::numeric AS total_amount,0::numeric AS available_amount,
+				0::numeric AS raw_fulfillment_available_amount,0::numeric AS lock_amount,
+				0::numeric AS transport_amount,scope.last_seen_at
+			FROM xlwms_api_credential_inventory scope
+			JOIN xlwms_api_credentials credential ON credential.credential_key=scope.credential_key
+			JOIN xlwms_warehouses warehouse ON warehouse.wh_code=scope.wh_code
+			WHERE `+scopeClause+`
+			  AND NOT EXISTS (
+				SELECT 1 FROM xlwms_inventory_records existing
+				WHERE existing.inventory_kind='integrated' AND existing.wh_code=scope.wh_code
+				  AND existing.sku=scope.warehouse_sku
+			)
+			ORDER BY scope.warehouse_sku,scope.wh_code,scope.last_seen_at DESC
+		), warehouse_stock AS (
 			SELECT i.sku, i.wh_code,
 				bool_or(i.stock_type=0) AS has_sellable_stock,
 				coalesce(sum(i.total_amount),0) AS total_amount,
@@ -291,6 +324,10 @@ func (p *Postgres) ListSKUStockLevels(ctx context.Context, filter InventoryFilte
 			JOIN xlwms_warehouses w ON w.wh_code=i.wh_code
 			WHERE `+clause+`
 			GROUP BY i.sku, i.wh_code
+			UNION ALL
+			SELECT sku,wh_code,has_sellable_stock,total_amount,available_amount,
+				raw_fulfillment_available_amount,lock_amount,transport_amount
+			FROM scoped_stock
 		), effective_stock AS (
 			SELECT stock.*,
 				CASE WHEN c.correction_mode='subtract'
@@ -322,7 +359,23 @@ func (p *Postgres) ListSKUStockLevels(ctx context.Context, filter InventoryFilte
 	total := summary.RecordCount
 	args = append(args, filter.PageSize, (filter.Page-1)*filter.PageSize)
 	rows, err := p.pool.Query(ctx, `
-		WITH warehouse_stock AS (
+		WITH scoped_stock AS (
+			SELECT DISTINCT ON (scope.warehouse_sku,scope.wh_code)
+				scope.warehouse_sku AS sku,scope.wh_code,scope.product_name,NULL::integer AS product_type,
+				true AS has_sellable_stock,0::numeric AS total_amount,0::numeric AS available_amount,
+				0::numeric AS raw_fulfillment_available_amount,0::numeric AS lock_amount,
+				0::numeric AS transport_amount,scope.last_seen_at
+			FROM xlwms_api_credential_inventory scope
+			JOIN xlwms_api_credentials credential ON credential.credential_key=scope.credential_key
+			JOIN xlwms_warehouses warehouse ON warehouse.wh_code=scope.wh_code
+			WHERE `+scopeClause+`
+			  AND NOT EXISTS (
+				SELECT 1 FROM xlwms_inventory_records existing
+				WHERE existing.inventory_kind='integrated' AND existing.wh_code=scope.wh_code
+				  AND existing.sku=scope.warehouse_sku
+			)
+			ORDER BY scope.warehouse_sku,scope.wh_code,scope.last_seen_at DESC
+		), warehouse_stock AS (
 			SELECT i.sku, i.wh_code, max(i.product_name) AS product_name,
 				max(i.product_type) AS product_type,
 				bool_or(i.stock_type=0) AS has_sellable_stock,
@@ -336,6 +389,10 @@ func (p *Postgres) ListSKUStockLevels(ctx context.Context, filter InventoryFilte
 			JOIN xlwms_warehouses w ON w.wh_code=i.wh_code
 			WHERE `+clause+`
 			GROUP BY i.sku, i.wh_code
+			UNION ALL
+			SELECT sku,wh_code,product_name,product_type,has_sellable_stock,total_amount,available_amount,
+				raw_fulfillment_available_amount,lock_amount,transport_amount,last_seen_at
+			FROM scoped_stock
 		), effective_stock AS (
 			SELECT stock.*,
 				CASE WHEN c.correction_mode='subtract'
@@ -487,7 +544,7 @@ func (p *Postgres) InventorySummary(ctx context.Context, warehouseCode string) (
 	return result, nil
 }
 
-func inventoryRecordKey(kind, warehouseCode string, raw []byte) string {
+func inventoryRecordKey(kind, warehouseCode, credentialKey string, raw []byte) string {
 	var fields []string
 	switch kind {
 	case "integrated":
@@ -502,7 +559,7 @@ func inventoryRecordKey(kind, warehouseCode string, raw []byte) string {
 		fields = []string{"boxType", "customizeBarcode", "stockType", "statisticDate"}
 	}
 	digest := sha256.Sum256(raw)
-	identityParts := []string{kind, warehouseCode}
+	identityParts := []string{kind, warehouseCode, credentialKey}
 	if len(fields) == 0 {
 		identityParts = append(identityParts, hex.EncodeToString(digest[:]))
 	} else {

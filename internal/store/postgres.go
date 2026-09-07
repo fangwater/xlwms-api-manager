@@ -160,17 +160,42 @@ func (p *Postgres) WarehouseCredentials(ctx context.Context, code string, requir
 }
 
 func (p *Postgres) ActiveWarehouseCredentials(ctx context.Context) ([]model.WarehouseCredentials, error) {
-	warehouses, err := p.ListWarehouses(ctx, true)
+	rows, err := p.pool.Query(ctx, `
+SELECT DISTINCT ON (scope.wh_code,credential.credential_key)
+       warehouse.wh_code,coalesce(warehouse.warehouse_name,''),credential.api_base_url,
+       credential.app_key_hint,warehouse.is_active,warehouse.updated_at,
+       credential.credential_key,credential.app_key_ciphertext,credential.app_secret_ciphertext
+FROM xlwms_api_credential_inventory scope
+JOIN xlwms_api_credentials credential ON credential.credential_key=scope.credential_key
+JOIN xlwms_warehouses warehouse ON warehouse.wh_code=scope.wh_code
+WHERE warehouse.is_active AND credential.is_active AND credential.inventory_sync_status='ready'
+  AND btrim(scope.warehouse_sku)<>''
+ORDER BY scope.wh_code,credential.credential_key
+`)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("list active scoped warehouse credentials: %w", err)
 	}
-	result := make([]model.WarehouseCredentials, 0, len(warehouses))
-	for _, warehouse := range warehouses {
-		item, err := p.WarehouseCredentials(ctx, warehouse.Code, true)
+	defer rows.Close()
+	result := make([]model.WarehouseCredentials, 0)
+	for rows.Next() {
+		var item model.WarehouseCredentials
+		var appKeyCiphertext, appSecretCiphertext string
+		if err := rows.Scan(&item.Code, &item.Name, &item.APIBaseURL, &item.AppKeyHint,
+			&item.Active, &item.UpdatedAt, &item.APICredentialKey, &appKeyCiphertext, &appSecretCiphertext); err != nil {
+			return nil, fmt.Errorf("scan active scoped warehouse credential: %w", err)
+		}
+		item.AppKey, err = p.cipher.Decrypt(appKeyCiphertext)
+		if err != nil {
+			return nil, err
+		}
+		item.AppSecret, err = p.cipher.Decrypt(appSecretCiphertext)
 		if err != nil {
 			return nil, err
 		}
 		result = append(result, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list active scoped warehouse credentials: %w", err)
 	}
 	return result, nil
 }

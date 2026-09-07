@@ -107,7 +107,7 @@ func (s *Service) TriggerInventory(warehouse model.WarehouseCredentials, kinds [
 		if _, ok := xlwms.InventoryPaths[kind]; !ok {
 			return nil, fmt.Errorf("unknown inventory kind: %s", kind)
 		}
-		keys[index] = warehouse.Code + ":" + kind
+		keys[index] = warehouse.Code + ":" + warehouse.APICredentialKey + ":" + kind
 	}
 	if err := s.reserve(keys); err != nil {
 		return nil, err
@@ -186,7 +186,7 @@ func (s *Service) runInventory(key string, run model.SyncRun, warehouse model.Wa
 	}
 	run.Pages, run.RecordsSeen = pages, len(records)
 	if syncErr == nil {
-		run.RecordsSaved, syncErr = s.store.SaveInventoryRecords(ctx, kind, warehouse.Code, records)
+		run.RecordsSaved, syncErr = s.store.SaveInventoryRecords(ctx, kind, warehouse.Code, warehouse.APICredentialKey, records)
 	}
 	s.finishRun(run, syncErr)
 }

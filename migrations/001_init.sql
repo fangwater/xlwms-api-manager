@@ -245,6 +245,14 @@ CREATE INDEX IF NOT EXISTS idx_xlwms_inventory_integrated_sku
     ON xlwms_inventory_records (sku, stock_type)
     WHERE inventory_kind = 'integrated';
 
+-- A warehouse may be visible through multiple OpenAPI credentials with
+-- separate SKU scopes, so each snapshot needs its source credential.
+ALTER TABLE xlwms_inventory_records
+    ADD COLUMN IF NOT EXISTS api_credential_key text NOT NULL DEFAULT '';
+
+CREATE INDEX IF NOT EXISTS idx_xlwms_inventory_scope_snapshot
+    ON xlwms_inventory_records (inventory_kind, wh_code, api_credential_key);
+
 CREATE TABLE IF NOT EXISTS xlwms_warehouse_sku_specs (
     warehouse_sku text PRIMARY KEY,
     product_name text,
@@ -833,6 +841,22 @@ WHERE inventory_sync_status='pending' AND last_verified_at IS NOT NULL;
 
 CREATE INDEX IF NOT EXISTS idx_xlwms_api_credential_inventory_warehouse_sku
     ON xlwms_api_credential_inventory(wh_code, warehouse_sku, credential_key);
+
+-- Attribute legacy integrated rows when their warehouse/SKU has exactly one
+-- discovered credential scope. Its next scoped snapshot will replace it.
+WITH resolved_scope AS (
+    SELECT record.id, min(scope.credential_key) AS credential_key
+    FROM xlwms_inventory_records record
+    JOIN xlwms_api_credential_inventory scope
+      ON scope.wh_code=record.wh_code AND scope.warehouse_sku=record.sku
+    WHERE record.inventory_kind='integrated' AND record.api_credential_key=''
+    GROUP BY record.id
+    HAVING count(DISTINCT scope.credential_key)=1
+)
+UPDATE xlwms_inventory_records record
+SET api_credential_key=resolved_scope.credential_key
+FROM resolved_scope
+WHERE record.id=resolved_scope.id;
 
 -- An OpenAPI credential defines a SKU data scope. Exactly one OMS account is
 -- responsible for shipping that scope; one OMS account may operate many scopes.

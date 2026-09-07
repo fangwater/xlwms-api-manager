@@ -58,10 +58,40 @@ func (p *Postgres) SaveAPIScopeInventory(ctx context.Context, key string, invent
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("commit API inventory scope: %w", err)
 	}
-	return nil
+	return p.registerDiscoveredWarehouses(ctx, key)
 }
 
 func (p *Postgres) FailAPIScopeInventory(ctx context.Context, key string) error {
 	_, err := p.pool.Exec(ctx, `UPDATE xlwms_api_credentials SET inventory_sync_status='failed' WHERE credential_key=$1`, key)
 	return err
+}
+
+// registerDiscoveredWarehouses makes a new API-discovered warehouse eligible
+// for scheduled inventory refreshes. It never re-enables an existing warehouse.
+func (p *Postgres) registerDiscoveredWarehouses(ctx context.Context, key string) error {
+	_, err := p.pool.Exec(ctx, `
+WITH discovered AS (
+    SELECT upper(btrim(wh_code)) AS wh_code,
+           coalesce(nullif(max(btrim(warehouse_name)),''), upper(btrim(wh_code))) AS warehouse_name
+    FROM xlwms_api_credential_inventory
+    WHERE credential_key=$1 AND btrim(wh_code)<>''
+    GROUP BY upper(btrim(wh_code))
+)
+INSERT INTO xlwms_warehouses (
+    wh_code,warehouse_name,api_base_url,app_key_ciphertext,app_secret_ciphertext,
+    app_key_hint,is_active,disabled_at,updated_at
+)
+SELECT discovered.wh_code,discovered.warehouse_name,credential.api_base_url,
+       credential.app_key_ciphertext,credential.app_secret_ciphertext,
+       credential.app_key_hint,true,NULL,now()
+FROM discovered
+JOIN xlwms_api_credentials credential ON credential.credential_key=$1 AND credential.is_active
+ON CONFLICT (wh_code) DO UPDATE SET
+    warehouse_name=coalesce(nullif(xlwms_warehouses.warehouse_name,''),EXCLUDED.warehouse_name),
+    updated_at=now()
+`, key)
+	if err != nil {
+		return fmt.Errorf("register discovered warehouses: %w", err)
+	}
+	return nil
 }
