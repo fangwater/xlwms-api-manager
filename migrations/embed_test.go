@@ -127,3 +127,17 @@ func TestInitSQLDefinesIndependentWarehouseAPICredentialGroups(t *testing.T) {
 		}
 	}
 }
+
+func TestInitSQLDefinesFulfillmentInventoryReservations(t *testing.T) {
+	for _, fragment := range []string{
+		"CREATE TABLE IF NOT EXISTS xlwms_fulfillment_inventory_reservations",
+		"PRIMARY KEY (platform, shop_code, order_key, warehouse_sku)",
+		"REFERENCES xlwms_fulfillment_shops(platform, shop_code) ON DELETE RESTRICT",
+		"idx_xlwms_fulfillment_inventory_reservations_active",
+		"WHERE status='active'",
+	} {
+		if !strings.Contains(InitSQL, fragment) {
+			t.Fatalf("InitSQL missing fulfillment inventory reservation fragment %q", fragment)
+		}
+	}
+}

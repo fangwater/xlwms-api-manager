@@ -911,3 +911,29 @@ SELECT 'temu',account_key,'{
  "blocked_carriers":{"ARP_EAST":["SWIFTX","UNIUNI","YANWEN"],"ARP_WEST":["YANWEN"]}
 }'::jsonb FROM xlwms_oms_accounts WHERE account_key='fhzarp-laundry'
 ON CONFLICT(platform,account_key) DO NOTHING;
+
+-- Short-lived stock claims bridge the gap between a fulfillment decision and
+-- the corresponding outbound order becoming visible in XLWMS inventory.
+CREATE TABLE IF NOT EXISTS xlwms_fulfillment_inventory_reservations (
+    platform text NOT NULL,
+    shop_code text NOT NULL,
+    order_key text NOT NULL,
+    warehouse_key text NOT NULL,
+    wh_code text NOT NULL REFERENCES xlwms_warehouses(wh_code) ON DELETE RESTRICT,
+    warehouse_sku text NOT NULL,
+    quantity integer NOT NULL CHECK (quantity > 0),
+    observed_available integer NOT NULL CHECK (observed_available >= 0),
+    observed_at timestamptz NOT NULL,
+    status text NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'released', 'expired')),
+    expires_at timestamptz NOT NULL,
+    released_at timestamptz,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (platform, shop_code, order_key, warehouse_sku),
+    FOREIGN KEY (platform, shop_code)
+        REFERENCES xlwms_fulfillment_shops(platform, shop_code) ON DELETE RESTRICT
+);
+
+CREATE INDEX IF NOT EXISTS idx_xlwms_fulfillment_inventory_reservations_active
+    ON xlwms_fulfillment_inventory_reservations(wh_code, warehouse_sku, expires_at)
+    WHERE status='active';

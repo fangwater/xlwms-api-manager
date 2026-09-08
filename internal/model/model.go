@@ -359,6 +359,40 @@ type WarehouseSKUQuantity struct {
 	Quantity     int    `json:"quantity"`
 }
 
+type FulfillmentInventoryReservationItem struct {
+	WarehouseSKU      string `json:"warehouse_sku"`
+	Quantity          int    `json:"quantity"`
+	ObservedAvailable int    `json:"observed_available"`
+}
+
+type FulfillmentInventoryReservationRequest struct {
+	Platform      string                                `json:"platform"`
+	ShopCode      string                                `json:"shop_code"`
+	OrderKey      string                                `json:"order_key"`
+	WarehouseKey  string                                `json:"warehouse_key"`
+	WarehouseCode string                                `json:"wh_code"`
+	ObservedAt    time.Time                             `json:"observed_at"`
+	Items         []FulfillmentInventoryReservationItem `json:"items"`
+}
+
+type FulfillmentInventoryReservation struct {
+	Platform      string                                `json:"platform"`
+	ShopCode      string                                `json:"shop_code"`
+	OrderKey      string                                `json:"order_key"`
+	WarehouseKey  string                                `json:"warehouse_key"`
+	WarehouseCode string                                `json:"wh_code"`
+	ObservedAt    time.Time                             `json:"observed_at"`
+	Items         []FulfillmentInventoryReservationItem `json:"items"`
+	Created       bool                                  `json:"created"`
+	ExpiresAt     time.Time                             `json:"expires_at"`
+}
+
+type FulfillmentInventoryReservationRelease struct {
+	Platform string `json:"platform"`
+	ShopCode string `json:"shop_code"`
+	OrderKey string `json:"order_key"`
+}
+
 type WarehouseSKUSpecResolutionItem struct {
 	WarehouseSKU        string   `json:"warehouse_sku"`
 	ProductName         string   `json:"product_name,omitempty"`

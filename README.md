@@ -141,6 +141,8 @@ GET    /v1/fulfillment-shops
 POST   /v1/fulfillment-shops
 PATCH  /v1/fulfillment-shops/{platform}/{shopCode}
 POST   /v1/temu/warehouse-availability/query
+POST   /v1/fulfillment/inventory-reservations
+POST   /v1/fulfillment/inventory-reservations/release
 GET    /v1/fulfillment-audits
 GET    /v1/fulfillment-audits/archived
 GET    /v1/fulfillment-audits/export-manual
@@ -170,6 +172,11 @@ Content-Type: application/json
 `shop_name` 或 `enabled`。两个写接口均使用 `XLWMS_CONSOLE_USER` 和
 `XLWMS_CONSOLE_PASSWORD` 做 HTTP Basic Auth，并记录变更前后状态及操作者；重复提交相同
 数据不会产生额外审计记录。
+
+库存预占接口仅接受本机直连请求，反向代理转发的公网请求会返回 `403`。预占按实际
+`wh_code + warehouse_sku` 在所有店铺之间共享容量，并在事务中串行校验同一资源；同一
+店铺订单重复请求保持幂等。调用方在 OMS 已核实出库后释放预占，未释放记录会在 24 小时
+后失效。
 
 库存修正支持指定仓库、指定 SKU 的两种规则：`直接设为` 固定发货可用库存，或
 `比 OMS 少` 按 `max(OMS 实时库存 - 扣减量, 0)` 动态计算；新增时默认选择直接设为 `0`。

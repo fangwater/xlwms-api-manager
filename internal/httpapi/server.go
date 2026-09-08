@@ -159,6 +159,8 @@ func newWithPlatformOrderAccountOperationsAuthenticated(destination *store.Postg
 	mux.HandleFunc("PUT /v1/fulfillment-policies/skus/{warehouseSKU}", server.updateSKUFulfillmentPolicy)
 	mux.HandleFunc("PATCH /v1/fulfillment-policies/skus/{warehouseSKU}", server.updateSKUFulfillmentPolicy)
 	mux.HandleFunc("POST /v1/fulfillment-policies/skus/query", server.querySKUFulfillmentPolicies)
+	mux.HandleFunc("POST /v1/fulfillment/inventory-reservations", server.requireLoopbackInternal(server.reserveFulfillmentInventory))
+	mux.HandleFunc("POST /v1/fulfillment/inventory-reservations/release", server.requireLoopbackInternal(server.releaseFulfillmentInventory))
 	mux.HandleFunc("GET /v1/fulfillment-policies/accounts", server.listFulfillmentAccounts)
 	mux.HandleFunc("POST /v1/fulfillment-policies/accounts", server.createFulfillmentAccount)
 	mux.HandleFunc("PATCH /v1/fulfillment-policies/accounts/{accountKey}", server.updateFulfillmentAccount)
