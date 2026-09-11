@@ -129,6 +129,12 @@ PATCH  /v1/fulfillment-policies/accounts/{accountKey}
 PATCH  /v1/fulfillment-policies/accounts/{accountKey}/api-credentials
 GET    /v1/inventory
 GET    /v1/inventory/sku-levels
+GET    /v1/platform-sku-mappings
+POST   /v1/platform-sku-mappings/resolve
+POST   /v1/platform-sku-mappings
+PUT    /v1/platform-sku-mappings
+POST   /v1/platform-sku-mappings/import
+DELETE /v1/platform-sku-mappings/{platform}/{platformSKU}
 GET    /v1/inventory-corrections
 PATCH  /v1/inventory-corrections/{warehouse}/{warehouseSKU}
 POST   /v1/inventory-corrections/{warehouse}/{warehouseSKU}/reset
@@ -156,6 +162,41 @@ POST   /v1/sync/cost-details
 POST   /v1/outbound/{operation}
 GET    /v1/sync/runs
 ```
+
+### 平台 SKU 映射 API
+
+平台映射以 `platform + platform_sku` 为唯一键，不包含店铺或 OMS 账号维度。一个平台 SKU
+可以由一项或多项仓库 SKU 及对应数量组成。公网 API 基址为
+`https://pangutech.online/warehouse-console/api`，服务间本机基址为
+`http://127.0.0.1:18083/v1`。
+
+读取与解析接口不需要认证：
+
+```http
+GET /platform-sku-mappings?platform=shein&q=平台SKU&page=1&page_size=50
+POST /platform-sku-mappings/resolve
+Content-Type: application/json
+
+{"platform":"shein","platform_skus":["平台SKU-1","平台SKU-2"]}
+```
+
+解析响应的 `mappings` 返回已启用映射，`unmapped_skus` 原样列出没有映射的请求项。单次解析
+最多接受 500 个平台 SKU。
+
+新增或完整替换一条映射使用 `POST` 或 `PUT`；批量导入最多 1000 条。写入与删除接口使用
+`XLWMS_CONSOLE_USER` 和 `XLWMS_CONSOLE_PASSWORD` 做 HTTP Basic Auth：
+
+```http
+PUT /platform-sku-mappings
+Authorization: Basic <XLWMS console credentials>
+Content-Type: application/json
+
+{"platform":"shein","platform_sku":"平台SKU-1","items":[{"warehouse_sku":"仓库SKU-1","quantity":1}]}
+```
+
+每条映射最多包含 20 个不同仓库 SKU，数量必须为 1 至 999999。批量写入使用
+`POST /platform-sku-mappings/import`，请求体为 `{"mappings":[...]}`；删除使用
+`DELETE /platform-sku-mappings/{platform}/{platformSKU}`。
 
 `GET /v1/fulfillment-shops` 默认只返回启用店铺；管理场景可传
 `include_disabled=true`。新增或幂等更新店铺使用：

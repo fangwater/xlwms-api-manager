@@ -937,3 +937,22 @@ CREATE TABLE IF NOT EXISTS xlwms_fulfillment_inventory_reservations (
 CREATE INDEX IF NOT EXISTS idx_xlwms_fulfillment_inventory_reservations_active
     ON xlwms_fulfillment_inventory_reservations(wh_code, warehouse_sku, expires_at)
     WHERE status='active';
+
+-- Canonical platform SKU recipes. Shops and OMS accounts deliberately do not
+-- participate in the key: those concepts operate the shipment, not the SKU.
+CREATE TABLE IF NOT EXISTS xlwms_platform_sku_mappings (
+    platform text NOT NULL,
+    platform_sku text NOT NULL,
+    warehouse_sku text NOT NULL,
+    quantity integer NOT NULL CHECK (quantity > 0),
+    source text NOT NULL DEFAULT 'manual',
+    enabled boolean NOT NULL DEFAULT true,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (platform, platform_sku, warehouse_sku)
+);
+
+CREATE INDEX IF NOT EXISTS idx_xlwms_platform_sku_mappings_lookup
+    ON xlwms_platform_sku_mappings(platform, platform_sku) WHERE enabled;
+CREATE INDEX IF NOT EXISTS idx_xlwms_platform_sku_mappings_warehouse_sku
+    ON xlwms_platform_sku_mappings(warehouse_sku);

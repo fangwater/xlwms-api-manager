@@ -1,4 +1,4 @@
-import { Archive, Truck, Boxes, ChartNoAxesCombined, ChevronDown, ClipboardCheck, Database, ExternalLink, Gauge, KeyRound, Link2, ListOrdered, ListTodo, Menu, PackageSearch, PackageCheck, PanelLeftClose, RefreshCw, ScanBox, Settings, ShieldCheck, SlidersHorizontal, TriangleAlert, Warehouse as WarehouseIcon, Waypoints, type LucideIcon } from "lucide-react";
+import { Archive, Truck, Boxes, ChartNoAxesCombined, ChevronDown, ClipboardCheck, Database, ExternalLink, Gauge, KeyRound, Link2, ListOrdered, ListTodo, Menu, PackageSearch, PackageCheck, PanelLeftClose, RefreshCw, ScanBox, Settings, ShieldCheck, SlidersHorizontal, Tags, TriangleAlert, Warehouse as WarehouseIcon, Waypoints, type LucideIcon } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { Warehouse } from "../types";
 
@@ -15,6 +15,7 @@ const groups: Array<{ label: string; items: NavigationItem[] }> = [
     { path: "/inventory", label: "库存中心", icon: Boxes },
     { path: "/outbound", label: "出库管理", icon: Truck },
     { path: "/platform-orders", label: "平台订单待处理", icon: ListTodo },
+    { path: "/sku-mappings", label: "平台 SKU 映射", icon: Tags },
     { path: "/product-pairings", label: "组合配对", icon: Link2 },
     { path: "/fulfillment-audits", label: "履约核查", icon: ClipboardCheck },
     { path: "/fulfilled-orders", label: "出库物流跟踪", icon: Archive },
@@ -38,7 +39,7 @@ const groups: Array<{ label: string; items: NavigationItem[] }> = [
     { path: "/sync", label: "同步中心", icon: RefreshCw }
   ] }
 ];
-const pageNames: Record<string, string> = { "/": "运营总览", "/inventory": "库存中心", "/outbound": "出库管理", "/platform-orders": "平台订单待处理", "/product-pairings": "组合配对", "/fulfillment-audits": "履约核查", "/fulfilled-orders": "出库物流跟踪", "/delivery-evaluation": "快递评价", "/costs": "费用中心", "/warehouses": "仓库管理", "/inventory-alerts": "库存警告", "/sku-specs": "SKU 规格", "/packing": "包装规划", "/inventory-thresholds": "库存安全线", "/shipping-policies": "发货策略", "/shipping-policies/base-rules": "基础快递限制", "/shipping-policies/selection": "快递选择算法", "/shipping-policies/sku-rules": "SKU 发货规则", "/accounts": "OMS 账号管理", "/sync": "同步中心", "/settings": "系统设置" };
+const pageNames: Record<string, string> = { "/": "运营总览", "/inventory": "库存中心", "/outbound": "出库管理", "/platform-orders": "平台订单待处理", "/sku-mappings": "平台 SKU 映射", "/product-pairings": "组合配对", "/fulfillment-audits": "履约核查", "/fulfilled-orders": "出库物流跟踪", "/delivery-evaluation": "快递评价", "/costs": "费用中心", "/warehouses": "仓库管理", "/inventory-alerts": "库存警告", "/sku-specs": "SKU 规格", "/packing": "包装规划", "/inventory-thresholds": "库存安全线", "/shipping-policies": "发货策略", "/shipping-policies/base-rules": "基础快递限制", "/shipping-policies/selection": "快递选择算法", "/shipping-policies/sku-rules": "SKU 发货规则", "/accounts": "OMS 账号管理", "/sync": "同步中心", "/settings": "系统设置" };
 
 export default function Layout({ children, warehouses, warehouse, onWarehouseChange, online, path, onNavigate }: { children: ReactNode; warehouses: Warehouse[]; warehouse: string; onWarehouseChange: (value: string) => void; online: boolean | null; path: string; onNavigate: (path: string) => void }) {
   const [open, setOpen] = useState(false);

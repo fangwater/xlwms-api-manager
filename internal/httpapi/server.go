@@ -113,6 +113,12 @@ func newWithPlatformOrderAccountOperationsAuthenticated(destination *store.Postg
 	mux.HandleFunc("POST /v1/product-pairings/validate", server.validateProductPairing)
 	mux.HandleFunc("POST /v1/product-pairings/delete", server.deleteProductPairing)
 	mux.HandleFunc("DELETE /v1/product-pairings", server.deleteProductPairing)
+	mux.HandleFunc("GET /v1/platform-sku-mappings", server.listPlatformSKUMappings)
+	mux.HandleFunc("POST /v1/platform-sku-mappings/resolve", server.resolvePlatformSKUMappings)
+	mux.HandleFunc("POST /v1/platform-sku-mappings", server.requireConsoleAuth(server.savePlatformSKUMapping))
+	mux.HandleFunc("PUT /v1/platform-sku-mappings", server.requireConsoleAuth(server.savePlatformSKUMapping))
+	mux.HandleFunc("POST /v1/platform-sku-mappings/import", server.requireConsoleAuth(server.importPlatformSKUMappings))
+	mux.HandleFunc("DELETE /v1/platform-sku-mappings/{platform}/{platformSKU}", server.requireConsoleAuth(server.deletePlatformSKUMapping))
 	mux.HandleFunc("GET /v1/warehouses", server.listWarehouses)
 	mux.HandleFunc("POST /v1/warehouses", server.upsertWarehouse)
 	mux.HandleFunc("PATCH /v1/warehouses/{code}/status", server.warehouseStatus)
@@ -615,14 +621,14 @@ func securityHeaders(next http.Handler) http.Handler {
 func (s *Server) requireConsoleAuth(next http.HandlerFunc) http.HandlerFunc {
 	return func(writer http.ResponseWriter, request *http.Request) {
 		if s.consoleUser == "" || s.consolePassword == "" {
-			writeJSON(writer, http.StatusServiceUnavailable, response{Success: false, Error: "fulfillment shop writes are not configured"})
+			writeJSON(writer, http.StatusServiceUnavailable, response{Success: false, Error: "console writes are not configured"})
 			return
 		}
 		user, password, ok := request.BasicAuth()
 		validUser := len(user) == len(s.consoleUser) && subtle.ConstantTimeCompare([]byte(user), []byte(s.consoleUser)) == 1
 		validPassword := len(password) == len(s.consolePassword) && subtle.ConstantTimeCompare([]byte(password), []byte(s.consolePassword)) == 1
 		if !ok || !validUser || !validPassword {
-			writer.Header().Set("WWW-Authenticate", `Basic realm="XLWMS fulfillment shops", charset="UTF-8"`)
+			writer.Header().Set("WWW-Authenticate", `Basic realm="XLWMS console", charset="UTF-8"`)
 			writeJSON(writer, http.StatusUnauthorized, response{Success: false, Error: "invalid console credentials"})
 			return
 		}

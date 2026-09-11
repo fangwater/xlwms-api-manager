@@ -225,6 +225,42 @@ type WarehouseSKUSpec struct {
 	UpdatedAt     time.Time `json:"updated_at"`
 }
 
+type PlatformSKUMappingItem struct {
+	WarehouseSKU string   `json:"warehouse_sku"`
+	ProductName  string   `json:"product_name,omitempty"`
+	Quantity     int      `json:"quantity"`
+	LengthCM     *float64 `json:"length_cm,omitempty"`
+	WidthCM      *float64 `json:"width_cm,omitempty"`
+	HeightCM     *float64 `json:"height_cm,omitempty"`
+	WeightKG     *float64 `json:"weight_kg,omitempty"`
+	SpecComplete bool     `json:"spec_complete"`
+}
+
+// PlatformSKUMapping is the account-independent recipe for one platform SKU.
+type PlatformSKUMapping struct {
+	Platform    string                   `json:"platform"`
+	PlatformSKU string                   `json:"platform_sku"`
+	Source      string                   `json:"source"`
+	Enabled     bool                     `json:"enabled"`
+	Items       []PlatformSKUMappingItem `json:"items"`
+	CreatedAt   time.Time                `json:"created_at"`
+	UpdatedAt   time.Time                `json:"updated_at"`
+}
+
+type PlatformSKUMappingPage struct {
+	Records  []PlatformSKUMapping `json:"records"`
+	Total    int                  `json:"total"`
+	Page     int                  `json:"page"`
+	PageSize int                  `json:"page_size"`
+	Pages    int                  `json:"pages"`
+}
+
+type PlatformSKUMappingResolution struct {
+	Platform     string               `json:"platform"`
+	Mappings     []PlatformSKUMapping `json:"mappings"`
+	UnmappedSKUs []string             `json:"unmapped_skus"`
+}
+
 type SKUCombinationItem struct {
 	WarehouseSKU string   `json:"warehouse_sku"`
 	ProductName  string   `json:"product_name,omitempty"`

@@ -1,4 +1,4 @@
-import type { CarrierPolicy, CostDetail, DashboardData, FulfilledOrderPage, FulfillmentAuditPage, FundsFlow, InventoryAlertPage, InventoryCorrection, InventoryKind, InventoryRecord, InventoryThresholdPage, InventoryThresholds, OMSAccountSummary, OMSMFAPrompt, PackingPlan, PackingPlanRequest, PageData, PendingPlatformOrderPage, PlatformInventoryThresholds, PlatformOrderAccountOption, PlatformOrderAssignmentResult, PlatformOrderRoutingPreview, PlatformSKUFulfillmentPolicy, PlatformSKUFulfillmentPolicyPage, ProductPairingMutationResult, ProductPairingPage, ProductPairingPayload, SKUCombination, SKUCombinationPayload, SKUInventoryThreshold, SKUStockLevelPage, SyncRun, Warehouse, WarehouseAPICredentialGroup, WarehouseCarrierPolicies, WarehouseCarrierRules, WarehouseSKUInventoryAlertThreshold, WarehouseSKUSpec } from "./types";
+import type { CarrierPolicy, ConsoleCredentials, CostDetail, DashboardData, FulfilledOrderPage, FulfillmentAuditPage, FundsFlow, InventoryAlertPage, InventoryCorrection, InventoryKind, InventoryRecord, InventoryThresholdPage, InventoryThresholds, OMSAccountSummary, OMSMFAPrompt, PackingPlan, PackingPlanRequest, PageData, PendingPlatformOrderPage, PlatformInventoryThresholds, PlatformOrderAccountOption, PlatformOrderAssignmentResult, PlatformOrderRoutingPreview, PlatformSKUFulfillmentPolicy, PlatformSKUFulfillmentPolicyPage, PlatformSKUMapping, PlatformSKUMappingPage, PlatformSKUMappingPayload, ProductPairingMutationResult, ProductPairingPage, ProductPairingPayload, SKUCombination, SKUCombinationPayload, SKUInventoryThreshold, SKUStockLevelPage, SyncRun, Warehouse, WarehouseAPICredentialGroup, WarehouseCarrierPolicies, WarehouseCarrierRules, WarehouseSKUInventoryAlertThreshold, WarehouseSKUSpec } from "./types";
 
 type Envelope<T> = { success: boolean; data?: T; error?: string; code?: string };
 const apiBase = `${import.meta.env.BASE_URL}api`;
@@ -32,6 +32,10 @@ function query(params: Record<string, string | number | undefined>): string {
   Object.entries(params).forEach(([key, value]) => { if (value !== undefined && value !== "") values.set(key, String(value)); });
   const rendered = values.toString();
   return rendered ? `?${rendered}` : "";
+}
+
+function consoleAuth(credentials: ConsoleCredentials): HeadersInit {
+  return { Authorization: `Basic ${btoa(`${credentials.username}:${credentials.password}`)}` };
 }
 
 async function downloadFile(path: string): Promise<{ blob: Blob; filename: string }> {
@@ -77,6 +81,12 @@ export const api = {
     request<ProductPairingMutationResult>("/product-pairings", { method: "POST", body: JSON.stringify(payload) }),
   deleteProductPairing: (payload: Omit<ProductPairingPayload, "items">) =>
     request<ProductPairingMutationResult>("/product-pairings/delete", { method: "POST", body: JSON.stringify(payload) }),
+  platformSKUMappings: (params: { platform?: string; q?: string; status?: string; page: number; pageSize: number }) =>
+    request<PlatformSKUMappingPage>(`/platform-sku-mappings${query({ platform: params.platform, q: params.q, status: params.status, page: params.page, page_size: params.pageSize })}`),
+  savePlatformSKUMapping: (payload: PlatformSKUMappingPayload, credentials: ConsoleCredentials) =>
+    request<PlatformSKUMapping>("/platform-sku-mappings", { method: "PUT", headers: consoleAuth(credentials), body: JSON.stringify(payload) }),
+  deletePlatformSKUMapping: (platform: string, platformSKU: string, credentials: ConsoleCredentials) =>
+    request<{ deleted: boolean }>(`/platform-sku-mappings/${encodeURIComponent(platform)}/${encodeURIComponent(platformSKU)}`, { method: "DELETE", headers: consoleAuth(credentials) }),
   pendingPlatformOrders: (params: { account: string; q?: string; page: number; pageSize: number }) =>
     request<PendingPlatformOrderPage>("/platform-orders/pending" + query({ account: params.account, q: params.q, page: params.page, page_size: params.pageSize })),
   platformOrderRoutingPreview: (platformOrderNos: string[], account: string) => request<PlatformOrderRoutingPreview>("/platform-orders/routing-preview", { method: "POST", body: JSON.stringify({ platform_order_nos: platformOrderNos, account }) }),

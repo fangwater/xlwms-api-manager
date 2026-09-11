@@ -141,3 +141,20 @@ func TestInitSQLDefinesFulfillmentInventoryReservations(t *testing.T) {
 		}
 	}
 }
+
+func TestInitSQLDefinesAccountIndependentPlatformSKUMappings(t *testing.T) {
+	for _, fragment := range []string{
+		"CREATE TABLE IF NOT EXISTS xlwms_platform_sku_mappings",
+		"PRIMARY KEY (platform, platform_sku, warehouse_sku)",
+		"quantity integer NOT NULL CHECK (quantity > 0)",
+		"idx_xlwms_platform_sku_mappings_lookup",
+	} {
+		if !strings.Contains(InitSQL, fragment) {
+			t.Fatalf("InitSQL missing platform SKU mapping fragment %q", fragment)
+		}
+	}
+	if strings.Contains(InitSQL, "PRIMARY KEY (platform, shop_code, platform_sku") ||
+		strings.Contains(InitSQL, "PRIMARY KEY (platform, account_key, platform_sku") {
+		t.Fatal("canonical platform SKU mappings must not be scoped by shop or OMS account")
+	}
+}

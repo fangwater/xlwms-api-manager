@@ -554,6 +554,38 @@ export type ProductPairingMutationResult = {
   items?: ProductPairingItem[];
 };
 
+export type PlatformSKUMappingItem = {
+  warehouse_sku: string;
+  product_name?: string;
+  quantity: number;
+  length_cm?: number;
+  width_cm?: number;
+  height_cm?: number;
+  weight_kg?: number;
+  spec_complete: boolean;
+};
+
+export type PlatformSKUMapping = {
+  platform: string;
+  platform_sku: string;
+  source: string;
+  enabled: boolean;
+  items: PlatformSKUMappingItem[];
+  created_at: string;
+  updated_at: string;
+};
+
+export type PlatformSKUMappingPage = PageData<PlatformSKUMapping>;
+
+export type PlatformSKUMappingPayload = {
+  platform: string;
+  platform_sku: string;
+  enabled: boolean;
+  items: Array<{ warehouse_sku: string; quantity: number }>;
+};
+
+export type ConsoleCredentials = { username: string; password: string };
+
 export type PlatformOrderProduct = {
   sku: string;
   qty: number;

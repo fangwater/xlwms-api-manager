@@ -1,0 +1,16 @@
+.mapping-toolbar { display: grid; grid-template-columns: 130px minmax(240px, 1fr) auto minmax(360px, 1fr); align-items: end; gap: 12px; padding: 16px 0; margin-bottom: 8px; }
+.mapping-toolbar > label { display: flex; flex-direction: column; gap: 5px; color: #697178; font-size: 12px; font-weight: 500; }
+.mapping-toolbar input, .mapping-toolbar select { width: 100%; height: 38px; padding: 0 10px; border: 1px solid #dfe5e1; border-radius: 6px; background: #fff; color: #30363a; font-size: 12px; }
+.mapping-query > div { position: relative; }
+.mapping-query svg { position: absolute; top: 11px; left: 10px; color: #8c9398; }
+.mapping-query input { padding-left: 33px; }
+.mapping-toolbar > button { height: 38px; }
+.mapping-credentials { display: grid; grid-template-columns: 20px minmax(110px, 1fr) minmax(110px, 1fr); align-items: center; gap: 7px; }
+.mapping-credentials svg { color: #768079; }
+.mapping-table th:nth-child(2) { min-width: 180px; }
+.mapping-table th:nth-child(3) { min-width: 360px; }
+.mapping-platform { display: inline-flex; padding: 3px 7px; border-radius: 4px; background: #edf3f0; color: #365d4c; font-size: 10px; font-weight: 700; }
+.mapping-actions { display: flex; gap: 5px; }
+.mapping-spec-warning { color: #a15b26 !important; }
+@media (max-width: 1040px) { .mapping-toolbar { grid-template-columns: 120px 1fr auto; } .mapping-credentials { grid-column: 1 / -1; } }
+@media (max-width: 620px) { .mapping-toolbar { grid-template-columns: 1fr; } .mapping-credentials { grid-column: auto; grid-template-columns: 20px 1fr; } .mapping-credentials input:last-child { grid-column: 2; } }
