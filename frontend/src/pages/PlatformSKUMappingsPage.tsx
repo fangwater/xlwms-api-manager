@@ -1,8 +1,8 @@
-import { KeyRound, LoaderCircle, Pencil, Plus, RefreshCw, Search, Tags, Trash2, X } from "lucide-react";
+import { LoaderCircle, Pencil, Plus, RefreshCw, Search, Tags, Trash2, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { api } from "../api";
 import { EmptyState, ErrorState, LoadingState, PageHeader, Pagination, dateTime } from "../components/Common";
-import type { ConsoleCredentials, PlatformSKUMapping, PlatformSKUMappingPage } from "../types";
+import type { PlatformSKUMapping, PlatformSKUMappingPage } from "../types";
 import "./ProductPairingsPage.css";
 import "./PlatformSKUMappingsPage.css";
 
@@ -19,7 +19,6 @@ export default function PlatformSKUMappingsPage() {
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [editor, setEditor] = useState<PlatformSKUMapping | null | undefined>(undefined);
-  const [credentials, setCredentials] = useState<ConsoleCredentials>({ username: "", password: "" });
   const [deleting, setDeleting] = useState("");
   const sequence = useRef(0);
 
@@ -45,15 +44,11 @@ export default function PlatformSKUMappingsPage() {
     setSuccess("");
   };
   const remove = async (mapping: PlatformSKUMapping) => {
-    if (!credentials.username || !credentials.password) {
-      setError("删除前请填写维护账号和密码");
-      return;
-    }
     if (!window.confirm(`删除 ${mapping.platform_sku} 的仓库 SKU 映射？`)) return;
     setDeleting(mapping.platform_sku);
     setError("");
     try {
-      await api.deletePlatformSKUMapping(mapping.platform, mapping.platform_sku, credentials);
+      await api.deletePlatformSKUMapping(mapping.platform, mapping.platform_sku);
       setSuccess(`映射“${mapping.platform_sku}”已删除`);
       if (data?.records.length === 1 && page > 1) setPage(page - 1); else await load();
     } catch (reason) {
@@ -75,7 +70,6 @@ export default function PlatformSKUMappingsPage() {
       <label><span>平台</span><select value={platform} onChange={(event) => { setPlatform(event.target.value); setPage(1); }}><option value="shein">SHEIN</option><option value="temu">Temu</option></select></label>
       <label className="mapping-query"><span>平台 SKU / 仓库 SKU</span><div><Search size={16} /><input value={queryInput} onChange={(event) => setQueryInput(event.target.value)} placeholder="输入关键词" /></div></label>
       <button className="secondary-button" type="submit">查询</button>
-      <div className="mapping-credentials"><KeyRound size={16} /><input aria-label="维护账号" autoComplete="username" value={credentials.username} onChange={(event) => setCredentials({ ...credentials, username: event.target.value })} placeholder="维护账号" /><input aria-label="维护密码" type="password" autoComplete="current-password" value={credentials.password} onChange={(event) => setCredentials({ ...credentials, password: event.target.value })} placeholder="维护密码" /></div>
     </form>
 
     {loading && !data ? <LoadingState label="正在加载 SKU 映射" /> : data?.records.length ? <div className="table-panel"><div className="table-scroll"><table className="data-table mapping-table">
@@ -89,11 +83,11 @@ export default function PlatformSKUMappingsPage() {
       </tr>)}</tbody>
     </table></div></div> : !loading && !error && <EmptyState label={query ? "没有符合条件的 SKU 映射" : "当前平台没有 SKU 映射"} />}
     {data && data.total > 0 && <Pagination page={data.page} pages={data.pages} total={data.total} onChange={setPage} />}
-    {editor !== undefined && <MappingEditor platform={platform} mapping={editor} credentials={credentials} onClose={() => setEditor(undefined)} onSaved={async (sku) => { setEditor(undefined); setSuccess(`映射“${sku}”已保存`); await load(); }} />}
+    {editor !== undefined && <MappingEditor platform={platform} mapping={editor} onClose={() => setEditor(undefined)} onSaved={async (sku) => { setEditor(undefined); setSuccess(`映射“${sku}”已保存`); await load(); }} />}
   </>;
 }
 
-function MappingEditor({ platform, mapping, credentials, onClose, onSaved }: { platform: string; mapping: PlatformSKUMapping | null; credentials: ConsoleCredentials; onClose: () => void; onSaved: (sku: string) => Promise<void> }) {
+function MappingEditor({ platform, mapping, onClose, onSaved }: { platform: string; mapping: PlatformSKUMapping | null; onClose: () => void; onSaved: (sku: string) => Promise<void> }) {
   const nextID = useRef((mapping?.items.length || 0) + 1);
   const [platformSKU, setPlatformSKU] = useState(mapping?.platform_sku || "");
   const [items, setItems] = useState<ItemDraft[]>(mapping?.items.map((item, index) => ({ id: index + 1, warehouseSKU: item.warehouse_sku, quantity: String(item.quantity) })) || [{ id: 1, warehouseSKU: "", quantity: "1" }]);
@@ -103,12 +97,11 @@ function MappingEditor({ platform, mapping, credentials, onClose, onSaved }: { p
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     setError("");
-    if (!credentials.username || !credentials.password) { setError("请先在列表上方填写维护账号和密码"); return; }
     setSaving(true);
     try {
       const recipe = items.map((item) => ({ warehouse_sku: item.warehouseSKU.trim(), quantity: Number(item.quantity) }));
       if (new Set(recipe.map((item) => item.warehouse_sku)).size !== recipe.length) throw new Error("仓库 SKU 不能重复");
-      await api.savePlatformSKUMapping({ platform: mapping?.platform || platform, platform_sku: platformSKU.trim(), enabled: true, items: recipe }, credentials);
+      await api.savePlatformSKUMapping({ platform: mapping?.platform || platform, platform_sku: platformSKU.trim(), enabled: true, items: recipe });
       await onSaved(platformSKU.trim());
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "无法保存 SKU 映射");

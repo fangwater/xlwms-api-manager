@@ -170,7 +170,7 @@ GET    /v1/sync/runs
 `https://pangutech.online/warehouse-console/api`，服务间本机基址为
 `http://127.0.0.1:18083/v1`。
 
-读取与解析接口不需要认证：
+平台 SKU 映射的读取、解析和维护接口都不需要认证：
 
 ```http
 GET /platform-sku-mappings?platform=shein&q=平台SKU&page=1&page_size=50
@@ -183,12 +183,10 @@ Content-Type: application/json
 解析响应的 `mappings` 返回已启用映射，`unmapped_skus` 原样列出没有映射的请求项。单次解析
 最多接受 500 个平台 SKU。
 
-新增或完整替换一条映射使用 `POST` 或 `PUT`；批量导入最多 1000 条。写入与删除接口使用
-`XLWMS_CONSOLE_USER` 和 `XLWMS_CONSOLE_PASSWORD` 做 HTTP Basic Auth：
+新增或完整替换一条映射使用 `POST` 或 `PUT`；批量导入最多 1000 条：
 
 ```http
 PUT /platform-sku-mappings
-Authorization: Basic <XLWMS console credentials>
 Content-Type: application/json
 
 {"platform":"shein","platform_sku":"平台SKU-1","items":[{"warehouse_sku":"仓库SKU-1","quantity":1}]}

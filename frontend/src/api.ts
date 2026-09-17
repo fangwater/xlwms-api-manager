@@ -83,10 +83,10 @@ export const api = {
     request<ProductPairingMutationResult>("/product-pairings/delete", { method: "POST", body: JSON.stringify(payload) }),
   platformSKUMappings: (params: { platform?: string; q?: string; status?: string; page: number; pageSize: number }) =>
     request<PlatformSKUMappingPage>(`/platform-sku-mappings${query({ platform: params.platform, q: params.q, status: params.status, page: params.page, page_size: params.pageSize })}`),
-  savePlatformSKUMapping: (payload: PlatformSKUMappingPayload, credentials: ConsoleCredentials) =>
-    request<PlatformSKUMapping>("/platform-sku-mappings", { method: "PUT", headers: consoleAuth(credentials), body: JSON.stringify(payload) }),
-  deletePlatformSKUMapping: (platform: string, platformSKU: string, credentials: ConsoleCredentials) =>
-    request<{ deleted: boolean }>(`/platform-sku-mappings/${encodeURIComponent(platform)}/${encodeURIComponent(platformSKU)}`, { method: "DELETE", headers: consoleAuth(credentials) }),
+  savePlatformSKUMapping: (payload: PlatformSKUMappingPayload) =>
+    request<PlatformSKUMapping>("/platform-sku-mappings", { method: "PUT", body: JSON.stringify(payload) }),
+  deletePlatformSKUMapping: (platform: string, platformSKU: string) =>
+    request<{ deleted: boolean }>(`/platform-sku-mappings/${encodeURIComponent(platform)}/${encodeURIComponent(platformSKU)}`, { method: "DELETE" }),
   pendingPlatformOrders: (params: { account: string; q?: string; page: number; pageSize: number }) =>
     request<PendingPlatformOrderPage>("/platform-orders/pending" + query({ account: params.account, q: params.q, page: params.page, page_size: params.pageSize })),
   platformOrderRoutingPreview: (platformOrderNos: string[], account: string) => request<PlatformOrderRoutingPreview>("/platform-orders/routing-preview", { method: "POST", body: JSON.stringify({ platform_order_nos: platformOrderNos, account }) }),

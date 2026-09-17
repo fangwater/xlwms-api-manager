@@ -9,12 +9,12 @@ import (
 	"time"
 )
 
-func TestPlatformSKUMappingWritesRequireConsoleAuth(t *testing.T) {
+func TestPlatformSKUMappingWritesDoNotRequireConsoleAuth(t *testing.T) {
 	handler := newWithPlatformOrderAccountOperationsAuthenticated(nil, nil, nil, nil, nil, nil, nil, "operator", "secret", time.Second, slog.Default())
-	request := httptest.NewRequest(http.MethodPost, "/v1/platform-sku-mappings", strings.NewReader(`{"platform":"shein","platform_sku":"S1","items":[{"warehouse_sku":"W1","quantity":1}]}`))
+	request := httptest.NewRequest(http.MethodPost, "/v1/platform-sku-mappings", strings.NewReader(`{"platform":"shein","platform_sku":"S1","items":[]}`))
 	recorder := httptest.NewRecorder()
 	handler.ServeHTTP(recorder, request)
-	if recorder.Code != http.StatusUnauthorized {
+	if recorder.Code != http.StatusBadRequest {
 		t.Fatalf("got status %d", recorder.Code)
 	}
 }
@@ -22,7 +22,6 @@ func TestPlatformSKUMappingWritesRequireConsoleAuth(t *testing.T) {
 func TestPlatformSKUMappingWriteValidatesBeforeStoreLookup(t *testing.T) {
 	handler := newWithPlatformOrderAccountOperationsAuthenticated(nil, nil, nil, nil, nil, nil, nil, "operator", "secret", time.Second, slog.Default())
 	request := httptest.NewRequest(http.MethodPost, "/v1/platform-sku-mappings", strings.NewReader(`{"platform":"shein/shop","platform_sku":"S1","items":[]}`))
-	request.SetBasicAuth("operator", "secret")
 	recorder := httptest.NewRecorder()
 	handler.ServeHTTP(recorder, request)
 	if recorder.Code != http.StatusBadRequest {
