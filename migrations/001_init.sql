@@ -394,8 +394,8 @@ CREATE TABLE IF NOT EXISTS xlwms_platform_sku_inventory_thresholds (
 CREATE TABLE IF NOT EXISTS xlwms_platform_carrier_policies (
     platform text NOT NULL CHECK (platform IN ('temu', 'shein')),
     warehouse_key text NOT NULL CHECK (warehouse_key IN ('DPS002', 'ARP_EAST', 'DPS004', 'ARP_WEST')),
-    carrier_code text NOT NULL CHECK (carrier_code IN ('GOFO', 'SWIFTX', 'SPEEDX', 'YANWEN', 'UPS', 'USPS', 'FEDEX')),
-    priority integer NOT NULL CHECK (priority BETWEEN 1 AND 7),
+    carrier_code text NOT NULL CHECK (carrier_code IN ('GOFO', 'SWIFTX', 'SPEEDX', 'YANWEN', 'UPS', 'USPS', 'FEDEX', 'CBS')),
+    priority integer NOT NULL CHECK (priority BETWEEN 1 AND 8),
     enabled boolean NOT NULL DEFAULT true,
     updated_at timestamptz NOT NULL DEFAULT now(),
     PRIMARY KEY (platform, warehouse_key, carrier_code),
@@ -431,7 +431,9 @@ INSERT INTO xlwms_platform_warehouse_carrier_rules (
     allowed_currency_codes, selection_mode, max_price_delta, warehouse_tie_priority
 )
 SELECT platform, warehouse_key,
-       ARRAY['GOFO','SWIFTX','SPEEDX','YANWEN','UPS','USPS','FEDEX']::text[],
+       CASE WHEN platform='shein'
+            THEN ARRAY['GOFO','SWIFTX','SPEEDX','YANWEN','UPS','USPS','FEDEX','CBS']::text[]
+            ELSE ARRAY['GOFO','SWIFTX','SPEEDX','YANWEN','UPS','USPS','FEDEX']::text[] END,
        platform='shein',
        CASE WHEN platform='temu' THEN ARRAY['USD']::text[] ELSE ARRAY[]::text[] END,
        CASE WHEN platform='temu' THEN 'carrier_priority_within_delta' ELSE 'lowest_price' END,
@@ -450,8 +452,8 @@ CREATE TABLE IF NOT EXISTS xlwms_platform_sku_carrier_policies (
     platform text NOT NULL CHECK (platform IN ('temu', 'shein')),
     warehouse_sku text NOT NULL,
     warehouse_key text NOT NULL CHECK (warehouse_key IN ('DPS002', 'ARP_EAST', 'DPS004', 'ARP_WEST')),
-    carrier_code text NOT NULL CHECK (carrier_code IN ('GOFO', 'SWIFTX', 'SPEEDX', 'YANWEN', 'UPS', 'USPS', 'FEDEX')),
-    priority integer NOT NULL CHECK (priority BETWEEN 1 AND 7),
+    carrier_code text NOT NULL CHECK (carrier_code IN ('GOFO', 'SWIFTX', 'SPEEDX', 'YANWEN', 'UPS', 'USPS', 'FEDEX', 'CBS')),
+    priority integer NOT NULL CHECK (priority BETWEEN 1 AND 8),
     enabled boolean NOT NULL DEFAULT true,
     updated_at timestamptz NOT NULL DEFAULT now(),
     PRIMARY KEY (platform, warehouse_sku, warehouse_key, carrier_code),
@@ -956,3 +958,34 @@ CREATE INDEX IF NOT EXISTS idx_xlwms_platform_sku_mappings_lookup
     ON xlwms_platform_sku_mappings(platform, platform_sku) WHERE enabled;
 CREATE INDEX IF NOT EXISTS idx_xlwms_platform_sku_mappings_warehouse_sku
     ON xlwms_platform_sku_mappings(warehouse_sku);
+
+-- CBS was already recognized by the SHEIN fulfillment service, but older
+-- XLWMS databases could not persist it as an automatic-carrier policy.
+-- Keep the bootstrap migration idempotent while upgrading those databases.
+ALTER TABLE xlwms_platform_carrier_policies
+    DROP CONSTRAINT IF EXISTS xlwms_platform_carrier_policies_carrier_code_check,
+    DROP CONSTRAINT IF EXISTS xlwms_platform_carrier_policies_priority_check;
+ALTER TABLE xlwms_platform_carrier_policies
+    ADD CONSTRAINT xlwms_platform_carrier_policies_carrier_code_check
+        CHECK (carrier_code IN ('GOFO', 'SWIFTX', 'SPEEDX', 'YANWEN', 'UPS', 'USPS', 'FEDEX', 'CBS')),
+    ADD CONSTRAINT xlwms_platform_carrier_policies_priority_check
+        CHECK (priority BETWEEN 1 AND 8);
+
+ALTER TABLE xlwms_platform_sku_carrier_policies
+    DROP CONSTRAINT IF EXISTS xlwms_platform_sku_carrier_policies_carrier_code_check,
+    DROP CONSTRAINT IF EXISTS xlwms_platform_sku_carrier_policies_priority_check;
+ALTER TABLE xlwms_platform_sku_carrier_policies
+    ADD CONSTRAINT xlwms_platform_sku_carrier_policies_carrier_code_check
+        CHECK (carrier_code IN ('GOFO', 'SWIFTX', 'SPEEDX', 'YANWEN', 'UPS', 'USPS', 'FEDEX', 'CBS')),
+    ADD CONSTRAINT xlwms_platform_sku_carrier_policies_priority_check
+        CHECK (priority BETWEEN 1 AND 8);
+
+INSERT INTO xlwms_platform_carrier_policies(platform, warehouse_key, carrier_code, priority, enabled)
+SELECT platform, warehouse_key, 'CBS', 8, true
+FROM (VALUES ('temu'), ('shein')) platforms(platform)
+CROSS JOIN (VALUES ('DPS002'), ('ARP_EAST'), ('DPS004'), ('ARP_WEST')) warehouses(warehouse_key)
+ON CONFLICT (platform, warehouse_key, carrier_code) DO NOTHING;
+
+UPDATE xlwms_platform_warehouse_carrier_rules
+SET allowed_carrier_codes = array_append(allowed_carrier_codes, 'CBS'), updated_at = now()
+WHERE platform = 'shein' AND NOT ('CBS' = ANY(allowed_carrier_codes));

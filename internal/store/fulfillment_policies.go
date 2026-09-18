@@ -13,8 +13,8 @@ import (
 
 var (
 	SupportedFulfillmentWarehouseKeys = []string{"DPS002", "ARP_EAST", "DPS004", "ARP_WEST"}
-	SupportedAutomaticCarrierCodes    = []string{"GOFO", "SWIFTX", "SPEEDX", "YANWEN", "UPS", "USPS", "FEDEX"}
-	KnownAutomaticCarrierCodes        = []string{"GOFO", "SWIFTX", "SPEEDX", "YANWEN", "UPS", "USPS", "FEDEX", "UNIUNI"}
+	SupportedAutomaticCarrierCodes    = []string{"GOFO", "SWIFTX", "SPEEDX", "YANWEN", "UPS", "USPS", "FEDEX", "CBS"}
+	KnownAutomaticCarrierCodes        = []string{"GOFO", "SWIFTX", "SPEEDX", "YANWEN", "UPS", "USPS", "FEDEX", "UNIUNI", "CBS"}
 )
 
 func NormalizeFulfillmentWarehouseKey(value string) (string, error) {

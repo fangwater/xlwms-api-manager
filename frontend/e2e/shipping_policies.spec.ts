@@ -1,6 +1,6 @@
 import { expect, test, type Page, type Route } from "@playwright/test";
 
-const carriers = ["GOFO", "SWIFTX", "SPEEDX", "YANWEN", "UPS", "USPS", "FEDEX", "UNIUNI"];
+const carriers = ["GOFO", "SWIFTX", "SPEEDX", "YANWEN", "UPS", "USPS", "FEDEX", "CBS", "UNIUNI"];
 
 function carrierGroups(warehouseSKU = "") {
   return ["DPS002", "ARP_EAST"].map((warehouseKey, warehouseIndex) => ({

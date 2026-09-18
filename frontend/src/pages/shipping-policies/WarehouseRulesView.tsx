@@ -4,7 +4,7 @@ import { api } from "../../api";
 import { EmptyState, ErrorState, LoadingState } from "../../components/Common";
 import type { CarrierPolicy, WarehouseCarrierPolicies, WarehouseCarrierRules } from "../../types";
 
-const knownCarriers = ["GOFO", "SWIFTX", "SPEEDX", "YANWEN", "UPS", "USPS", "FEDEX", "UNIUNI"];
+const knownCarriers = ["GOFO", "SWIFTX", "SPEEDX", "YANWEN", "UPS", "USPS", "FEDEX", "UNIUNI", "CBS"];
 
 export function CarrierPriorityList({ carriers, onChange }: { carriers: CarrierPolicy[]; onChange: (carriers: CarrierPolicy[]) => void }) {
   const move = (index: number, offset: number) => {
