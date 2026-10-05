@@ -119,6 +119,7 @@ func newWithPlatformOrderAccountOperationsAuthenticated(destination *store.Postg
 	mux.HandleFunc("PUT /v1/platform-sku-mappings", server.savePlatformSKUMapping)
 	mux.HandleFunc("POST /v1/platform-sku-mappings/import", server.importPlatformSKUMappings)
 	mux.HandleFunc("DELETE /v1/platform-sku-mappings/{platform}/{platformSKU}", server.deletePlatformSKUMapping)
+	mux.HandleFunc("GET /v1/fulfillment-warehouses", server.listFulfillmentWarehouses)
 	mux.HandleFunc("GET /v1/warehouses", server.listWarehouses)
 	mux.HandleFunc("POST /v1/warehouses", server.upsertWarehouse)
 	mux.HandleFunc("PATCH /v1/warehouses/{code}/status", server.warehouseStatus)

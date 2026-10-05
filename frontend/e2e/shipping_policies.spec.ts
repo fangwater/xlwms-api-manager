@@ -137,7 +137,7 @@ test("policy subdirectories isolate selection and SKU settings", async ({ page }
   await expect(page).toHaveURL(/\/shipping-policies\/sku-rules$/);
   await expect(page.getByText("DEMO-SKU-01")).toBeVisible();
   await expect(page.getByText("DPS002")).toBeVisible();
-  await expect(page.getByText("ARP_EAST")).toHaveCount(0);
+  await expect(page.getByText("ARP-宾夕法尼亚")).toHaveCount(0);
 
   await page.getByRole("button", { name: "编辑" }).click();
   await expect(page.getByRole("dialog", { name: "DEMO-SKU-01" })).toBeVisible();

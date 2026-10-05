@@ -13,15 +13,17 @@ import (
 )
 
 type PurchasedShipment struct {
-	StoreCode        string     `json:"store_code"`
-	StoreName        string     `json:"store_name"`
-	ParentOrderSN    string     `json:"parent_order_sn"`
-	Status           string     `json:"status"`
-	OMSWarehouseKey  string     `json:"oms_warehouse_key"`
-	OMSWarehouseCode string     `json:"oms_warehouse_code"`
-	PackageSNList    []string   `json:"package_sn_list"`
-	TrackingNumber   string     `json:"tracking_number"`
-	ConfirmedAt      *time.Time `json:"confirmed_at,omitempty"`
+	ShippingCompanyName string     `json:"shipping_company_name"`
+	ShipLogisticsType   string     `json:"ship_logistics_type"`
+	StoreCode           string     `json:"store_code"`
+	StoreName           string     `json:"store_name"`
+	ParentOrderSN       string     `json:"parent_order_sn"`
+	Status              string     `json:"status"`
+	OMSWarehouseKey     string     `json:"oms_warehouse_key"`
+	OMSWarehouseCode    string     `json:"oms_warehouse_code"`
+	PackageSNList       []string   `json:"package_sn_list"`
+	TrackingNumber      string     `json:"tracking_number"`
+	ConfirmedAt         *time.Time `json:"confirmed_at,omitempty"`
 }
 
 type shipmentLookupEnvelope struct {

@@ -6,13 +6,15 @@ import (
 	"strconv"
 	"time"
 
+	"xlwms-api-manager/internal/fulfillment"
 	"xlwms-api-manager/internal/model"
 )
 
 const (
-	RuleVersion     = "2026-09-06-api-scope-account-rules"
+	RuleVersion     = "2026-10-05-physical-warehouses"
 	RegionEast      = "east"
 	RegionWest      = "west"
+	RegionCentral   = "central"
 	QuerySucceeded  = "succeeded"
 	QueryFailed     = "failed"
 	QueryInactive   = "inactive"
@@ -29,12 +31,13 @@ type WarehouseRule struct {
 	Preferred    bool
 }
 
-var warehouseRules = []WarehouseRule{
-	{Key: "DPS002", Code: "DPSNY002", FallbackName: "DPS达派思-纽约", Region: RegionEast, RegionName: "美东", Provider: "DPS", Preferred: true},
-	{Key: "ARP_EAST", Code: "HYTX30", FallbackName: "ARP1号仓-美东PA", Region: RegionEast, RegionName: "美东", Provider: "ARP"},
-	{Key: "DPS004", Code: "DPSCA004", FallbackName: "DPS达派思-加州", Region: RegionWest, RegionName: "美西", Provider: "DPS", Preferred: true},
-	{Key: "ARP_WEST", Code: "ARPCA01", FallbackName: "ARP8号仓-美西LA", Region: RegionWest, RegionName: "美西", Provider: "ARP"},
-}
+var warehouseRules = func() []WarehouseRule {
+	result := make([]WarehouseRule, 0, len(fulfillment.Warehouses))
+	for _, w := range fulfillment.Warehouses {
+		result = append(result, WarehouseRule{Key: w.Key, Code: w.Code, FallbackName: w.Name, Region: w.Region, RegionName: map[string]string{"east": "东部", "west": "西部", "central": "中部"}[w.Region], Provider: w.Provider, Preferred: w.Priority == 1})
+	}
+	return result
+}()
 
 type WarehouseInventory struct {
 	APIBinding          *WarehouseAPIBinding
@@ -96,6 +99,10 @@ func ApplyPlatformSKUWarehouseRestrictions(decision *SKUDecision, disabled map[s
 		}
 		recommendRegionAfterRestriction(region)
 	}
+	decision.Warehouses = nil
+	for _, region := range decision.RegionDecisions {
+		decision.Warehouses = append(decision.Warehouses, region.Warehouses...)
+	}
 }
 
 func recommendRegionAfterRestriction(region *RegionDecision) {
@@ -144,6 +151,7 @@ type SKUDecision struct {
 	Reason               string                    `json:"reason"`
 	TotalAvailableAmount float64                   `json:"total_available_amount"`
 	Thresholds           model.InventoryThresholds `json:"thresholds"`
+	Warehouses           []WarehouseDecision       `json:"warehouses"`
 	RegionDecisions      []RegionDecision          `json:"regions"`
 }
 
@@ -184,10 +192,12 @@ func BuildSKUDecision(sku string, inventory map[string]WarehouseInventory, thres
 	regions := []RegionDecision{
 		buildRegionDecision(RegionEast, inventory),
 		buildRegionDecision(RegionWest, inventory),
+		buildRegionDecision(RegionCentral, inventory),
 	}
 	result := SKUDecision{SKU: sku, ManualRegions: make([]string, 0), RegionDecisions: regions, Thresholds: thresholds}
 	queryIncomplete := false
 	for _, region := range regions {
+		result.Warehouses = append(result.Warehouses, region.Warehouses...)
 		result.TotalAvailableAmount += region.AvailableAmount
 		if region.DecisionCode == "MANUAL_INVENTORY_QUERY_INCOMPLETE" {
 			queryIncomplete = true
@@ -225,7 +235,7 @@ func buildRegionDecision(region string, inventory map[string]WarehouseInventory)
 	for _, rule := range rules {
 		current := inventory[rule.Code]
 		name := current.Name
-		if name == "" {
+		if rule.Provider == "ARP" || name == "" {
 			name = rule.FallbackName
 		}
 		warehouse := WarehouseDecision{
@@ -284,7 +294,7 @@ func buildRegionDecision(region string, inventory map[string]WarehouseInventory)
 	for index, rule := range rules {
 		if rule.Preferred {
 			preferredIndex = index
-		} else {
+		} else if fallbackIndex < 0 && result.Warehouses[index].Selectable {
 			fallbackIndex = index
 		}
 	}
@@ -303,7 +313,7 @@ func buildRegionDecision(region string, inventory map[string]WarehouseInventory)
 		result.Warehouses[fallbackIndex].Recommended = true
 		setRecommended(&result, result.Warehouses[fallbackIndex])
 		result.DecisionCode = "ARP_FALLBACK_DPS_OUT_OF_STOCK"
-		result.Reason = result.RegionName + "区域库存高于安全线，但DPS仓可用库存为0，回退选择ARP仓"
+		result.Reason = "选择有库存的ARP仓库；所有可选仓库均参与报价"
 	default:
 		result.RequiresManual = true
 		result.DecisionCode = "MANUAL_NO_SELECTABLE_WAREHOUSE"

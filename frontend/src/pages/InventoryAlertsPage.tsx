@@ -1,3 +1,4 @@
+import { warehouseDisplayName } from "../warehouseNames";
 import { AlertTriangle, Boxes, PackageX, RefreshCw, RotateCcw, Save, Search, SlidersHorizontal, Warehouse } from "lucide-react";
 import { useEffect, useState, type FormEvent } from "react";
 import { api } from "../api";
@@ -104,7 +105,7 @@ function AlertSummary({ data }: { data: InventoryAlertPage }) {
 function InventoryAlertTable({ records, defaultThreshold, onSaved }: { records: InventoryAlert[]; defaultThreshold: number; onSaved: (message: string) => Promise<void> }) {
   return <div className="table-panel inventory-alert-table-panel"><div className="table-scroll"><table className="data-table inventory-alert-table"><thead><tr><th>状态</th><th>仓库</th><th>SKU / 产品</th><th>正品总库存</th><th>可用库存</th><th>锁定</th><th>在途</th><th>告警线配置</th><th>库存更新时间</th></tr></thead><tbody>{records.map((item) => <tr key={`${item.wh_code}:${item.warehouse_sku}`} className={item.alert ? "inventory-alert-row" : ""}>
     <td><span className={`stock-alert-state ${item.alert ? "warning" : "normal"}`}>{item.alert ? "需关注" : "正常"}</span></td>
-    <td><div className="primary-cell"><strong>{item.wh_name || item.wh_code}</strong><small>{item.wh_code}</small></div></td>
+    <td><div className="primary-cell"><strong>{warehouseDisplayName(item.wh_code, item.wh_name)}</strong><small>{item.wh_code}</small></div></td>
     <td><div className="primary-cell"><strong>{item.warehouse_sku}</strong><small>{item.product_name || "-"}</small></div></td>
     <td>{number(item.total_amount)}</td>
     <td className={item.alert ? "danger" : "positive"}><strong>{number(item.available_amount)}</strong></td>
@@ -127,7 +128,7 @@ function ThresholdEditor({ item, defaultThreshold, onSaved }: { item: InventoryA
     setError("");
     try {
       await api.updateInventoryAlertConfig({ wh_code: item.wh_code, warehouse_sku: item.warehouse_sku, threshold: Number(value) });
-      await onSaved(`${item.wh_code} / ${item.warehouse_sku} 的告警线已保存`);
+      await onSaved(`${warehouseDisplayName(item.wh_code)} / ${item.warehouse_sku} 的告警线已保存`);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "保存失败");
     } finally {
@@ -141,7 +142,7 @@ function ThresholdEditor({ item, defaultThreshold, onSaved }: { item: InventoryA
     try {
       await api.resetInventoryAlertConfig({ wh_code: item.wh_code, warehouse_sku: item.warehouse_sku });
       setValue(String(defaultThreshold));
-      await onSaved(`${item.wh_code} / ${item.warehouse_sku} 已恢复默认告警线`);
+      await onSaved(`${warehouseDisplayName(item.wh_code)} / ${item.warehouse_sku} 已恢复默认告警线`);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "恢复默认失败");
     } finally {

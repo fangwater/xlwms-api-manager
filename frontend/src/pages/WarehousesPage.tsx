@@ -1,3 +1,4 @@
+import { warehouseDisplayName } from "../warehouseNames";
 import { KeyRound, LockKeyhole, Plus, ShieldCheck, Trash2, TriangleAlert, Warehouse as WarehouseIcon, X } from "lucide-react";
 import { useEffect, useState, type FormEvent } from "react";
 import { api } from "../api";
@@ -111,7 +112,7 @@ export default function WarehousesPage({ warehouses, onChanged }: { warehouses: 
         <tbody>{credentials.map(item => <tr key={item.key}>
           <td><div className="primary-cell"><strong>{item.label}</strong><small>{item.key}</small></div></td>
           <td><span className="key-hint"><KeyRound size={14} />{item.app_key_hint}</span></td>
-          <td><div className="warehouse-code-list">{item.warehouse_codes.length ? item.warehouse_codes.map(code => <span key={code}>{code}</span>) : <small>待发现</small>}</div></td>
+          <td><div className="warehouse-code-list">{item.warehouse_codes.length ? item.warehouse_codes.map(code => <span key={code} title={code}>{warehouseDisplayName(code)}</span>) : <small>待发现</small>}</div></td>
           <td><strong>{item.inventory_sync_status === "ready" ? item.sku_count : item.inventory_sync_status === "failed" ? "同步失败" : "待同步"}</strong></td>
           <td>{item.oms_account_label || <span className="muted-text">待绑定</span>}</td>
           <td><div className="primary-cell"><strong className={item.active && item.last_verified_at ? "verified-text" : "muted-text"}>{!item.active ? "已停用" : item.last_verified_at ? "已验证" : "旧配置已归并"}</strong><small>{dateTime(item.last_verified_at || item.updated_at)}</small></div></td>
@@ -128,7 +129,7 @@ export default function WarehousesPage({ warehouses, onChanged }: { warehouses: 
     {warehouses.length ? <div className="table-panel"><div className="table-scroll"><table className="data-table warehouse-table">
       <thead><tr><th>仓库</th><th>连接地址</th><th>OpenAPI App Key</th><th>更新时间</th><th>状态</th></tr></thead>
       <tbody>{warehouses.map(item => <tr key={item.wh_code}>
-        <td><div className="warehouse-cell"><span><WarehouseIcon size={18} /></span><div><strong>{item.name || item.wh_code}</strong><small>{item.wh_code}</small></div></div></td>
+        <td><div className="warehouse-cell"><span><WarehouseIcon size={18} /></span><div><strong>{item.name || item.wh_code}</strong>{item.wh_code === "ARPGA" && <small>待上架 · 发货功能预留</small>}<small>{item.wh_code}</small></div></div></td>
         <td>{item.api_base_url}</td>
         <td><span className="key-hint"><KeyRound size={14} />{item.app_key_hint}</span></td>
         <td>{dateTime(item.updated_at)}</td>

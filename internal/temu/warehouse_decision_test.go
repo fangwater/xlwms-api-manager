@@ -124,6 +124,8 @@ func defaultThresholds() model.InventoryThresholds {
 
 func completeInventory(eastDPS, eastARP, westDPS, westARP float64) map[string]WarehouseInventory {
 	return map[string]WarehouseInventory{
+		"ARP06A":   {QueryStatus: QueryOutOfScope},
+		"ARPGA":    {QueryStatus: QueryOutOfScope},
 		"DPSNY002": {Name: "DPS East", Active: true, QueryStatus: QuerySucceeded, SKUFound: true, AvailableAmount: eastDPS},
 		"HYTX30":   {Name: "ARP East", Active: true, QueryStatus: QuerySucceeded, SKUFound: true, AvailableAmount: eastARP},
 		"DPSCA004": {Name: "DPS West", Active: true, QueryStatus: QuerySucceeded, SKUFound: true, AvailableAmount: westDPS},

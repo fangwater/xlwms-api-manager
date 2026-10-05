@@ -1,3 +1,4 @@
+import { warehouseDisplayName } from "../warehouseNames";
 import { CalendarDays, RefreshCw, Search, Warehouse as WarehouseIcon } from "lucide-react";
 import { useEffect, useState } from "react";
 import { api } from "../api";
@@ -78,9 +79,9 @@ export default function CostsPage({ warehouse, warehouses, onWarehouseChange }: 
 }
 
 function FundsTable({ records }: { records: FundsFlow[] }) {
-  return <div className="table-panel"><div className="table-scroll"><table className="data-table"><thead><tr><th>仓库</th><th>OMS 订单号</th><th>平台订单号</th><th>金额</th><th>业务模块</th><th>费用时间</th><th>明细状态</th></tr></thead><tbody>{records.map(item => <tr key={item.id}><td><strong>{item.wh_code}</strong></td><td>{item.order_no || "-"}</td><td>{item.platform_order_no || "-"}</td><td><strong>{money(item.cost_total, item.currency_code)}</strong></td><td>{item.module_type ?? "-"}</td><td>{dateTime(item.cost_time)}</td><td><StatusBadge status={item.detail_sync_status} /></td></tr>)}</tbody></table></div></div>;
+  return <div className="table-panel"><div className="table-scroll"><table className="data-table"><thead><tr><th>仓库</th><th>OMS 订单号</th><th>平台订单号</th><th>金额</th><th>业务模块</th><th>费用时间</th><th>明细状态</th></tr></thead><tbody>{records.map(item => <tr key={item.id}><td><strong>{warehouseDisplayName(item.wh_code)}</strong></td><td>{item.order_no || "-"}</td><td>{item.platform_order_no || "-"}</td><td><strong>{money(item.cost_total, item.currency_code)}</strong></td><td>{item.module_type ?? "-"}</td><td>{dateTime(item.cost_time)}</td><td><StatusBadge status={item.detail_sync_status} /></td></tr>)}</tbody></table></div></div>;
 }
 
 function DetailsTable({ records }: { records: CostDetail[] }) {
-  return <div className="table-panel"><div className="table-scroll"><table className="data-table"><thead><tr><th>仓库</th><th>费用单号</th><th>查询订单号</th><th>平台订单号</th><th>费用总额</th><th>费用项目</th><th>创建时间</th></tr></thead><tbody>{records.map(item => <tr key={`${item.wh_code}-${item.cost_no}`}><td><strong>{item.wh_code}</strong></td><td>{item.cost_no}</td><td>{item.query_order_no}</td><td>{item.platform_order_no || "-"}</td><td><strong>{money(item.cost_total, item.currency_code)}</strong></td><td>{item.item_count}</td><td>{dateTime(item.create_time)}</td></tr>)}</tbody></table></div></div>;
+  return <div className="table-panel"><div className="table-scroll"><table className="data-table"><thead><tr><th>仓库</th><th>费用单号</th><th>查询订单号</th><th>平台订单号</th><th>费用总额</th><th>费用项目</th><th>创建时间</th></tr></thead><tbody>{records.map(item => <tr key={`${item.wh_code}-${item.cost_no}`}><td><strong>{warehouseDisplayName(item.wh_code)}</strong></td><td>{item.cost_no}</td><td>{item.query_order_no}</td><td>{item.platform_order_no || "-"}</td><td><strong>{money(item.cost_total, item.currency_code)}</strong></td><td>{item.item_count}</td><td>{dateTime(item.create_time)}</td></tr>)}</tbody></table></div></div>;
 }

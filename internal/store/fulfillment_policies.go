@@ -8,11 +8,12 @@ import (
 	"sort"
 	"strings"
 
+	"xlwms-api-manager/internal/fulfillment"
 	"xlwms-api-manager/internal/model"
 )
 
 var (
-	SupportedFulfillmentWarehouseKeys = []string{"DPS002", "ARP_EAST", "DPS004", "ARP_WEST"}
+	SupportedFulfillmentWarehouseKeys = fulfillment.Keys()
 	SupportedAutomaticCarrierCodes    = []string{"GOFO", "SWIFTX", "SPEEDX", "YANWEN", "UPS", "USPS", "FEDEX", "CBS"}
 	KnownAutomaticCarrierCodes        = []string{"GOFO", "SWIFTX", "SPEEDX", "YANWEN", "UPS", "USPS", "FEDEX", "UNIUNI", "CBS"}
 )
@@ -24,7 +25,7 @@ func NormalizeFulfillmentWarehouseKey(value string) (string, error) {
 			return value, nil
 		}
 	}
-	return "", errors.New("warehouse_key must be DPS002, ARP_EAST, DPS004 or ARP_WEST")
+	return "", fmt.Errorf("unsupported fulfillment warehouse_key %q", value)
 }
 
 func NormalizeWarehouseSKU(value string) (string, error) {
@@ -55,6 +56,9 @@ func ValidateCarrierPolicies(warehouseKey string, policies []model.CarrierPolicy
 	normalized := make([]model.CarrierPolicy, 0, len(policies))
 	for _, policy := range policies {
 		code := strings.ToUpper(strings.TrimSpace(policy.CarrierCode))
+		if policy.Enabled && !fulfillment.CarrierAllowed(warehouseKey, code) {
+			return nil, fmt.Errorf("warehouse %s cannot use carrier %s", warehouseKey, code)
+		}
 		if !supported[code] || seenCodes[code] {
 			return nil, fmt.Errorf("unsupported or duplicate carrier %q", policy.CarrierCode)
 		}
@@ -81,6 +85,9 @@ func ValidateWarehouseCarrierRules(warehouseKey string, rules model.WarehouseCar
 	carriers := make([]string, 0, len(rules.AllowedCarrierCodes))
 	for _, raw := range rules.AllowedCarrierCodes {
 		code := strings.ToUpper(strings.TrimSpace(raw))
+		if !fulfillment.CarrierAllowed(warehouseKey, code) {
+			return model.WarehouseCarrierRules{}, fmt.Errorf("warehouse %s cannot use carrier %s", warehouseKey, code)
+		}
 		if !known[code] {
 			return model.WarehouseCarrierRules{}, fmt.Errorf("unsupported carrier %q", raw)
 		}
@@ -211,6 +218,9 @@ ORDER BY defaults.warehouse_key,coalesce(overrides.priority,defaults.priority),d
 	if rules, ok := accountRules[warehouseSKU]; ok {
 		applyAccountCarrierRules(result, rules)
 	}
+	if err := p.applyWarehouseCapabilities(ctx, result); err != nil {
+		return nil, err
+	}
 	return result, nil
 }
 
@@ -243,6 +253,32 @@ func (p *Postgres) ReplaceCarrierPolicies(ctx context.Context, platform, warehou
 			return model.WarehouseCarrierPolicies{}, err
 		}
 	}
+	warehouses, err := p.FulfillmentWarehouses(ctx)
+	if err != nil {
+		return model.WarehouseCarrierPolicies{}, err
+	}
+	for _, w := range warehouses {
+		if w.Key != warehouseKey || w.AllowedCarrierCodes == nil {
+			continue
+		}
+		allowed := map[string]bool{}
+		for _, code := range w.AllowedCarrierCodes {
+			allowed[code] = true
+		}
+		for _, c := range policies {
+			if c.Enabled && !allowed[c.CarrierCode] {
+				return model.WarehouseCarrierPolicies{}, fmt.Errorf("carrier %s exceeds warehouse capability", c.CarrierCode)
+			}
+		}
+		if baseRules != nil {
+			for _, code := range normalizedRules.AllowedCarrierCodes {
+				if !allowed[code] {
+					return model.WarehouseCarrierPolicies{}, fmt.Errorf("carrier %s exceeds warehouse capability", code)
+				}
+			}
+		}
+	}
+
 	tx, err := p.pool.Begin(ctx)
 	if err != nil {
 		return model.WarehouseCarrierPolicies{}, err

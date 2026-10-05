@@ -1,3 +1,4 @@
+import { warehouseDisplayName } from "../warehouseNames";
 import { Boxes, LockKeyhole, PackageCheck, Pencil, Plus, RefreshCw, RotateCcw, Search, SlidersHorizontal, Truck, X } from "lucide-react";
 import { useEffect, useState, type ComponentType, type FormEvent } from "react";
 import { api } from "../api";
@@ -225,7 +226,7 @@ function SKUStockTable({ records, warehouses, onEdit }: { records: SKUStockLevel
 
 function CorrectionTable({ records, onEdit, onReset }: { records: InventoryCorrection[]; onEdit: (item: InventoryCorrection) => void; onReset: (item: InventoryCorrection) => void }) {
   return <div className="table-panel"><div className="table-scroll"><table className="data-table"><thead><tr><th>仓库</th><th>SKU / 产品</th><th>领星原值</th><th>修正规则</th><th>发货有效值</th><th>备注</th><th>更新时间</th><th>操作</th></tr></thead><tbody>{records.map((item) => <tr key={`${item.wh_code}:${item.warehouse_sku}`}>
-    <td><div className="primary-cell"><strong>{item.warehouse_name || item.wh_code}</strong><small>{item.wh_code}</small></div></td>
+    <td><div className="primary-cell"><strong>{warehouseDisplayName(item.wh_code, item.warehouse_name)}</strong><small>{item.wh_code}</small></div></td>
     <td><div className="primary-cell"><strong>{item.warehouse_sku}</strong><small>{item.product_name || "-"}</small></div></td>
     <td>{number(item.raw_available_amount)}</td><td>{item.correction_mode === "subtract" ? `比 OMS 少 ${number(item.correction_amount)}` : `直接设为 ${number(item.correction_amount)}`}</td><td><span className="correction-value">{number(item.corrected_available_amount)}</span></td><td>{item.note || "-"}</td><td>{dateTime(item.updated_at)}</td>
     <td><div className="row-actions"><button className="icon-button" onClick={() => onEdit(item)} title="编辑库存修正"><Pencil size={15}/></button><button className="icon-button danger-button" onClick={() => onReset(item)} title="撤销库存修正"><RotateCcw size={15}/></button></div></td>
@@ -248,7 +249,7 @@ function CorrectionModal({ editor, warehouses, saving, error, onChange, onClose,
 
 function InventoryTable({ kind, records, warehouses }: { kind: InventoryKind; records: InventoryRecord[]; warehouses: Warehouse[] }) {
   const names = Object.fromEntries(warehouses.map((item) => [item.wh_code, item.name || item.wh_code]));
-  const base = (record: InventoryRecord) => <><td><div className="primary-cell"><strong>{names[record.wh_code] || record.wh_name || record.wh_code}</strong><small>{record.wh_code}</small></div></td><td><div className="primary-cell"><strong>{record.sku || record.box_type || "-"}</strong><small>{record.product_name || record.customize_barcode || record.fnsku}</small></div></td></>;
+  const base = (record: InventoryRecord) => <><td><div className="primary-cell"><strong>{warehouseDisplayName(record.wh_code, names[record.wh_code] || record.wh_name)}</strong><small>{record.wh_code}</small></div></td><td><div className="primary-cell"><strong>{record.sku || record.box_type || "-"}</strong><small>{record.product_name || record.customize_barcode || record.fnsku}</small></div></td></>;
   return <div className="table-panel"><div className="table-scroll"><table className="data-table"><thead><tr><th>仓库</th><th>{kind.startsWith("box_") ? "箱型 / 条码" : "SKU / 产品"}</th>{headers(kind).map((item) => <th key={item}>{item}</th>)}</tr></thead><tbody>{records.map((record) => <tr key={record.id}>{base(record)}{cells(kind, record)}</tr>)}</tbody></table></div></div>;
 }
 

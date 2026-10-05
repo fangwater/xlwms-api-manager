@@ -1,3 +1,4 @@
+import { warehouseDisplayName } from "../warehouseNames";
 import { AlertTriangle, CheckCircle2, Clock3, Eye, KeyRound, ListTodo, PackageSearch, RefreshCw, Search, ShieldCheck, Store, Truck, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
@@ -185,7 +186,7 @@ export default function PlatformOrdersPage() {
     </section>}
     {assignmentResult && <section className={`platform-assignment-result ${assignmentResult.failed ? "partial" : "success"}`} role="status">
       {assignmentResult.failed ? <AlertTriangle size={19} /> : <CheckCircle2 size={19} />}
-      <div><strong>物流匹配已完成</strong><span>成功 {assignmentResult.success} 单，失败 {assignmentResult.failed} 单 · {(assignmentResult.warehouse_codes || [assignmentResult.warehouse_code]).filter(Boolean).join("、")}</span>
+      <div><strong>物流匹配已完成</strong><span>成功 {assignmentResult.success} 单，失败 {assignmentResult.failed} 单 · {(assignmentResult.warehouse_codes || [assignmentResult.warehouse_code]).filter(Boolean).map((code) => warehouseDisplayName(code)).join("、")}</span>
         {assignmentResult.failures.length > 0 && <small>{assignmentResult.failures.slice(0, 3).map((failure) => `${failure.platform_order_no}: ${failure.error}`).join("；")}</small>}
       </div>
       <button className="icon-button" onClick={() => setAssignmentResult(null)} title="关闭结果"><X size={16} /></button>
@@ -322,8 +323,8 @@ function PlatformOrderRoutingDialog({ platformOrderNos, account, onClose, onComp
           <section className={`routing-auto-routes ${preview.ready ? "ready" : "blocked"}`} aria-label="自动匹配实际发货仓库">
             <div className="routing-auto-title">{preview.ready ? <CheckCircle2 size={17} /> : <AlertTriangle size={17} />}<strong>按购面单结果匹配发货仓库</strong><span>{preview.routes.length} / {platformOrderNos.length} 单</span></div>
             <ul>{preview.routes.map((route) => <li key={route.platform_order_no}>
-              <div><strong>{route.platform_order_no}</strong><small>{route.platform_warehouse_name || route.platform_warehouse_id}</small></div>
-              <span><Truck size={15} /><b>{route.warehouse_name || route.warehouse_code}</b><small>{route.warehouse_code}</small></span>
+              <div><strong>{route.platform_order_no}</strong><small>{warehouseDisplayName(route.warehouse_code, route.platform_warehouse_name || route.platform_warehouse_id)}</small></div>
+              <span><Truck size={15} /><b>{warehouseDisplayName(route.warehouse_code, route.warehouse_name)}</b><small>{route.warehouse_code}</small></span>
             </li>)}
             {preview.unresolved.map((item) => <li className="unresolved" key={item.platform_order_no}><div><strong>{item.platform_order_no}</strong><small>{item.reason}</small></div><span><AlertTriangle size={15} /><b>无法匹配</b></span></li>)}</ul>
           </section>

@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"strings"
 
+	"fmt"
+	"xlwms-api-manager/internal/fulfillment"
 	"xlwms-api-manager/internal/model"
 	"xlwms-api-manager/internal/xlwms"
 )
@@ -34,6 +36,10 @@ func (s *Server) outbound(writer http.ResponseWriter, request *http.Request) {
 		return
 	}
 	if err := xlwms.ValidateOutboundData(operation, payload.Data); err != nil {
+		writeJSON(writer, http.StatusBadRequest, response{Success: false, Error: err.Error()})
+		return
+	}
+	if err := validateOutboundCarrierCapability(operation, payload.Warehouse, payload.Data); err != nil {
 		writeJSON(writer, http.StatusBadRequest, response{Success: false, Error: err.Error()})
 		return
 	}
@@ -80,4 +86,27 @@ func decodeOutboundJSON(writer http.ResponseWriter, request *http.Request, targe
 		return false
 	}
 	return true
+}
+
+func validateOutboundCarrierCapability(operation, warehouse string, data any) error {
+	if fulfillment.CarrierAllowed(warehouse, "") {
+		return nil
+	}
+	switch operation {
+	case "parcel-create", "bulk-product-create", "bulk-box-create":
+		raw, _ := json.Marshal(data)
+		var orders []map[string]any
+		if err := json.Unmarshal(raw, &orders); err != nil {
+			return fmt.Errorf("受限仓发货数据无法验证")
+		}
+		for _, order := range orders {
+			channel, _ := order["logisticsChannel"].(string)
+			if !fulfillment.CarrierAllowed(warehouse, fulfillment.CarrierCode(channel)) {
+				return fmt.Errorf("%s 仅允许 USPS、GOFO、UPS、FEDEX；上传面单请使用已购面单的分仓审核流程", warehouse)
+			}
+		}
+	case "tracking-label-update":
+		return fmt.Errorf("受限仓须使用已购面单的分仓审核流程核验实际承运商")
+	}
+	return nil
 }

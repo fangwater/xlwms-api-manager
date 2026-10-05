@@ -32,7 +32,10 @@ func QueryScopedInventory(ctx context.Context, scopes map[string][]model.Warehou
 			current := QueryLiveInventory(ctx, g.credentials, g.skus, timeout, now)
 			for _, credential := range g.credentials {
 				for _, sku := range g.skus {
-					stock := current.InventoryBySKU[sku][credential.Code]
+					stock, exists := current.InventoryBySKU[sku][credential.Code]
+					if !exists {
+						continue
+					}
 					stock.APIBinding = &WarehouseAPIBinding{CredentialKey: credential.APICredentialKey, OMSAccountKey: credential.OMSAccountKey}
 					current.InventoryBySKU[sku][credential.Code] = stock
 				}

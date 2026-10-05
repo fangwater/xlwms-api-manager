@@ -20,6 +20,7 @@ type Client struct {
 }
 
 type PurchasedLabel struct {
+	CarrierCode      string    `json:"carrier_code"`
 	ShopCode         string    `json:"shop_code"`
 	ShopName         string    `json:"shop_name"`
 	PlatformOrderNo  string    `json:"platform_order_no"`

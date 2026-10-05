@@ -1,3 +1,4 @@
+import { warehouseDisplayName } from "./warehouseNames";
 import { Suspense, lazy, useCallback, useEffect, useState } from "react";
 import { api } from "./api";
 import { LoadingState } from "./components/Common";
@@ -38,7 +39,7 @@ export default function App() {
   const [online, setOnline] = useState<boolean | null>(null);
   const loadWarehouses = useCallback(async () => {
     try {
-      setWarehouses(await api.warehouses());
+      setWarehouses((await api.warehouses()).map((item) => ({ ...item, name: warehouseDisplayName(item.wh_code, item.name) })));
     } catch {
       setWarehouses([]);
     }

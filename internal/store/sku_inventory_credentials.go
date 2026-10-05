@@ -13,6 +13,7 @@ func (p *Postgres) InventoryCredentialsForSKUs(ctx context.Context, skus []strin
  JOIN xlwms_api_credentials c USING(credential_key)
  JOIN xlwms_oms_account_api_credentials b USING(credential_key)
  JOIN xlwms_oms_accounts a ON a.account_key=b.account_key
+ JOIN xlwms_fulfillment_warehouses f ON f.wh_code=i.wh_code AND f.enabled
  LEFT JOIN xlwms_warehouses w ON w.wh_code=i.wh_code
  WHERE i.warehouse_sku=ANY($1)
  ORDER BY i.warehouse_sku,i.wh_code,c.credential_key`, skus)

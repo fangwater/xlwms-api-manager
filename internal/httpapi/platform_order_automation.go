@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"xlwms-api-manager/internal/fulfillment"
 	"xlwms-api-manager/internal/model"
 	"xlwms-api-manager/internal/oms"
 	"xlwms-api-manager/internal/sheinfulfillment"
@@ -433,7 +434,7 @@ func fulfillmentAuditsFromTemuShipments(shipments map[string]temutracking.Purcha
 		result[normalizedOrderNo] = append(result[normalizedOrderNo], model.FulfillmentAudit{
 			Platform: "temu", ShopCode: strings.TrimSpace(shipment.StoreCode),
 			PlatformOrderNo: normalizedOrderNo, WarehouseKey: warehouseKey,
-			WarehouseCode: warehouseCode, TrackingNumber: strings.TrimSpace(shipment.TrackingNumber), Active: true,
+			WarehouseCode: warehouseCode, CarrierCode: fulfillment.CarrierCode(shipment.ShippingCompanyName, shipment.ShipLogisticsType), TrackingNumber: strings.TrimSpace(shipment.TrackingNumber), Active: true,
 		})
 	}
 	return result
@@ -451,7 +452,7 @@ func fulfillmentAuditsFromSheinLabels(labels map[string]sheinfulfillment.Purchas
 		result[normalizedOrderNo] = append(result[normalizedOrderNo], model.FulfillmentAudit{
 			Platform: "shein", ShopCode: strings.TrimSpace(label.ShopCode), PlatformOrderNo: normalizedOrderNo,
 			WarehouseKey: warehouseKey, WarehouseCode: warehouseCode,
-			TrackingNumber: strings.TrimSpace(label.TrackingNumber), Active: true,
+			CarrierCode: label.CarrierCode, TrackingNumber: strings.TrimSpace(label.TrackingNumber), Active: true,
 		})
 	}
 	return result
@@ -497,6 +498,9 @@ func purchasedLabelWarehouse(audits []model.FulfillmentAudit) (model.Fulfillment
 		if warehouseKey == "" || warehouseCode == "" {
 			continue
 		}
+		if !fulfillment.CarrierAllowed(warehouseCode, audit.CarrierCode) {
+			return model.FulfillmentAudit{}, "购面单承运商不符合仓库取件限制或尚未确认，禁止发货审核"
+		}
 		purchasedWarehouses[warehouseKey+"\x00"+warehouseCode] = audit
 	}
 	if len(purchasedWarehouses) == 0 {
@@ -506,6 +510,9 @@ func purchasedLabelWarehouse(audits []model.FulfillmentAudit) (model.Fulfillment
 		return model.FulfillmentAudit{}, "购面单记录包含多个发货仓库，禁止自动分仓"
 	}
 	for _, audit := range purchasedWarehouses {
+		if !fulfillment.CarrierAllowed(audit.WarehouseCode, audit.CarrierCode) {
+			return model.FulfillmentAudit{}, "购面单承运商不符合仓库取件限制或尚未确认，禁止发货审核"
+		}
 		return audit, ""
 	}
 	return model.FulfillmentAudit{}, "未找到可靠购面单记录，禁止自动分仓"

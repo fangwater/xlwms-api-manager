@@ -1,3 +1,4 @@
+import { warehouseDisplayName } from "../warehouseNames";
 import { CircleCheckBig, Clock3, PackageCheck, RefreshCw, Search, ShieldAlert, TriangleAlert, Truck } from "lucide-react";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { api } from "../api";
@@ -98,7 +99,7 @@ function TrackingRow({ item }: { item: FulfillmentAudit }) {
   const statusLabel = trackingStatusLabel(item.tracking_status);
   return <tr>
     <td><strong>{item.platform_order_no}</strong><small className="cell-subtitle">{item.shop_name || item.shop_code}</small></td>
-    <td><strong>{item.wh_code || "-"}</strong><small className="cell-subtitle">{item.outbound_order_no || "-"}</small></td>
+    <td><strong>{warehouseDisplayName(item.wh_code)}</strong><small className="cell-subtitle">{item.outbound_order_no || "-"}</small></td>
     <td><span className={`audit-status category-${item.tracking_category || "awaiting_pickup"}`}>{categoryLabels[item.tracking_category] || "待承运商揽收"}</span><small className="cell-subtitle audit-reason">{trackingReason(item)}</small>{item.tracking_error && <small className="cell-error" title={item.tracking_error}>{item.tracking_error}</small>}</td>
     <td><strong>{statusLabel}</strong>{item.tracking_status && <small className="cell-subtitle">{item.tracking_status}</small>}{item.tracking_status_text && item.tracking_status_text !== item.tracking_status && <small className="cell-subtitle audit-reason">{item.tracking_status_text}</small>}</td>
     <td>{elapsed(item.oms_outbound_at)}<small className="cell-subtitle">{dateTime(item.oms_outbound_at)}</small></td>

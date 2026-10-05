@@ -988,4 +988,4 @@ ON CONFLICT (platform, warehouse_key, carrier_code) DO NOTHING;
 
 UPDATE xlwms_platform_warehouse_carrier_rules
 SET allowed_carrier_codes = array_append(allowed_carrier_codes, 'CBS'), updated_at = now()
-WHERE platform = 'shein' AND NOT ('CBS' = ANY(allowed_carrier_codes));
+WHERE platform = 'shein' AND warehouse_key IN ('DPS002','ARP_EAST','DPS004','ARP_WEST') AND NOT ('CBS' = ANY(allowed_carrier_codes));

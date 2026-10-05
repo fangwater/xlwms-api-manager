@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"unicode/utf8"
 
+	"xlwms-api-manager/internal/fulfillment"
 	"xlwms-api-manager/internal/model"
 
 	"github.com/jackc/pgx/v5"
@@ -401,6 +403,59 @@ func (p *Postgres) PlatformSKUInventoryThreshold(ctx context.Context, platform, 
 	return item, nil
 }
 
+const inventoryThresholdListSQL = `
+WITH managed_scopes AS (
+SELECT scope.warehouse_sku,scope.wh_code,min(scope.credential_key) AS credential_key
+FROM xlwms_api_credential_inventory scope
+JOIN xlwms_api_credentials credential USING(credential_key)
+JOIN xlwms_oms_account_api_credentials binding USING(credential_key)
+JOIN xlwms_oms_accounts account ON account.account_key=binding.account_key
+WHERE credential.is_active AND credential.inventory_sync_status='ready' AND account.enabled
+GROUP BY scope.warehouse_sku,scope.wh_code
+HAVING count(DISTINCT scope.credential_key)=1
+), warehouse_stock AS (
+SELECT i.sku,i.wh_code,sum(i.product_available_amount) AS raw_available,max(i.last_seen_at) AS inventory_at
+FROM xlwms_inventory_records i
+JOIN xlwms_warehouses w ON w.wh_code=i.wh_code AND w.is_active
+JOIN xlwms_fulfillment_warehouses f ON f.wh_code=i.wh_code AND f.enabled
+JOIN managed_scopes scope ON scope.warehouse_sku=i.sku AND scope.wh_code=i.wh_code
+ AND (i.api_credential_key='' OR i.api_credential_key=scope.credential_key)
+WHERE i.inventory_kind='integrated' AND i.stock_type=0
+GROUP BY i.sku,i.wh_code
+), effective_stock AS (
+SELECT stock.sku,stock.wh_code,stock.inventory_at,
+CASE WHEN correction.correction_mode='subtract' THEN greatest(coalesce(stock.raw_available,0)-correction.correction_amount,0)
+ WHEN correction.correction_mode='absolute' THEN correction.correction_amount
+ ELSE coalesce(stock.raw_available,0) END AS available
+FROM warehouse_stock stock
+LEFT JOIN xlwms_inventory_corrections correction ON correction.wh_code=stock.wh_code AND correction.warehouse_sku=stock.sku
+), inventory AS (
+SELECT sku,
+coalesce(sum(available) FILTER (WHERE wh_code=ANY($1)),0) AS east_available,
+coalesce(sum(available) FILTER (WHERE wh_code=ANY($2)),0) AS west_available,
+sum(available) AS total_available,
+jsonb_object_agg(wh_code,available) AS warehouse_available,
+max(inventory_at) AS inventory_at
+FROM effective_stock GROUP BY sku
+)
+SELECT s.warehouse_sku,coalesce(s.product_name,''),
+coalesce(i.east_available,0)::float8,coalesce(i.west_available,0)::float8,
+coalesce(i.total_available,0)::float8,coalesce(i.warehouse_available,'{}'::jsonb),
+coalesce(st.east_threshold,defaults.east_threshold)::float8,
+coalesce(st.west_threshold,defaults.west_threshold)::float8,
+coalesce(st.total_threshold,defaults.total_threshold)::float8,
+(st.warehouse_sku IS NOT NULL),
+CASE WHEN st.warehouse_sku IS NOT NULL THEN 'platform_sku' ELSE 'platform_default' END,
+i.inventory_at,coalesce(st.updated_at,defaults.updated_at)
+FROM xlwms_warehouse_sku_specs s
+JOIN xlwms_platform_inventory_thresholds defaults ON defaults.platform=$4
+LEFT JOIN xlwms_platform_sku_inventory_thresholds st ON st.platform=$4 AND st.warehouse_sku=s.warehouse_sku
+LEFT JOIN inventory i ON i.sku=s.warehouse_sku
+WHERE $3='' OR s.warehouse_sku ILIKE '%' || $3 || '%' OR coalesce(s.product_name,'') ILIKE '%' || $3 || '%'
+ORDER BY coalesce(i.total_available,0) ASC,s.warehouse_sku ASC
+LIMIT $5 OFFSET $6
+`
+
 func (p *Postgres) ListPlatformInventorySKUThresholds(ctx context.Context, platform string, filter InventoryThresholdFilter, eastCodes, westCodes []string) ([]model.SKUInventoryThreshold, int, error) {
 	platform, err := NormalizeFulfillmentPlatform(platform)
 	if err != nil {
@@ -420,37 +475,7 @@ WHERE $1='' OR s.warehouse_sku ILIKE '%' || $1 || '%' OR coalesce(s.product_name
 `, query).Scan(&total); err != nil {
 		return nil, 0, fmt.Errorf("count inventory thresholds: %w", err)
 	}
-	rows, err := p.pool.Query(ctx, `
-WITH inventory AS (
-SELECT i.sku,
-coalesce(sum(i.product_available_amount) FILTER (WHERE i.wh_code=ANY($1)), 0) AS east_available,
-coalesce(sum(i.product_available_amount) FILTER (WHERE i.wh_code=ANY($2)), 0) AS west_available,
-max(i.last_seen_at) AS inventory_at
-FROM xlwms_inventory_records i
-JOIN xlwms_warehouses w ON w.wh_code=i.wh_code AND w.is_active
-WHERE i.inventory_kind='integrated' AND i.stock_type=0
-AND i.wh_code=ANY($1 || $2)
-GROUP BY i.sku
-)
-SELECT s.warehouse_sku, coalesce(s.product_name,''),
-coalesce(i.east_available,0)::float8, coalesce(i.west_available,0)::float8,
-(coalesce(i.east_available,0)+coalesce(i.west_available,0))::float8,
-coalesce(st.east_threshold, defaults.east_threshold)::float8,
-coalesce(st.west_threshold, defaults.west_threshold)::float8,
-coalesce(st.total_threshold, defaults.total_threshold)::float8,
-(st.warehouse_sku IS NOT NULL),
-CASE WHEN st.warehouse_sku IS NOT NULL THEN 'platform_sku' ELSE 'platform_default' END,
-i.inventory_at,
-coalesce(st.updated_at, defaults.updated_at)
-FROM xlwms_warehouse_sku_specs s
-JOIN xlwms_platform_inventory_thresholds defaults ON defaults.platform=$4
-LEFT JOIN xlwms_platform_sku_inventory_thresholds st
-  ON st.platform=$4 AND st.warehouse_sku=s.warehouse_sku
-LEFT JOIN inventory i ON i.sku=s.warehouse_sku
-WHERE $3='' OR s.warehouse_sku ILIKE '%' || $3 || '%' OR coalesce(s.product_name,'') ILIKE '%' || $3 || '%'
-ORDER BY (coalesce(i.east_available,0)+coalesce(i.west_available,0)) ASC, s.warehouse_sku ASC
-LIMIT $5 OFFSET $6
-`, eastCodes, westCodes, query, platform, filter.PageSize, (filter.Page-1)*filter.PageSize)
+	rows, err := p.pool.Query(ctx, inventoryThresholdListSQL, eastCodes, westCodes, query, platform, filter.PageSize, (filter.Page-1)*filter.PageSize)
 	if err != nil {
 		return nil, 0, fmt.Errorf("list inventory thresholds: %w", err)
 	}
@@ -460,7 +485,7 @@ LIMIT $5 OFFSET $6
 		var item model.SKUInventoryThreshold
 		if err := rows.Scan(
 			&item.WarehouseSKU, &item.ProductName, &item.EastAvailable, &item.WestAvailable,
-			&item.TotalAvailable, &item.EastThreshold, &item.WestThreshold, &item.TotalThreshold,
+			&item.TotalAvailable, &item.WarehouseAvailable, &item.EastThreshold, &item.WestThreshold, &item.TotalThreshold,
 			&item.Customized, &item.Source, &item.InventoryAt, &item.UpdatedAt,
 		); err != nil {
 			return nil, 0, fmt.Errorf("scan inventory thresholds: %w", err)
@@ -485,8 +510,30 @@ LIMIT $5 OFFSET $6
 			items[index].Source = "oms_account"
 			items[index].Customized = true
 		}
+		applyThresholdWarehouseScope(&items[index])
 	}
 	return items, total, nil
+}
+
+func applyThresholdWarehouseScope(item *model.SKUInventoryThreshold) {
+	item.EastAvailable, item.WestAvailable, item.TotalAvailable = 0, 0, 0
+	for code, amount := range item.WarehouseAvailable {
+		warehouse, exists := fulfillment.Find(code)
+		if !exists || (len(item.WarehouseCodes) > 0 && !slices.Contains(item.WarehouseCodes, code)) {
+			delete(item.WarehouseAvailable, code)
+			continue
+		}
+		item.TotalAvailable += amount
+		switch warehouse.Region {
+		case "east":
+			item.EastAvailable += amount
+		case "west":
+			item.WestAvailable += amount
+		}
+	}
+	if len(item.WarehouseAvailable) == 0 {
+		item.InventoryAt = nil
+	}
 }
 
 func (p *Postgres) InventoryThresholdsForPlatformSKUs(ctx context.Context, platform string, warehouseSKUs []string) (map[string]model.InventoryThresholds, model.InventoryThresholds, error) {

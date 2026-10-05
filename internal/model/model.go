@@ -313,11 +313,12 @@ type PlatformInventoryThresholds struct {
 }
 
 type SKUInventoryThreshold struct {
-	WarehouseSKU   string  `json:"warehouse_sku"`
-	ProductName    string  `json:"product_name"`
-	EastAvailable  float64 `json:"east_available"`
-	WestAvailable  float64 `json:"west_available"`
-	TotalAvailable float64 `json:"total_available"`
+	WarehouseSKU       string             `json:"warehouse_sku"`
+	ProductName        string             `json:"product_name"`
+	WarehouseAvailable map[string]float64 `json:"warehouse_available"`
+	EastAvailable      float64            `json:"east_available"`
+	WestAvailable      float64            `json:"west_available"`
+	TotalAvailable     float64            `json:"total_available"`
 	InventoryThresholds
 	Customized  bool       `json:"customized"`
 	Source      string     `json:"source,omitempty"`
@@ -343,12 +344,15 @@ type WarehouseCarrierRules struct {
 }
 
 type WarehouseCarrierPolicies struct {
-	WarehouseKey string                `json:"warehouse_key"`
-	WarehouseSKU string                `json:"warehouse_sku,omitempty"`
-	Customized   bool                  `json:"customized"`
-	Source       string                `json:"source"`
-	BaseRules    WarehouseCarrierRules `json:"base_rules"`
-	Carriers     []CarrierPolicy       `json:"carriers"`
+	WarehouseEnabled *bool                 `json:"warehouse_enabled,omitempty"`
+	DisplayName      string                `json:"display_name,omitempty"`
+	CapabilitySource string                `json:"capability_source,omitempty"`
+	WarehouseKey     string                `json:"warehouse_key"`
+	WarehouseSKU     string                `json:"warehouse_sku,omitempty"`
+	Customized       bool                  `json:"customized"`
+	Source           string                `json:"source"`
+	BaseRules        WarehouseCarrierRules `json:"base_rules"`
+	Carriers         []CarrierPolicy       `json:"carriers"`
 }
 
 type PlatformSKUFulfillmentPolicy struct {
@@ -466,6 +470,7 @@ type WarehouseSKUSpecResolution struct {
 }
 
 type FulfillmentAudit struct {
+	CarrierCode            string     `json:"carrier_code,omitempty"`
 	ID                     int64      `json:"id"`
 	Platform               string     `json:"platform"`
 	ShopCode               string     `json:"shop_code"`

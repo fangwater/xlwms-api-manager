@@ -12,7 +12,7 @@
 - 资金流水同步、费用明细补全和失败重试
 - 库存概览、库龄结构、仓库库存分布和同步记录
 - 按仓库、SKU、产品、箱型、条码和关联单号查询
-- Temu 发货前实时 SKU 库存查询、东西区域安全库存判断和 DPS 优先选仓
+- Temu 发货前实时 SKU 库存查询、合计库存安全线校验和 DPS 优先选仓
 - 按仓库和 SKU 修正发货可用库存；SHEIN/Temu 使用修正值且不回写领星 WMS
 - Temu 已出库订单追踪、24 小时揽收超时识别及店铺/仓库维度筛选
 - 桌面与移动端自适应管理界面
@@ -425,9 +425,39 @@ curl -sS \
 
 `kind` 使用 `integrated`、`stock_age`、`stock_flow`、`box_stock`、`box_stock_age`、`box_segment_age` 或 `box_stock_flow`。
 
-### Temu 发货仓库查询
+### 发货仓库与实时库存查询
 
-`POST /v1/temu/warehouse-availability/query` 实时查询领星 OMS 的正品产品可用库存，不读取本地库存快照。请求可以传单个 SKU 或最多 100 个 SKU：
+ARP 衣架业务按四个独立物理仓库管理：**ARP-宾夕法尼亚、ARP-洛杉矶、ARP-休斯顿、ARP-亚特兰大**。
+仓库选择、库存、物流规则和平台仓映射均按实际仓库配置。地理区域可用作筛选信息；
+四个 ARP 仓库在业务模型中平级。
+
+| 仓库名称 | 仓号 | 领星仓库代码 | 业务标识 | 当前接入状态 |
+| --- | --- | --- | --- | --- |
+| ARP-宾夕法尼亚 | 1号仓 | `HYTX30` | `ARP_EAST` | 已接入发货规则及实时选仓；具体城市待核实 |
+| ARP-洛杉矶 | 8号仓 | `ARPCA01` | `ARP_WEST` | 已接入发货规则及实时选仓 |
+| ARP-休斯顿 | 6号仓 | `ARP06A` | `ARP_HOUSTON` | 已接入库存及自动报价，复用衣架账号 |
+| ARP-亚特兰大 | 待上架 | `ARPGA` | `ARP_ATLANTA` | 预留仓库及物流规则，履约默认停用 |
+
+`ARP_EAST`、`ARP_WEST` 是现有内部标识，分别定位宾夕法尼亚和洛杉矶物理仓。
+前端使用 `warehouseDisplayName` 统一展示 `ARP-地点` 名称，包括仓库选择、发货规则及订单记录。DPS 纽约仓（`DPSNY002`/`DPS002`）和 DPS 加州仓
+（`DPSCA004`/`DPS004`）是另外两个已接入的独立仓库。四个 ARP 仓库与系统全部仓库
+的数量分别按业务范围计算。
+
+已确定的发货需求：
+
+- 休斯顿参与自动选仓，按订单的实际 SKU 凭据范围、OMS 仓库权限、库存和平台映射判断是否可选。
+- 休斯顿和亚特兰大只允许 `USPS`、`GOFO`、`UPS`、`FEDEX`，限制应用于 Temu、SHEIN 的自动及人工发货。
+- 仓库物流能力是平台、SKU 和账号规则的上限。有效渠道取仓库能力、业务规则和平台实时可用渠道的交集。
+- 休斯顿已由 ARP 衣架凭据覆盖并绑定 `arp` 账号，可复用既有凭据。亚特兰大计划复用衣架账号，待上架后核对实际库存范围、操作权限和平台仓映射。
+
+休斯顿已接入平级库存结果及自动/人工报价，买单和审核均检查实际物流。
+亚特兰大只保留接入口，默认不参与发货。`GET /v1/fulfillment-warehouses` 返回仓库启用状态与能力；
+每个 SKU 库存决策同时提供平级 `warehouses` 和兼容的 `regions` 字段。具体实现和验收要求见
+[四个 ARP 仓库发货设计](docs/houston-atlanta-warehouse-design.md)。
+
+`POST /v1/temu/warehouse-availability/query` 实时查询领星 OMS 的正品产品可用库存，
+不读取本地库存快照。当前运行版本查询已接入的宾夕法尼亚、洛杉矶、DPS 纽约和 DPS
+加州仓，响应仍包含 `regions` 分组。请求可以传单个 SKU 或最多 100 个 SKU：
 
 ```json
 {"sku":"SKU-1"}
@@ -437,19 +467,15 @@ curl -sS \
 {"skus":["SKU-1","SKU-2"]}
 ```
 
-仓库业务标识与领星仓库代码：
-
-- 美东：`DPS002 -> DPSNY002`，`ARP_EAST -> HYTX30`
-- 美西：`DPS004 -> DPSCA004`，`ARP_WEST -> ARPCA01`
-
-返回结果包含各仓正品产品可用库存、是否可选、推荐仓、区域库存合计、是否转人工、稳定原因码和中文理由。规则为：
+返回结果包含各仓正品产品可用库存、是否可选、推荐仓、库存合计、是否转人工、稳定原因码
+和中文理由。当前库存和账号规则为：
 
 - 单仓可用库存小于等于 0 时不可选择。
 - 实时库存按 SKU 的已绑定 API 凭据范围查询，共用仓库代码不会混用其他账户的凭据。范围内查询必须完整；范围外仓库不参与选择。
-- 各仓库存返回 `api_binding`，仅包含 `credential_key` 与 `oms_account_key`。Temu 报价按候选仓的 API 绑定选择 OMS 账户；不再使用整单 `account_decision`，也不按仓库名称推断账户。
-- 默认维持合计库存严格低于平台/SKU 安全线时转人工。Temu 与 SHEIN 分别维护默认值。
-- Temu 脏衣篓账户的规则通过 API 绑定覆盖其 SKU：ARP 美东、美西两仓合计库存小于等于 30 转人工，其他账户阈值不变。
-  ARP 美东禁用 SWIFTX、UNIUNI、YANWEN，美西禁用 YANWEN。优先级为 GOFO、SWIFTX、SPEEDX、UPS、USPS、FEDEX。
+- 各仓库存返回 `api_binding`，仅包含 `credential_key` 与 `oms_account_key`。Temu 报价按候选仓的 API 绑定选择 OMS 账户；不按仓库名称推断账户。
+- 默认合计库存严格低于平台/SKU 安全线时转人工。Temu 与 SHEIN 分别维护默认值。
+- Temu 脏衣篓账户的规则通过 API 绑定覆盖其 SKU：宾夕法尼亚、洛杉矶两仓合计库存小于等于 30 转人工，其他账户阈值按自身配置执行。
+  宾夕法尼亚仓禁用 SWIFTX、UNIUNI、YANWEN，洛杉矶仓禁用 YANWEN。优先级为 GOFO、SWIFTX、SPEEDX、UPS、USPS、FEDEX。
   `gofo_over_swiftx_speedx` 由 Temu 服务执行：GOFO 比可用 SWIFTX/SPEEDX 最低报价贵不超过 USD 0.30 时优先 GOFO；否则选全部可用渠道最低价。同价使用快递优先级。
   GOFO 或比较渠道缺失时按最低价选择。一单多件、合并候选和已合并订单的人工处理规则仍由 `temu-api-manager` 统一维护。
 

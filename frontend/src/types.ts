@@ -335,6 +335,7 @@ export type PlatformInventoryThresholds = InventoryThresholds & {
 export type SKUInventoryThreshold = InventoryThresholds & {
   warehouse_sku: string;
   product_name: string;
+  warehouse_available?: Record<string, number>;
   east_available: number;
   west_available: number;
   total_available: number;
@@ -368,6 +369,9 @@ export type WarehouseCarrierRules = {
 };
 
 export type WarehouseCarrierPolicies = {
+  warehouse_enabled?: boolean;
+  display_name?: string;
+  capability_source?: string;
   warehouse_key: string;
   warehouse_sku?: string;
   customized: boolean;

@@ -74,8 +74,8 @@ func TestApplyInventoryCorrectionsSubtractsFromLiveInventory(t *testing.T) {
 
 func TestConfiguredTemuWarehousesUseBusinessAndActualCodes(t *testing.T) {
 	rules := WarehouseRules()
-	wantKeys := []string{"DPS002", "ARP_EAST", "DPS004", "ARP_WEST"}
-	wantCodes := []string{"DPSNY002", "HYTX30", "DPSCA004", "ARPCA01"}
+	wantKeys := []string{"DPS002", "ARP_EAST", "DPS004", "ARP_WEST", "ARP_HOUSTON", "ARP_ATLANTA"}
+	wantCodes := []string{"DPSNY002", "HYTX30", "DPSCA004", "ARPCA01", "ARP06A", "ARPGA"}
 	if len(rules) != len(wantCodes) {
 		t.Fatalf("got %#v", rules)
 	}
