@@ -45,6 +45,10 @@ func (s *Server) outbound(writer http.ResponseWriter, request *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(request.Context(), s.requestTimeout)
 	defer cancel()
+	if err := s.validateOutboundWarehouseState(ctx, operation, payload.Warehouse, payload.Data); err != nil {
+		writeJSON(writer, http.StatusConflict, response{Success: false, Error: err.Error()})
+		return
+	}
 	warehouse, err := s.warehouseCredentials.WarehouseCredentials(ctx, payload.Warehouse, true)
 	if err != nil {
 		writeJSON(writer, http.StatusBadRequest, response{Success: false, Error: err.Error()})

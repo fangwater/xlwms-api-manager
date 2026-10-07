@@ -341,3 +341,34 @@ func rulesForRegion(region string) []WarehouseRule {
 func formatAmount(value float64) string {
 	return strconv.FormatFloat(value, 'f', -1, 64)
 }
+
+// Shop enablement affects selection, while inventory totals keep their original SKU scope.
+func ApplyShopWarehouseAvailability(decision *SKUDecision, enabled map[string]bool) {
+	if decision == nil {
+		return
+	}
+	anySelectable := false
+	for ri := range decision.RegionDecisions {
+		region := &decision.RegionDecisions[ri]
+		for wi := range region.Warehouses {
+			w := &region.Warehouses[wi]
+			if !enabled[w.WarehouseKey] {
+				w.Selectable = false
+				w.Recommended = false
+				w.ReasonCode = "SHOP_WAREHOUSE_DISABLED"
+				w.Reason = "当前店铺未启用该仓库"
+			}
+			anySelectable = anySelectable || w.Selectable
+		}
+		recommendRegionAfterRestriction(region)
+	}
+	decision.Warehouses = nil
+	for _, r := range decision.RegionDecisions {
+		decision.Warehouses = append(decision.Warehouses, r.Warehouses...)
+	}
+	if !anySelectable {
+		decision.RequiresManual = true
+		decision.DecisionCode = "MANUAL_SHOP_WAREHOUSE_UNAVAILABLE"
+		decision.Reason = "当前店铺没有通过检查且已启用的可选仓库"
+	}
+}

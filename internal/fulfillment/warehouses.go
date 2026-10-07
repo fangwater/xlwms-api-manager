@@ -10,6 +10,11 @@ type Warehouse struct {
 	Provider            string   `json:"provider"`
 	Region              string   `json:"region"`
 	Priority            int      `json:"inventory_priority"`
+	FulfillmentEnabled  bool     `json:"fulfillment_enabled"`
+	InventoryConnected  bool     `json:"inventory_connected"`
+	InventoryRegistered bool     `json:"inventory_registered"`
+	Revision            int64    `json:"revision"`
+	EnabledShopCount    int      `json:"enabled_shop_count"`
 	Enabled             bool     `json:"enabled"`
 	AllowedCarrierCodes []string `json:"allowed_carrier_codes"`
 }

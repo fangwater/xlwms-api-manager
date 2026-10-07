@@ -686,3 +686,21 @@ export type PlatformOrderAssignmentResult = {
   logistics_carrier: string;
   completed_at: string;
 };
+
+export type FulfillmentWarehouse = {
+ warehouse_key: string; wh_code: string; display_name: string; provider: string; region: string;
+ enabled: boolean; fulfillment_enabled: boolean; inventory_connected: boolean; inventory_registered: boolean;
+ revision: number; enabled_shop_count: number; allowed_carrier_codes: string[] | null;
+};
+export type WarehouseBinding = {
+ warehouse_key: string; oms_code: string; platform: string; shop_code: string; shop_name: string; shop_enabled: boolean;
+ platform_warehouse_id: string; platform_warehouse_name: string; enabled: boolean; effective: boolean;
+ revision: number; warehouse_revision: number; verified_at: string | null; updated_at: string | null;
+ verification: Partial<WarehouseReadiness>;
+};
+export type WarehouseReadiness = {
+ warehouse_key: string; platform: string; shop_code: string; revision: number; warehouse_revision: number;
+ ready: boolean; checked_at: string; checks: {code: string; label: string; passed: boolean; message: string}[];
+};
+export type PlatformWarehouseOption = {id: string; name: string; can_ship: boolean; oms_code?: string};
+export type WarehouseConfigurationHistory = {id: number; actor: string; action: string; before: unknown; after: unknown; created_at: string};

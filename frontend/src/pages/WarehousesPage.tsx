@@ -1,3 +1,4 @@
+import FulfillmentWarehouses from "./FulfillmentWarehouses";
 import { warehouseDisplayName } from "../warehouseNames";
 import { KeyRound, LockKeyhole, Plus, ShieldCheck, Trash2, TriangleAlert, Warehouse as WarehouseIcon, X } from "lucide-react";
 import { useEffect, useState, type FormEvent } from "react";
@@ -105,6 +106,7 @@ export default function WarehousesPage({ warehouses, onChanged }: { warehouses: 
     />
     {error && <ErrorState message={error} />}
 
+    <FulfillmentWarehouses onChanged={onChanged}/>
     <section className="warehouse-section">
       <div className="warehouse-section-heading"><h2>API 凭据</h2><span>{credentials.length} 组</span></div>
       {credentials.length ? <div className="table-panel"><div className="table-scroll"><table className="data-table api-credential-table">
@@ -124,16 +126,17 @@ export default function WarehousesPage({ warehouses, onChanged }: { warehouses: 
       </table></div></div> : <EmptyState label="尚未登记 OpenAPI 凭据" />}
     </section>
 
+
     <section className="warehouse-section">
-      <div className="warehouse-section-heading"><h2>仓库</h2><span>{warehouses.length} 个</span></div>
+      <div className="warehouse-section-heading"><h2>库存数据连接</h2><span>{warehouses.length} 个</span></div>
     {warehouses.length ? <div className="table-panel"><div className="table-scroll"><table className="data-table warehouse-table">
       <thead><tr><th>仓库</th><th>连接地址</th><th>OpenAPI App Key</th><th>更新时间</th><th>状态</th></tr></thead>
       <tbody>{warehouses.map(item => <tr key={item.wh_code}>
-        <td><div className="warehouse-cell"><span><WarehouseIcon size={18} /></span><div><strong>{item.name || item.wh_code}</strong>{item.wh_code === "ARPGA" && <small>待上架 · 发货功能预留</small>}<small>{item.wh_code}</small></div></div></td>
+        <td><div className="warehouse-cell"><span><WarehouseIcon size={18} /></span><div><strong>{item.name || item.wh_code}</strong><small>{item.wh_code}</small></div></div></td>
         <td>{item.api_base_url}</td>
         <td><span className="key-hint"><KeyRound size={14} />{item.app_key_hint}</span></td>
         <td>{dateTime(item.updated_at)}</td>
-        <td><label className="toggle"><input type="checkbox" checked={item.active} onChange={() => void toggle(item)} /><span /><b>{item.active ? "已启用" : "已停用"}</b></label></td>
+        <td><label className="toggle"><input type="checkbox" checked={item.active} onChange={() => void toggle(item)} /><span /><b>{item.active ? "连接开启" : "连接暂停"}</b></label></td>
       </tr>)}</tbody>
     </table></div></div> : <EmptyState label="尚未注册仓库" />}
     </section>

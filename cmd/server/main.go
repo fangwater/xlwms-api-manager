@@ -15,6 +15,7 @@ import (
 	"xlwms-api-manager/internal/auditor"
 	"xlwms-api-manager/internal/config"
 	"xlwms-api-manager/internal/credentials"
+	"xlwms-api-manager/internal/fulfillment"
 	"xlwms-api-manager/internal/httpapi"
 	"xlwms-api-manager/internal/sheinfulfillment"
 	"xlwms-api-manager/internal/store"
@@ -64,6 +65,22 @@ func run(ctx context.Context, logger *slog.Logger) error {
 		Client: trackingClient,
 		shein:  sheinfulfillment.NewClient(cfg.SheinGoBaseURL, cfg.RequestTimeout),
 	}
+	go func() {
+		for {
+			importCtx, cancel := context.WithTimeout(ctx, cfg.RequestTimeout*2)
+			err := destination.ImportLegacyWarehouseBindings(importCtx, platformSources)
+			cancel()
+			if err == nil {
+				return
+			}
+			logger.Warn("warehouse configuration import pending")
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(30 * time.Second):
+			}
+		}
+	}()
 	auditService := auditor.NewWithTracking(destination, trackingClient, cfg.RequestTimeout,
 		cfg.FulfillmentTrackingLimit, cfg.FulfillmentTrackingWorkers, logger)
 	go backgroundFulfillmentAudits(ctx, auditService, cfg.FulfillmentAuditInterval, cfg.RequestTimeout*10, logger)
@@ -97,6 +114,25 @@ func run(ctx context.Context, logger *slog.Logger) error {
 type platformOrderSources struct {
 	*temutracking.Client
 	shein *sheinfulfillment.Client
+}
+
+func (s *platformOrderSources) PlatformWarehouseOptions(ctx context.Context, platform, shop, order string) ([]fulfillment.PlatformWarehouseOption, error) {
+	if platform == "temu" {
+		return s.Client.ShopWarehouseOptions(ctx, shop, false)
+	}
+	if platform == "shein" {
+		return s.shein.ShopWarehouseOptions(ctx, shop, order, false)
+	}
+	return nil, errors.New("平台无效")
+}
+func (s *platformOrderSources) LegacyWarehouseBindings(ctx context.Context, platform, shop string) ([]fulfillment.PlatformWarehouseOption, error) {
+	if platform == "temu" {
+		return s.Client.ShopWarehouseOptions(ctx, shop, true)
+	}
+	if platform == "shein" {
+		return s.shein.ShopWarehouseOptions(ctx, shop, "", true)
+	}
+	return nil, errors.New("平台无效")
 }
 
 func (s *platformOrderSources) PurchasedSheinLabelsByPlatformOrderNos(ctx context.Context, orderNos []string) (map[string]sheinfulfillment.PurchasedLabel, error) {
@@ -146,4 +182,11 @@ func requireLoopbackAddress(address string) error {
 		return errors.New("XLWMS_LISTEN must use a loopback address")
 	}
 	return nil
+}
+
+func (s *platformOrderSources) PlatformWarehouseActivity(ctx context.Context, platform, shop string) (map[string]int, error) {
+	if platform == "temu" {
+		return s.Client.ShopWarehouseActivity(ctx, shop)
+	}
+	return s.shein.ShopWarehouseActivity(ctx, shop)
 }

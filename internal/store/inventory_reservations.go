@@ -60,6 +60,10 @@ func (p *Postgres) ReserveFulfillmentInventory(ctx context.Context, request mode
 		return model.FulfillmentInventoryReservation{}, fmt.Errorf("begin fulfillment inventory reservation: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	var effective bool
+	if err := tx.QueryRow(ctx, `SELECT b.enabled AND b.verified_at IS NOT NULL AND f.enabled AND s.enabled AND w.is_active FROM xlwms_platform_warehouse_bindings b JOIN xlwms_fulfillment_warehouses f USING(warehouse_key) JOIN xlwms_fulfillment_shops s USING(platform,shop_code) JOIN xlwms_warehouses w ON w.wh_code=f.wh_code WHERE b.platform=$1 AND b.shop_code=$2 AND b.warehouse_key=$3 AND f.wh_code=$4 FOR SHARE OF b,f,s,w`, request.Platform, request.ShopCode, request.WarehouseKey, request.WarehouseCode).Scan(&effective); err != nil || !effective {
+		return model.FulfillmentInventoryReservation{}, fmt.Errorf("%w: 仓库或该店铺已暂停，或映射未验证", ErrInvalidInventoryReservation)
+	}
 
 	orderLock := strings.Join([]string{"fulfillment-inventory-order", request.Platform, request.ShopCode, request.OrderKey}, "|")
 	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, orderLock); err != nil {
@@ -178,6 +182,7 @@ func (p *Postgres) ReleaseFulfillmentInventory(ctx context.Context, release mode
 		return false, fmt.Errorf("begin fulfillment inventory release: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+
 	orderLock := strings.Join([]string{"fulfillment-inventory-order", platform, shopCode, orderKey}, "|")
 	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, orderLock); err != nil {
 		return false, fmt.Errorf("lock fulfillment order release: %w", err)

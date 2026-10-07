@@ -46,7 +46,7 @@ func (s *Server) temuWarehouseAvailability(writer http.ResponseWriter, request *
 		writeJSON(writer, http.StatusBadRequest, response{Success: false, Error: err.Error()})
 		return
 	}
-	platform, _, err := requestedDecisionShop(request, payload.Platform, payload.ShopCode)
+	platform, shopCode, err := requestedDecisionShop(request, payload.Platform, payload.ShopCode)
 	if err != nil {
 		writeJSON(writer, http.StatusBadRequest, response{Success: false, Error: err.Error()})
 		return
@@ -104,11 +104,25 @@ func (s *Server) temuWarehouseAvailability(writer http.ResponseWriter, request *
 		s.internalError(writer, "resolve platform SKU warehouse policies", err)
 		return
 	}
+	shopWarehouses := map[string]bool{}
+	if shopCode != "" {
+		bindings, bindingErr := s.store.WarehouseBindings(ctx, "", platform, shopCode)
+		if bindingErr != nil {
+			s.internalError(writer, "load shop warehouse configuration", bindingErr)
+			return
+		}
+		for _, b := range bindings {
+			shopWarehouses[b.WarehouseKey] = b.Effective
+		}
+	}
 	records := make([]temu.SKUDecision, 0, len(skus))
 	for _, sku := range skus {
 		resolvedSKU := resolvedBySKU[sku]
 		record := temu.BuildSKUDecision(sku, inventory.InventoryBySKU[resolvedSKU], thresholdsBySKU[resolvedSKU])
 		temu.ApplyPlatformSKUWarehouseRestrictions(&record, disabledBySKU[resolvedSKU])
+		if shopCode != "" {
+			temu.ApplyShopWarehouseAvailability(&record, shopWarehouses)
+		}
 		records = append(records, record)
 	}
 	writeJSON(writer, http.StatusOK, response{Success: true, Data: temuWarehouseQueryResponse{

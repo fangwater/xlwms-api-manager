@@ -8,7 +8,8 @@ import (
 
 func (p *Postgres) FulfillmentWarehouses(ctx context.Context) ([]fulfillment.Warehouse, error) {
 	rows, err := p.pool.Query(ctx, `SELECT f.warehouse_key,f.wh_code,f.display_name,f.provider,f.region,f.inventory_priority,
- f.enabled AND coalesce(w.is_active,false),c.allowed_carrier_codes
+ f.enabled AND coalesce(w.is_active,false),c.allowed_carrier_codes,f.enabled,coalesce(w.is_active,false),w.wh_code IS NOT NULL,f.revision,
+ (SELECT count(*) FROM xlwms_platform_warehouse_bindings b JOIN xlwms_fulfillment_shops s USING(platform,shop_code) WHERE b.warehouse_key=f.warehouse_key AND b.enabled AND s.enabled)
  FROM xlwms_fulfillment_warehouses f LEFT JOIN xlwms_warehouses w USING(wh_code)
  LEFT JOIN xlwms_warehouse_carrier_capabilities c USING(wh_code) ORDER BY f.inventory_priority,f.warehouse_key`)
 	if err != nil {
@@ -18,7 +19,7 @@ func (p *Postgres) FulfillmentWarehouses(ctx context.Context) ([]fulfillment.War
 	out := make([]fulfillment.Warehouse, 0)
 	for rows.Next() {
 		var w fulfillment.Warehouse
-		if err := rows.Scan(&w.Key, &w.Code, &w.Name, &w.Provider, &w.Region, &w.Priority, &w.Enabled, &w.AllowedCarrierCodes); err != nil {
+		if err := rows.Scan(&w.Key, &w.Code, &w.Name, &w.Provider, &w.Region, &w.Priority, &w.Enabled, &w.AllowedCarrierCodes, &w.FulfillmentEnabled, &w.InventoryConnected, &w.InventoryRegistered, &w.Revision, &w.EnabledShopCount); err != nil {
 			return nil, err
 		}
 		out = append(out, w)

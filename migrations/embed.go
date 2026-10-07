@@ -10,4 +10,7 @@ var baseSQL string
 //go:embed 002_fulfillment_warehouses.sql
 var warehouseSQL string
 
-var InitSQL = baseSQL + "\n" + warehouseSQL
+//go:embed 003_warehouse_management.sql
+var managementSQL string
+
+var InitSQL = baseSQL + "\n" + warehouseSQL + "\n" + managementSQL
