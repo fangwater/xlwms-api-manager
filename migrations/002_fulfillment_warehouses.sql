@@ -21,7 +21,7 @@ CREATE TABLE IF NOT EXISTS xlwms_warehouse_carrier_capabilities (
  allowed_carrier_codes text[] NOT NULL
 );
 INSERT INTO xlwms_warehouse_carrier_capabilities VALUES
- ('ARP06A',ARRAY['USPS','GOFO','UPS','FEDEX']),('ARPGA',ARRAY['USPS','GOFO','UPS','FEDEX'])
+ ('ARP06A',ARRAY['USPS','GOFO','UPS','FEDEX','SPEEDX','CBS']),('ARPGA',ARRAY['USPS','GOFO','UPS','FEDEX','SPEEDX','CBS'])
 ON CONFLICT(wh_code) DO NOTHING;
 
 DO $registry_constraints$
@@ -37,13 +37,13 @@ BEGIN
 END $registry_constraints$;
 
 INSERT INTO xlwms_platform_carrier_policies(platform,warehouse_key,carrier_code,priority,enabled)
-SELECT p,k,c,n,c IN ('USPS','GOFO','UPS','FEDEX')
+SELECT p,k,c,n,c IN ('USPS','GOFO','UPS','FEDEX','SPEEDX') OR (p='shein' AND c='CBS')
 FROM (VALUES('temu'),('shein')) platforms(p)
 CROSS JOIN (VALUES('ARP_HOUSTON'),('ARP_ATLANTA')) warehouses(k)
 CROSS JOIN (VALUES('GOFO',1),('SWIFTX',2),('SPEEDX',3),('YANWEN',4),('UPS',5),('USPS',6),('FEDEX',7),('CBS',8)) carriers(c,n)
 ON CONFLICT(platform,warehouse_key,carrier_code) DO NOTHING;
 INSERT INTO xlwms_platform_warehouse_carrier_rules(platform,warehouse_key,allowed_carrier_codes,allow_signature,allowed_currency_codes,selection_mode,max_price_delta,warehouse_tie_priority)
-SELECT p,k,ARRAY['USPS','GOFO','UPS','FEDEX'],p='shein',CASE WHEN p='temu' THEN ARRAY['USD']::text[] ELSE ARRAY[]::text[] END,
+SELECT p,k,CASE WHEN p='shein' THEN ARRAY['USPS','GOFO','UPS','FEDEX','SPEEDX','CBS'] ELSE ARRAY['USPS','GOFO','UPS','FEDEX','SPEEDX'] END,p='shein',CASE WHEN p='temu' THEN ARRAY['USD']::text[] ELSE ARRAY[]::text[] END,
  CASE WHEN p='temu' THEN 'carrier_priority_within_delta' ELSE 'lowest_price' END,CASE WHEN p='temu' THEN 0.50 ELSE 0 END,2
 FROM (VALUES('temu'),('shein')) platforms(p) CROSS JOIN(VALUES('ARP_HOUSTON'),('ARP_ATLANTA')) warehouses(k)
 ON CONFLICT(platform,warehouse_key) DO NOTHING;

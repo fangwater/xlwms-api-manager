@@ -42,7 +42,8 @@
   and platform warehouse mappings are ready. The approved design is documented in
   `docs/houston-atlanta-warehouse-design.md`. Houston fulfillment is implemented;
   Atlanta has metadata and carrier rules but defaults to disabled until listed.
-- Restrict Houston and Atlanta to USPS, GOFO, UPS, and FEDEX. Treat physical carrier
+- Restrict Houston and Atlanta to USPS, GOFO, UPS, FEDEX, SPEEDX, and CBS.
+  SpeedX is available on both platforms; SHEIN also supports CBS. Treat physical carrier
   capability as an upper bound when resolving platform, SKU, or OMS account rules.
   Apply the bound to automatic and manual selection and verify the actual carrier
   before label purchase and shipping approval.

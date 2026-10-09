@@ -106,7 +106,7 @@ func validateOutboundCarrierCapability(operation, warehouse string, data any) er
 		for _, order := range orders {
 			channel, _ := order["logisticsChannel"].(string)
 			if !fulfillment.CarrierAllowed(warehouse, fulfillment.CarrierCode(channel)) {
-				return fmt.Errorf("%s 仅允许 USPS、GOFO、UPS、FEDEX；上传面单请使用已购面单的分仓审核流程", warehouse)
+				return fmt.Errorf("%s 仅允许 USPS、GOFO、UPS、FEDEX、SPEEDX、CBS；上传面单请使用已购面单的分仓审核流程", warehouse)
 			}
 		}
 	case "tracking-label-update":

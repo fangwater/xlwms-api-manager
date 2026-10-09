@@ -15,13 +15,19 @@ func TestCollectionWarehousePolicyCannotExpandPhysicalCapabilities(t *testing.T)
 		if _, err := ValidateCarrierPolicies(key, policies); err != nil {
 			t.Fatal(err)
 		}
+		for _, code := range []string{"SPEEDX", "CBS"} {
+			rules := model.WarehouseCarrierRules{AllowedCarrierCodes: []string{code}, SelectionMode: "lowest_price", WarehouseTiePriority: 1}
+			if _, err := ValidateWarehouseCarrierRules(key, rules); err != nil {
+				t.Fatalf("%s must allow %s: %v", key, code, err)
+			}
+		}
 		for i := range policies {
-			if policies[i].CarrierCode == "SPEEDX" {
+			if policies[i].CarrierCode == "YANWEN" {
 				policies[i].Enabled = true
 			}
 		}
 		if _, err := ValidateCarrierPolicies(key, policies); err == nil {
-			t.Fatal("SPEEDX enable must be rejected")
+			t.Fatal("YANWEN enable must be rejected")
 		}
 		rules := model.WarehouseCarrierRules{AllowedCarrierCodes: []string{"USPS", "YANWEN"}, SelectionMode: "lowest_price", WarehouseTiePriority: 1}
 		if _, err := ValidateWarehouseCarrierRules(key, rules); err == nil {

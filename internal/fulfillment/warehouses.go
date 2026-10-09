@@ -54,7 +54,7 @@ func CarrierAllowed(identifier, code string) bool {
 		return true
 	}
 	switch strings.ToUpper(strings.TrimSpace(code)) {
-	case "USPS", "GOFO", "UPS", "FEDEX":
+	case "USPS", "GOFO", "UPS", "FEDEX", "SPEEDX", "CBS":
 		return true
 	default:
 		return false

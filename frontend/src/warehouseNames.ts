@@ -15,6 +15,6 @@ export function warehouseDisplayName(code?: string, fallbackName?: string): stri
 }
 
 export function warehouseCarrierAllowed(warehouseKey: string,carrierCode: string): boolean {
-  if (!["ARP_HOUSTON","ARP06A","ARP_ATLANTA","ARPGA"].includes(warehouseKey.toUpperCase())) return true;
-  return ["USPS","GOFO","UPS","FEDEX"].includes(carrierCode.toUpperCase());
+  if (!["ARP_HOUSTON", "ARP06A", "ARP_ATLANTA", "ARPGA"].includes(warehouseKey.trim().toUpperCase())) return true;
+  return ["USPS", "GOFO", "UPS", "FEDEX", "SPEEDX", "CBS"].includes(carrierCode.trim().toUpperCase());
 }

@@ -51,6 +51,7 @@
 .carrier-allow-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 7px; }
 .carrier-allow-grid label { height: 36px; display: flex; align-items: center; gap: 7px; min-width: 0; padding: 0 8px; border: 1px solid #dfe3e5; border-radius: 6px; background: #fafbfb; color: #6b7379; cursor: pointer; transition: border-color .15s, background .15s, color .15s; }
 .carrier-allow-grid label.active { border-color: #8ab5a5; background: #eef6f2; color: #276e57; }
+.carrier-allow-grid label:has(input:disabled), .policy-toggle:has(input:disabled) { cursor: not-allowed; opacity: .45; }
 .carrier-allow-grid input, .warehouse-toggle-grid input { position: absolute; opacity: 0; pointer-events: none; }
 .carrier-check { width: 16px; height: 16px; display: grid; place-items: center; flex: none; border: 1px solid #bdc4c8; border-radius: 4px; background: #fff; }
 .carrier-allow-grid label.active .carrier-check { border-color: #2d8064; background: #2d8064; color: #fff; }

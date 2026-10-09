@@ -13,4 +13,7 @@ var warehouseSQL string
 //go:embed 003_warehouse_management.sql
 var managementSQL string
 
-var InitSQL = baseSQL + "\n" + warehouseSQL + "\n" + managementSQL
+//go:embed 004_collection_carrier_expansion.sql
+var collectionCarrierSQL string
+
+var InitSQL = baseSQL + "\n" + warehouseSQL + "\n" + managementSQL + "\n" + collectionCarrierSQL
